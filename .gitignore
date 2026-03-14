@@ -1,0 +1,20 @@
+# CMake build outputs
+/build/
+/cmake-build-*/
+/CMakeUserPresets.json
+/compile_commands.json
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Editor and IDE settings
+/.idea/
+/.vscode/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
