@@ -1,5 +1,6 @@
 #include "session/rtc_session.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define RTC_MODULE_ENGINE "session.engine"
@@ -8,6 +9,7 @@
 #define RTC_MODULE_DTLS "dtls"
 #define RTC_MODULE_SRTP "srtp"
 #define RTC_MODULE_RTP "rtp"
+#define RTC_MODULE_TRANSPORT "transport"
 
 static rtc_engine_t g_engine_pool[RTC_CFG_MAX_ENGINES];
 
@@ -121,6 +123,81 @@ static void rtc_update_security_stats(rtc_peer_t *peer, uint32_t now_ms) {
   }
 }
 
+static char rtc_ascii_tolower(char ch) {
+  if (ch >= 'A' && ch <= 'Z') {
+    return (char)(ch - 'A' + 'a');
+  }
+  return ch;
+}
+
+static int rtc_ascii_case_eq(const char *lhs, const char *rhs) {
+  size_t i = 0u;
+  if (!lhs || !rhs) {
+    return 0;
+  }
+  while (lhs[i] != '\0' && rhs[i] != '\0') {
+    if (rtc_ascii_tolower(lhs[i]) != rtc_ascii_tolower(rhs[i])) {
+      return 0;
+    }
+    i++;
+  }
+  return lhs[i] == '\0' && rhs[i] == '\0';
+}
+
+static int rtc_parse_candidate_host_ipv4(const char *candidate, uint8_t out_ip[4],
+                                         uint16_t *out_port) {
+  const char *p;
+  char foundation[64];
+  char transport[8];
+  char ip[64];
+  char typ_key[8];
+  char candidate_type[16];
+  unsigned component = 0u;
+  unsigned priority = 0u;
+  unsigned port = 0u;
+  int parsed = 0;
+
+  if (!candidate || !out_ip || !out_port) {
+    return 0;
+  }
+
+  p = candidate;
+  if (p[0] == 'a' && p[1] == '=') {
+    p += 2;
+  }
+  if (strncmp(p, "candidate:", 10u) != 0) {
+    return 0;
+  }
+  p += 10;
+
+  parsed = sscanf(p, "%63s %u %7s %u %63s %u %7s %15s", foundation, &component,
+                  transport, &priority, ip, &port, typ_key, candidate_type);
+  if (parsed != 8) {
+    return 0;
+  }
+  (void)foundation;
+  (void)component;
+  (void)priority;
+  if (!rtc_ascii_case_eq(transport, "udp")) {
+    return 0;
+  }
+  if (!rtc_ascii_case_eq(typ_key, "typ")) {
+    return 0;
+  }
+  if (!rtc_ascii_case_eq(candidate_type, "host")) {
+    return 0;
+  }
+  if (port == 0u || port > 65535u) {
+    return 0;
+  }
+  if (!rtc_platform_parse_ipv4(ip, out_ip)) {
+    return 0;
+  }
+
+  *out_port = (uint16_t)port;
+  return 1;
+}
+
 static void rtc_peer_set_state(rtc_peer_t *peer, rtc_peer_state_t next,
                                rtc_result_t code, const char *reason,
                                rtc_log_level_t level) {
@@ -176,17 +253,47 @@ static rtc_result_t rtc_validate_live_peer(rtc_peer_t *peer, rtc_engine_t **out_
 
 static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
   uint16_t i;
-  uint16_t pumped = 0;
+  uint16_t sent = 0;
+  uint16_t received = 0;
   uint32_t dropped = 0;
+  uint32_t rx_drop_before;
+  uint32_t rx_drop_after;
+  uint32_t rx_dropped = 0u;
+  uint32_t tx_dropped = 0u;
+  rtc_result_t io_result;
 
-  rtc_transport_pump_loopback(&peer->transport, max_packets, &pumped, &dropped);
+  rx_drop_before = rtc_transport_rx_drop_count(&peer->transport);
+  io_result = rtc_transport_pump_io(&peer->transport, max_packets, &sent, &received,
+                                    &dropped);
+  rx_drop_after = rtc_transport_rx_drop_count(&peer->transport);
+  if (rx_drop_after >= rx_drop_before) {
+    rx_dropped = rx_drop_after - rx_drop_before;
+  } else {
+    rx_dropped = rx_drop_after;
+  }
+  if (dropped > rx_dropped) {
+    tx_dropped = dropped - rx_dropped;
+  }
+  (void)sent;
+  (void)received;
+  if (io_result != RTC_OK) {
+    peer->stats.protocol_error_count++;
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, io_result,
+                 "pump io reported transport error");
+  }
   if (dropped > 0u) {
     peer->stats.dropped_packets += dropped;
+  }
+  if (rx_dropped > 0u) {
     rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_OVERFLOW,
                  "rx queue full, drop packet");
   }
+  if (tx_dropped > 0u) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, RTC_ERR_INVALID_STATE,
+                 "tx drop on transport io/state");
+  }
 
-  for (i = 0; i < pumped; ++i) {
+  for (i = 0; i < max_packets; ++i) {
     rtc_rtp_packet_t packet;
     rtc_rtp_frame_t frame;
     rtc_result_t r;
@@ -544,6 +651,12 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
   rtc_srtp_init(&peer->srtp);
   rtc_rtp_init(&peer->rtp, peer->peer_id);
   rtc_transport_init(&peer->transport);
+  if (rtc_transport_local_port(&peer->transport) == 0u) {
+    rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_TRANSPORT,
+                 RTC_ERR_RESOURCE_EXHAUSTED, "transport init failed");
+    memset(peer, 0, sizeof(*peer));
+    return RTC_ERR_RESOURCE_EXHAUSTED;
+  }
 
   engine->active_peer_count++;
   engine->stats.active_peers = engine->active_peer_count;
@@ -574,6 +687,7 @@ rtc_result_t rtc_session_peer_destroy(rtc_peer_t *peer) {
   }
 
   rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_PEER, RTC_OK, "peer destroyed");
+  rtc_transport_deinit(&peer->transport);
   rtc_srtp_deinit(&peer->srtp);
   rtc_dtls_deinit(&peer->dtls);
   memset(&engine->peers[idx], 0, sizeof(engine->peers[idx]));
@@ -610,7 +724,6 @@ rtc_result_t rtc_session_peer_start(rtc_peer_t *peer) {
                      peer->engine->dtls_debug_enabled);
   rtc_srtp_deinit(&peer->srtp);
   rtc_srtp_init(&peer->srtp);
-  rtc_transport_init(&peer->transport);
   peer->stats.dtls_last_error = RTC_OK;
 
   rtc_peer_set_state(peer, RTC_PEER_STATE_STARTING, RTC_OK, "peer start",
@@ -696,10 +809,21 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
 rtc_result_t rtc_session_peer_add_remote_candidate(rtc_peer_t *peer,
                                                     const char *candidate) {
   rtc_result_t vr;
+  uint8_t ip[4];
+  uint16_t port = 0u;
 
   vr = rtc_validate_live_peer(peer, NULL, NULL);
   if (vr != RTC_OK) {
     return vr;
+  }
+  if (!candidate) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  if (!rtc_parse_candidate_host_ipv4(candidate, ip, &port)) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, RTC_ERR_NOT_SUPPORTED,
+                 "remote candidate not supported by transport");
+    return RTC_ERR_NOT_SUPPORTED;
   }
 
   vr = rtc_ice_add_remote_candidate(&peer->ice, candidate);
@@ -708,6 +832,15 @@ rtc_result_t rtc_session_peer_add_remote_candidate(rtc_peer_t *peer,
                  "add remote candidate failed");
     return vr;
   }
+  vr = rtc_transport_set_remote_ipv4(&peer->transport, ip[0], ip[1], ip[2], ip[3], port);
+  if (vr != RTC_OK) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, vr,
+                 "set transport remote failed");
+    return vr;
+  }
+  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_TRANSPORT, RTC_OK,
+               "transport remote updated");
+
   peer->stats.remote_candidate_count = peer->ice.remote_candidate_count;
   rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
                "remote candidate added");

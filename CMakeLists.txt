@@ -97,6 +97,15 @@ target_link_libraries(rtc_api_test PRIVATE rtc_c)
 
 add_test(NAME rtc_api_test COMMAND rtc_api_test)
 
+add_executable(rtc_transport_test
+    test/test_rtc_transport.c
+)
+
+target_include_directories(rtc_transport_test PRIVATE include src)
+target_link_libraries(rtc_transport_test PRIVATE rtc_c)
+
+add_test(NAME rtc_transport_test COMMAND rtc_transport_test)
+
 add_executable(rtc_interop_smoke_test
     test/test_rtc_interop_smoke.c
 )

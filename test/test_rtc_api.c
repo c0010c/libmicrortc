@@ -346,6 +346,33 @@ static int test_invalid_args_and_boundaries(void) {
   return 0;
 }
 
+static int test_remote_candidate_parse_failure_is_explicit(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, "v=0\na=fake\n", "offer"));
+  ASSERT_EQ_INT(
+      RTC_ERR_NOT_SUPPORTED,
+      rtc_peer_add_remote_candidate(
+          peer, "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ srflx"));
+  ASSERT_EQ_INT(0, logs.seen_remote_candidate_added);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
 static int test_resource_exhaustion(void) {
   rtc_engine_t *engine = NULL;
   rtc_peer_t *peers[RTC_CFG_MAX_PEERS + 1];
@@ -536,6 +563,7 @@ int main(void) {
 
   failures += test_lifecycle_and_connection();
   failures += test_invalid_args_and_boundaries();
+  failures += test_remote_candidate_parse_failure_is_explicit();
   failures += test_resource_exhaustion();
   failures += test_media_loopback_and_stats();
   failures += test_queue_overflow_and_datachannel_stub();
