@@ -671,13 +671,18 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
   if (vr != RTC_OK) {
     rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_TRANSPORT, vr,
                  "local ipv4 discovery failed");
-  } else {
-    vr = rtc_ice_set_local_host(&peer->ice, local_ip,
-                                rtc_transport_local_port(&peer->transport));
-    if (vr != RTC_OK) {
-      rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_ICE, vr,
-                   "local host setup failed");
-    }
+    rtc_transport_deinit(&peer->transport);
+    memset(peer, 0, sizeof(*peer));
+    return vr;
+  }
+  vr = rtc_ice_set_local_host(&peer->ice, local_ip,
+                              rtc_transport_local_port(&peer->transport));
+  if (vr != RTC_OK) {
+    rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_ICE, vr,
+                 "local host setup failed");
+    rtc_transport_deinit(&peer->transport);
+    memset(peer, 0, sizeof(*peer));
+    return vr;
   }
 
   engine->active_peer_count++;

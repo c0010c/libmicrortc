@@ -521,6 +521,81 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   return 0;
 }
 
+static int test_candidate_before_offer_is_preserved(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_no_candidate, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 40; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_CONNECTED) {
+      break;
+    }
+  }
+  ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_h264_packetization_mode_requires_exact_one(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_pm10_then_pm1, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 20; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    if (cap.local_description_count > 0u) {
+      break;
+    }
+  }
+
+  ASSERT_TRUE(cap.local_description_count >= 1);
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=rtpmap:97 H264/90000"));
+  ASSERT_TRUE(!test_str_contains(cap.last_local_sdp, "a=rtpmap:96 H264/90000"));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
 static int test_start_before_offer_waits_and_then_emits_answer(void) {
   rtc_engine_t *engine = NULL;
   rtc_peer_t *peer = NULL;
@@ -760,6 +835,8 @@ int main(void) {
   failures += test_reject_all_unsupported_codecs();
   failures += test_missing_required_attr_fails();
   failures += test_offer_without_candidate_then_add_candidate();
+  failures += test_candidate_before_offer_is_preserved();
+  failures += test_h264_packetization_mode_requires_exact_one();
   failures += test_start_before_offer_waits_and_then_emits_answer();
   failures += test_resource_exhaustion();
   failures += test_media_loopback_and_stats();

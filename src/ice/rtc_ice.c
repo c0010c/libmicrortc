@@ -94,7 +94,6 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   ctx->video_first_pt = -1;
 
   ctx->local_candidate_count = 0u;
-  ctx->remote_candidate_count = 0u;
   ctx->connect_ticks = 0u;
   ctx->retry_count = 0u;
   memset(ctx->local_sdp, 0, sizeof(ctx->local_sdp));
@@ -106,7 +105,6 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   memset(ctx->audio_mid, 0, sizeof(ctx->audio_mid));
   memset(ctx->video_mid, 0, sizeof(ctx->video_mid));
   memset(ctx->video_fmtp, 0, sizeof(ctx->video_fmtp));
-  memset(ctx->remote_candidates, 0, sizeof(ctx->remote_candidates));
 }
 
 static void rtc_ice_prepare_local_credentials(rtc_ice_ctx_t *ctx) {
@@ -305,6 +303,56 @@ static int rtc_ice_ensure_h264_entry(rtc_h264_entry_t *entries, uint8_t *io_coun
   entries[*io_count].fmtp[0] = '\0';
   (*io_count)++;
   return (int)(*io_count - 1u);
+}
+
+static int rtc_ice_fmtp_packetization_mode_is_1(const char *params) {
+  const char *cursor;
+  const char *key = "packetization-mode=";
+  const uint16_t key_len = 19u;
+
+  if (!params) {
+    return 0;
+  }
+
+  cursor = params;
+  while ((cursor = strstr(cursor, key)) != NULL) {
+    const char *value = cursor + key_len;
+    char *end_ptr = NULL;
+    long mode = 0;
+
+    if (cursor != params) {
+      char prev = *(cursor - 1);
+      if (prev != ';' && prev != ' ' && prev != '\t') {
+        cursor = value;
+        continue;
+      }
+    }
+
+    while (*value == ' ' || *value == '\t') {
+      value++;
+    }
+
+    mode = strtol(value, &end_ptr, 10);
+    if (end_ptr == value) {
+      cursor = value;
+      continue;
+    }
+
+    while (*end_ptr == ' ' || *end_ptr == '\t') {
+      end_ptr++;
+    }
+    if (*end_ptr != '\0' && *end_ptr != ';') {
+      cursor = end_ptr;
+      continue;
+    }
+
+    if (mode == 1L) {
+      return 1;
+    }
+    cursor = end_ptr;
+  }
+
+  return 0;
 }
 
 static rtc_result_t rtc_ice_build_answer(rtc_ice_ctx_t *ctx) {
@@ -697,7 +745,7 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
               return RTC_ERR_BUFFER_TOO_SMALL;
             }
             entry->has_fmtp = 1u;
-            if (strstr(params, "packetization-mode=1") != NULL) {
+            if (rtc_ice_fmtp_packetization_mode_is_1(params)) {
               entry->packetization_mode_1 = 1u;
             }
           }
@@ -828,6 +876,9 @@ rtc_result_t rtc_ice_start(rtc_ice_ctx_t *ctx, uint32_t peer_id, uint32_t now_ms
 
 rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
                                             const char *type) {
+  uint16_t remote_candidate_count_backup = 0u;
+  char remote_candidates_backup[RTC_CFG_MAX_REMOTE_CANDIDATES][RTC_CFG_MAX_CANDIDATE_LEN];
+
   if (!ctx || !sdp || !type) {
     return RTC_ERR_INVALID_ARG;
   }
@@ -836,6 +887,12 @@ rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
   }
   if (!ctx->local_host_ready || !ctx->local_fingerprint_ready) {
     return RTC_ERR_NOT_SUPPORTED;
+  }
+  memset(remote_candidates_backup, 0, sizeof(remote_candidates_backup));
+  remote_candidate_count_backup = ctx->remote_candidate_count;
+  if (remote_candidate_count_backup > 0u) {
+    memcpy(remote_candidates_backup, ctx->remote_candidates,
+           sizeof(remote_candidates_backup));
   }
   rtc_ice_reset_offer_fields(ctx);
   if (!rtc_platform_copy_string(ctx->remote_sdp, sizeof(ctx->remote_sdp), sdp)) {
@@ -849,12 +906,24 @@ rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
   {
     rtc_result_t r = rtc_ice_parse_offer(ctx, sdp);
     if (r != RTC_OK) {
+      memset(ctx->remote_candidates, 0, sizeof(ctx->remote_candidates));
+      if (remote_candidate_count_backup > 0u) {
+        memcpy(ctx->remote_candidates, remote_candidates_backup,
+               sizeof(remote_candidates_backup));
+      }
+      ctx->remote_candidate_count = remote_candidate_count_backup;
       return r;
     }
     ctx->remote_description_set = 1u;
     r = rtc_ice_build_answer(ctx);
     if (r != RTC_OK) {
       rtc_ice_reset_offer_fields(ctx);
+      memset(ctx->remote_candidates, 0, sizeof(ctx->remote_candidates));
+      if (remote_candidate_count_backup > 0u) {
+        memcpy(ctx->remote_candidates, remote_candidates_backup,
+               sizeof(remote_candidates_backup));
+      }
+      ctx->remote_candidate_count = remote_candidate_count_backup;
       return r;
     }
   }
