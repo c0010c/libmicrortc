@@ -5,310 +5,414 @@
 
 #define ASSERT_EQ_INT(expected, actual)                                                   \
   do {                                                                                    \
-    int exp_val = (expected);                                                             \
-    int act_val = (actual);                                                               \
-    if (exp_val != act_val) {                                                             \
+    int exp_val__ = (expected);                                                           \
+    int act_val__ = (actual);                                                             \
+    if (exp_val__ != act_val__) {                                                         \
       printf("ASSERT_EQ_INT failed at %s:%d expected=%d actual=%d\n", __FILE__, __LINE__, \
-             exp_val, act_val);                                                           \
+             exp_val__, act_val__);                                                       \
       return 1;                                                                           \
     }                                                                                     \
   } while (0)
 
-#define ASSERT_TRUE(expr)                                                        \
-  do {                                                                           \
-    if (!(expr)) {                                                               \
+#define ASSERT_TRUE(expr)                                                         \
+  do {                                                                            \
+    if (!(expr)) {                                                                \
       printf("ASSERT_TRUE failed at %s:%d expr=%s\n", __FILE__, __LINE__, #expr); \
-      return 1;                                                                  \
-    }                                                                            \
+      return 1;                                                                   \
+    }                                                                             \
   } while (0)
 
 typedef struct test_log_capture {
-  uint32_t error_count;
-  uint32_t warn_count;
-  uint32_t info_count;
-  uint32_t debug_count;
+  uint32_t errors;
+  uint32_t warns;
+  uint32_t infos;
+  uint32_t debugs;
   rtc_result_t last_code;
-  uint32_t last_ctx_id;
-  char last_message[64];
+  uint32_t last_peer_id;
+  char last_module[24];
+  char last_message[96];
 } test_log_capture_t;
 
-typedef struct test_state_capture {
-  uint32_t transition_count;
-  rtc_state_t last_prev;
-  rtc_state_t last_curr;
-} test_state_capture_t;
+typedef struct test_peer_capture {
+  uint32_t state_changes;
+  rtc_peer_state_t old_state;
+  rtc_peer_state_t new_state;
+  uint32_t local_description_count;
+  uint32_t local_candidate_count;
+  uint32_t video_frames;
+  uint32_t audio_frames;
+  uint8_t last_video[64];
+  uint16_t last_video_len;
+  uint8_t last_audio[64];
+  uint16_t last_audio_len;
+  rtc_audio_codec_t last_audio_codec;
+} test_peer_capture_t;
 
-static void test_log_callback(rtc_log_level_t level, const char *module, uint32_t ctx_id,
-                              rtc_result_t code, const char *message, void *user_data) {
-  test_log_capture_t *capture = (test_log_capture_t *)user_data;
-  (void)module;
-
-  if (!capture) {
+static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
+                        rtc_result_t code, const char *message, void *user_data) {
+  test_log_capture_t *cap = (test_log_capture_t *)user_data;
+  if (!cap) {
     return;
   }
-
   if (level == RTC_LOG_ERROR) {
-    capture->error_count++;
+    cap->errors++;
   } else if (level == RTC_LOG_WARN) {
-    capture->warn_count++;
+    cap->warns++;
   } else if (level == RTC_LOG_INFO) {
-    capture->info_count++;
+    cap->infos++;
   } else if (level == RTC_LOG_DEBUG) {
-    capture->debug_count++;
+    cap->debugs++;
   }
-
-  capture->last_code = code;
-  capture->last_ctx_id = ctx_id;
+  cap->last_code = code;
+  cap->last_peer_id = peer_id;
+  if (module) {
+    (void)snprintf(cap->last_module, sizeof(cap->last_module), "%s", module);
+  }
   if (message) {
-    (void)snprintf(capture->last_message, sizeof(capture->last_message), "%s", message);
-  } else {
-    capture->last_message[0] = '\0';
+    (void)snprintf(cap->last_message, sizeof(cap->last_message), "%s", message);
   }
 }
 
-static void test_state_callback(rtc_ctx_t *ctx, rtc_state_t prev_state, rtc_state_t new_state,
-                                void *user_data) {
-  test_state_capture_t *capture = (test_state_capture_t *)user_data;
-  (void)ctx;
-  if (!capture) {
+static void test_state_cb(rtc_peer_t *peer, rtc_peer_state_t old_state,
+                          rtc_peer_state_t new_state, void *user_data) {
+  test_peer_capture_t *cap = (test_peer_capture_t *)user_data;
+  (void)peer;
+  if (!cap) {
     return;
   }
-  capture->transition_count++;
-  capture->last_prev = prev_state;
-  capture->last_curr = new_state;
+  cap->state_changes++;
+  cap->old_state = old_state;
+  cap->new_state = new_state;
 }
 
-static int test_lifecycle_and_idempotent(void) {
+static void test_local_desc_cb(rtc_peer_t *peer, const char *sdp, const char *type,
+                               void *user_data) {
+  test_peer_capture_t *cap = (test_peer_capture_t *)user_data;
+  (void)peer;
+  if (!cap) {
+    return;
+  }
+  if (!sdp || !type) {
+    return;
+  }
+  cap->local_description_count++;
+}
+
+static void test_local_cand_cb(rtc_peer_t *peer, const char *candidate, void *user_data) {
+  test_peer_capture_t *cap = (test_peer_capture_t *)user_data;
+  (void)peer;
+  if (!cap) {
+    return;
+  }
+  if (!candidate) {
+    return;
+  }
+  cap->local_candidate_count++;
+}
+
+static void test_video_cb(rtc_peer_t *peer, const uint8_t *payload, uint16_t payload_len,
+                          uint32_t timestamp90k, void *user_data) {
+  test_peer_capture_t *cap = (test_peer_capture_t *)user_data;
+  (void)peer;
+  (void)timestamp90k;
+  if (!cap || !payload) {
+    return;
+  }
+  cap->video_frames++;
+  cap->last_video_len = payload_len > sizeof(cap->last_video) ? sizeof(cap->last_video) : payload_len;
+  memcpy(cap->last_video, payload, cap->last_video_len);
+}
+
+static void test_audio_cb(rtc_peer_t *peer, rtc_audio_codec_t codec, const uint8_t *payload,
+                          uint16_t payload_len, uint32_t timestamp8k, void *user_data) {
+  test_peer_capture_t *cap = (test_peer_capture_t *)user_data;
+  (void)peer;
+  (void)timestamp8k;
+  if (!cap || !payload) {
+    return;
+  }
+  cap->audio_frames++;
+  cap->last_audio_codec = codec;
+  cap->last_audio_len = payload_len > sizeof(cap->last_audio) ? sizeof(cap->last_audio) : payload_len;
+  memcpy(cap->last_audio, payload, cap->last_audio_len);
+}
+
+static void fill_engine_cfg(rtc_engine_config_t *cfg, test_log_capture_t *logs) {
+  memset(cfg, 0, sizeof(*cfg));
+  cfg->version = RTC_API_VERSION;
+  cfg->size = (uint16_t)sizeof(*cfg);
+  cfg->min_log_level = RTC_LOG_DEBUG;
+  cfg->log_cb = test_log_cb;
+  cfg->log_user_data = logs;
+  cfg->active_peer_limit = RTC_CFG_MAX_PEERS;
+}
+
+static void fill_peer_cfg(rtc_peer_config_t *cfg, test_peer_capture_t *cap) {
+  memset(cfg, 0, sizeof(*cfg));
+  cfg->version = RTC_API_VERSION;
+  cfg->size = (uint16_t)sizeof(*cfg);
+  cfg->max_retries = 5;
+  cfg->retry_interval_ms = 10;
+  cfg->on_state_change = test_state_cb;
+  cfg->on_local_description = test_local_desc_cb;
+  cfg->on_local_candidate = test_local_cand_cb;
+  cfg->on_video_frame = test_video_cb;
+  cfg->on_audio_frame = test_audio_cb;
+  cfg->user_data = cap;
+}
+
+static int poll_until_connected(rtc_engine_t *engine, rtc_peer_t *peer) {
+  uint32_t now_ms = 0;
+  rtc_peer_state_t state;
+  int i;
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, "v=0\na=fake\n", "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 40; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_CONNECTED) {
+      return 0;
+    }
+  }
+
+  printf("peer did not reach connected state\n");
+  return 1;
+}
+
+static int test_lifecycle_and_connection(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_state_t state;
+  rtc_engine_stats_t engine_stats;
+  rtc_peer_stats_t peer_stats;
   test_log_capture_t logs;
-  test_state_capture_t states;
-  rtc_global_config_t global_cfg;
-  rtc_ctx_config_t ctx_cfg;
-  rtc_ctx_t *ctx;
-  rtc_state_t state;
+  test_peer_capture_t cap;
 
   memset(&logs, 0, sizeof(logs));
-  memset(&states, 0, sizeof(states));
-  memset(&global_cfg, 0, sizeof(global_cfg));
-  memset(&ctx_cfg, 0, sizeof(ctx_cfg));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
 
-  global_cfg.version = RTC_API_VERSION;
-  global_cfg.size = (uint16_t)sizeof(global_cfg);
-  global_cfg.min_log_level = RTC_LOG_DEBUG;
-  global_cfg.log_cb = test_log_callback;
-  global_cfg.log_user_data = &logs;
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_TRUE(engine != NULL);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_global_init(&global_cfg));
-  ASSERT_EQ_INT(RTC_OK, rtc_global_init(&global_cfg));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_TRUE(peer != NULL);
 
-  ctx_cfg.version = RTC_API_VERSION;
-  ctx_cfg.size = (uint16_t)sizeof(ctx_cfg);
-  ctx_cfg.max_retries = 2;
-  ctx_cfg.retry_interval_ms = 10;
-  ctx_cfg.on_state_change = test_state_callback;
-  ctx_cfg.user_data = &states;
+  ASSERT_EQ_INT(0, poll_until_connected(engine, peer));
 
-  ctx = NULL;
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_create(&ctx_cfg, &ctx));
-  ASSERT_TRUE(ctx != NULL);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+  ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_get_state(ctx, &state));
-  ASSERT_EQ_INT(RTC_STATE_NEW, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &peer_stats));
+  ASSERT_TRUE(peer_stats.local_candidate_count >= 1);
+  ASSERT_TRUE(peer_stats.remote_candidate_count >= 1);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_start(ctx, 10));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_start(ctx, 20));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_get_stats(engine, &engine_stats));
+  ASSERT_TRUE(engine_stats.poll_count >= 1);
+  ASSERT_TRUE(cap.local_description_count >= 1);
+  ASSERT_TRUE(cap.local_candidate_count >= 1);
+  ASSERT_TRUE(cap.state_changes >= 1);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_get_state(ctx, &state));
-  ASSERT_EQ_INT(RTC_STATE_CHECKING, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_stop(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_stop(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_stop(ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_stop(ctx));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_destroy(ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_destroy(ctx));
-
-  ASSERT_EQ_INT(RTC_OK, rtc_global_deinit());
-  ASSERT_EQ_INT(RTC_OK, rtc_global_deinit());
-
-  ASSERT_TRUE(states.transition_count >= 2);
-  ASSERT_TRUE(logs.info_count >= 1);
+  ASSERT_TRUE(logs.infos >= 1);
   return 0;
 }
 
-static int test_invalid_argument_handling(void) {
+static int test_invalid_args_and_boundaries(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
   test_log_capture_t logs;
-  rtc_global_config_t global_cfg;
-  rtc_ctx_config_t ctx_cfg;
-  rtc_ctx_t *ctx;
-  rtc_state_t state;
-  rtc_stats_t stats;
+  test_peer_capture_t cap;
 
   memset(&logs, 0, sizeof(logs));
-  memset(&global_cfg, 0, sizeof(global_cfg));
-  memset(&ctx_cfg, 0, sizeof(ctx_cfg));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
 
-  global_cfg.version = RTC_API_VERSION;
-  global_cfg.size = (uint16_t)sizeof(global_cfg);
-  global_cfg.min_log_level = RTC_LOG_DEBUG;
-  global_cfg.log_cb = test_log_callback;
-  global_cfg.log_user_data = &logs;
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_engine_create(NULL, &engine));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_engine_create(&engine_cfg, NULL));
 
-  ASSERT_EQ_INT(RTC_OK, rtc_global_init(&global_cfg));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_create(engine, NULL, &peer));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_create(engine, &peer_cfg, NULL));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
 
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_create(NULL, NULL));
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_get_state(NULL, &state));
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_get_state((rtc_ctx_t *)0x1, NULL));
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_get_stats(NULL, &stats));
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_signal_packet_drop(NULL, 1));
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_signal_protocol_error(NULL, RTC_ERR_PROTOCOL));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_get_state(peer, NULL));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_set_remote_description(peer, NULL, "offer"));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_set_remote_description(peer, "v=0", NULL));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_add_remote_candidate(peer, NULL));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_send_video_h264(peer, NULL, 1, 0, 1));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_send_audio_g711(peer, RTC_AUDIO_CODEC_PCMA, NULL, 1, 0));
 
-  ctx_cfg.version = RTC_API_VERSION;
-  ctx_cfg.size = (uint16_t)sizeof(ctx_cfg);
-  ctx_cfg.max_retries = 2;
-  ctx_cfg.retry_interval_ms = 10;
+  ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED, rtc_peer_datachannel_open(peer, "dc", NULL));
 
-  ctx = NULL;
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_create(&ctx_cfg, &ctx));
-  ASSERT_TRUE(ctx != NULL);
-
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_get_state(ctx, NULL));
-  ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_ctx_get_stats(ctx, NULL));
-
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_destroy(ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_global_deinit());
-
-  ASSERT_TRUE(logs.error_count >= 1);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  ASSERT_TRUE(logs.errors >= 1);
   return 0;
 }
 
 static int test_resource_exhaustion(void) {
-  rtc_ctx_t *ctxs[RTC_MAX_CONTEXTS + 1];
-  rtc_global_config_t global_cfg;
-  rtc_ctx_config_t ctx_cfg;
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peers[RTC_CFG_MAX_PEERS + 1];
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
   uint32_t i;
 
-  memset(&global_cfg, 0, sizeof(global_cfg));
-  memset(&ctx_cfg, 0, sizeof(ctx_cfg));
-  memset(ctxs, 0, sizeof(ctxs));
+  memset(peers, 0, sizeof(peers));
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
 
-  global_cfg.version = RTC_API_VERSION;
-  global_cfg.size = (uint16_t)sizeof(global_cfg);
-  global_cfg.min_log_level = RTC_LOG_INFO;
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
 
-  ASSERT_EQ_INT(RTC_OK, rtc_global_init(&global_cfg));
-
-  ctx_cfg.version = RTC_API_VERSION;
-  ctx_cfg.size = (uint16_t)sizeof(ctx_cfg);
-  ctx_cfg.max_retries = 2;
-  ctx_cfg.retry_interval_ms = 10;
-
-  for (i = 0; i < RTC_MAX_CONTEXTS; ++i) {
-    ASSERT_EQ_INT(RTC_OK, rtc_ctx_create(&ctx_cfg, &ctxs[i]));
-    ASSERT_TRUE(ctxs[i] != NULL);
+  for (i = 0; i < RTC_CFG_MAX_PEERS; ++i) {
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peers[i]));
+    ASSERT_TRUE(peers[i] != NULL);
   }
 
-  ASSERT_EQ_INT(RTC_ERR_RESOURCE_EXHAUSTED, rtc_ctx_create(&ctx_cfg, &ctxs[RTC_MAX_CONTEXTS]));
+  ASSERT_EQ_INT(RTC_ERR_RESOURCE_EXHAUSTED,
+                rtc_peer_create(engine, &peer_cfg, &peers[RTC_CFG_MAX_PEERS]));
 
-  for (i = 0; i < RTC_MAX_CONTEXTS; ++i) {
-    ASSERT_EQ_INT(RTC_OK, rtc_ctx_destroy(ctxs[i]));
+  for (i = 0; i < RTC_CFG_MAX_PEERS; ++i) {
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peers[i]));
   }
 
-  ASSERT_EQ_INT(RTC_OK, rtc_global_deinit());
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   return 0;
 }
 
-static int test_timeout_retry_flow(void) {
-  rtc_global_config_t global_cfg;
-  rtc_ctx_config_t ctx_cfg;
-  rtc_ctx_t *ctx;
-  rtc_state_t state;
-  rtc_stats_t stats;
-
-  memset(&global_cfg, 0, sizeof(global_cfg));
-  memset(&ctx_cfg, 0, sizeof(ctx_cfg));
-  memset(&stats, 0, sizeof(stats));
-
-  global_cfg.version = RTC_API_VERSION;
-  global_cfg.size = (uint16_t)sizeof(global_cfg);
-  global_cfg.min_log_level = RTC_LOG_INFO;
-  ASSERT_EQ_INT(RTC_OK, rtc_global_init(&global_cfg));
-
-  ctx_cfg.version = RTC_API_VERSION;
-  ctx_cfg.size = (uint16_t)sizeof(ctx_cfg);
-  ctx_cfg.max_retries = 2;
-  ctx_cfg.retry_interval_ms = 10;
-
-  ctx = NULL;
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_create(&ctx_cfg, &ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_start(ctx, 100));
-
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_tick(ctx, 105));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_tick(ctx, 110));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_tick(ctx, 120));
-  ASSERT_EQ_INT(RTC_ERR_TIMEOUT, rtc_ctx_tick(ctx, 130));
-
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_get_state(ctx, &state));
-  ASSERT_EQ_INT(RTC_STATE_FAILED, state);
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_get_stats(ctx, &stats));
-  ASSERT_EQ_INT(2, (int)stats.retry_count);
-  ASSERT_EQ_INT(2, (int)stats.retransmit_count);
-  ASSERT_EQ_INT(1, (int)stats.timeout_count);
-
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_destroy(ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_global_deinit());
-  return 0;
-}
-
-static int test_observability_counters_and_logs(void) {
+static int test_media_loopback_and_stats(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_stats_t stats;
   test_log_capture_t logs;
-  rtc_global_config_t global_cfg;
-  rtc_ctx_config_t ctx_cfg;
-  rtc_ctx_t *ctx;
-  rtc_stats_t stats;
+  test_peer_capture_t cap;
+  uint8_t video_payload[] = {0x65, 0x88, 0x84, 0x21, 0xA0};
+  uint8_t audio_payload[] = {0x7F, 0x80, 0x81, 0x82};
+  uint32_t now_ms = 0;
+  int i;
 
   memset(&logs, 0, sizeof(logs));
-  memset(&global_cfg, 0, sizeof(global_cfg));
-  memset(&ctx_cfg, 0, sizeof(ctx_cfg));
+  memset(&cap, 0, sizeof(cap));
   memset(&stats, 0, sizeof(stats));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
 
-  global_cfg.version = RTC_API_VERSION;
-  global_cfg.size = (uint16_t)sizeof(global_cfg);
-  global_cfg.min_log_level = RTC_LOG_DEBUG;
-  global_cfg.log_cb = test_log_callback;
-  global_cfg.log_user_data = &logs;
-  ASSERT_EQ_INT(RTC_OK, rtc_global_init(&global_cfg));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(0, poll_until_connected(engine, peer));
 
-  ctx_cfg.version = RTC_API_VERSION;
-  ctx_cfg.size = (uint16_t)sizeof(ctx_cfg);
-  ctx_cfg.max_retries = 2;
-  ctx_cfg.retry_interval_ms = 10;
+  ASSERT_EQ_INT(RTC_OK,
+                rtc_peer_send_video_h264(peer, video_payload, (uint16_t)sizeof(video_payload),
+                                         90000, 1));
+  ASSERT_EQ_INT(RTC_OK,
+                rtc_peer_send_audio_g711(peer, RTC_AUDIO_CODEC_PCMA, audio_payload,
+                                         (uint16_t)sizeof(audio_payload), 8000));
 
-  ctx = NULL;
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_create(&ctx_cfg, &ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_signal_packet_drop(ctx, 3));
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_signal_retransmit(ctx, 2));
-  ASSERT_EQ_INT(RTC_ERR_PROTOCOL, rtc_ctx_signal_protocol_error(ctx, RTC_ERR_PROTOCOL));
+  for (i = 0; i < 10; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+  }
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_get_stats(ctx, &stats));
-  ASSERT_EQ_INT(3, (int)stats.dropped_packet_count);
-  ASSERT_EQ_INT(2, (int)stats.retransmit_count);
-  ASSERT_EQ_INT(1, (int)stats.protocol_error_count);
+  ASSERT_TRUE(cap.video_frames >= 1);
+  ASSERT_TRUE(cap.audio_frames >= 1);
+  ASSERT_EQ_INT((int)sizeof(video_payload), cap.last_video_len);
+  ASSERT_EQ_INT((int)sizeof(audio_payload), cap.last_audio_len);
+  ASSERT_TRUE(memcmp(video_payload, cap.last_video, sizeof(video_payload)) == 0);
+  ASSERT_TRUE(memcmp(audio_payload, cap.last_audio, sizeof(audio_payload)) == 0);
+  ASSERT_EQ_INT(RTC_AUDIO_CODEC_PCMA, cap.last_audio_codec);
 
-  ASSERT_TRUE(logs.error_count >= 1);
-  ASSERT_TRUE(logs.last_code == RTC_ERR_PROTOCOL);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_TRUE(stats.tx_video_frames >= 1);
+  ASSERT_TRUE(stats.tx_audio_frames >= 1);
+  ASSERT_TRUE(stats.rx_video_frames >= 1);
+  ASSERT_TRUE(stats.rx_audio_frames >= 1);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_ctx_destroy(ctx));
-  ASSERT_EQ_INT(RTC_OK, rtc_global_deinit());
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_queue_overflow_and_datachannel_stub(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_stats_t stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  uint8_t video_payload[] = {0x65, 0x44, 0x12};
+  int overflow_seen = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&stats, 0, sizeof(stats));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(0, poll_until_connected(engine, peer));
+
+  for (i = 0; i < 64; ++i) {
+    rtc_result_t r = rtc_peer_send_video_h264(peer, video_payload,
+                                              (uint16_t)sizeof(video_payload),
+                                              (uint32_t)(90000 + i * 3000), 1);
+    if (r == RTC_ERR_OVERFLOW) {
+      overflow_seen = 1;
+      break;
+    }
+    ASSERT_EQ_INT(RTC_OK, r);
+  }
+
+  ASSERT_TRUE(overflow_seen == 1);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_TRUE(stats.dropped_packets >= 1);
+
+  ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED, rtc_peer_datachannel_open(peer, "dc", NULL));
+  ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED,
+                rtc_peer_datachannel_send(peer, 0, video_payload,
+                                          (uint16_t)sizeof(video_payload)));
+  ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED, rtc_peer_datachannel_close(peer, 0));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  ASSERT_TRUE(logs.warns >= 1);
   return 0;
 }
 
 int main(void) {
   int failures = 0;
 
-  failures += test_lifecycle_and_idempotent();
-  failures += test_invalid_argument_handling();
+  failures += test_lifecycle_and_connection();
+  failures += test_invalid_args_and_boundaries();
   failures += test_resource_exhaustion();
-  failures += test_timeout_retry_flow();
-  failures += test_observability_counters_and_logs();
+  failures += test_media_loopback_and_stats();
+  failures += test_queue_overflow_and_datachannel_stub();
 
   if (failures != 0) {
     printf("test failures: %d\n", failures);
