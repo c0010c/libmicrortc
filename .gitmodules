@@ -1,0 +1,6 @@
+[submodule "third_party/mbedtls"]
+	path = third_party/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "third_party/libsrtp"]
+	path = third_party/libsrtp
+	url = https://github.com/cisco/libsrtp.git
