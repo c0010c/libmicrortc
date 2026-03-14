@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "test_sdp_fixtures.h"
+
 #define ASSERT_EQ_INT(expected, actual)                                                   \
   do {                                                                                    \
     int exp_val__ = (expected);                                                           \
@@ -40,23 +42,22 @@ typedef struct interop_peer_capture {
   rtc_peer_state_t last_state;
   uint32_t local_description_count;
   uint32_t local_candidate_count;
+  char last_local_sdp[RTC_CFG_MAX_SDP_LEN];
+  char last_local_type[16];
 } interop_peer_capture_t;
-
-typedef struct interop_fixture {
-  const char *offer_sdp;
-  const char *remote_candidate;
-} interop_fixture_t;
-
-/* TODO(step-3): replace with a Chrome offer/candidate fixture and parser checks. */
-static const interop_fixture_t g_interop_placeholder = {
-    "v=0\na=fake\n",
-    "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host"};
 
 static int str_eq(const char *lhs, const char *rhs) {
   if (!lhs || !rhs) {
     return 0;
   }
   return strcmp(lhs, rhs) == 0;
+}
+
+static int str_contains(const char *text, const char *needle) {
+  if (!text || !needle) {
+    return 0;
+  }
+  return strstr(text, needle) != NULL;
 }
 
 static void interop_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
@@ -116,6 +117,8 @@ static void interop_local_desc_cb(rtc_peer_t *peer, const char *sdp, const char 
     return;
   }
   cap->local_description_count++;
+  (void)snprintf(cap->last_local_sdp, sizeof(cap->last_local_sdp), "%s", sdp);
+  (void)snprintf(cap->last_local_type, sizeof(cap->last_local_type), "%s", type);
 }
 
 static void interop_local_cand_cb(rtc_peer_t *peer, const char *candidate, void *user_data) {
@@ -172,8 +175,8 @@ static int test_interop_smoke_skeleton(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
   ASSERT_TRUE(peer != NULL);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_interop_placeholder.offer_sdp, "offer"));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_interop_placeholder.remote_candidate));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 40; ++i) {
@@ -189,6 +192,12 @@ static int test_interop_smoke_skeleton(void) {
   ASSERT_TRUE(cap.state_changes >= 1);
   ASSERT_TRUE(cap.local_description_count >= 1);
   ASSERT_TRUE(cap.local_candidate_count >= 1);
+  ASSERT_TRUE(str_eq(cap.last_local_type, "answer"));
+  ASSERT_TRUE(str_contains(cap.last_local_sdp, "a=ice-lite"));
+  ASSERT_TRUE(str_contains(cap.last_local_sdp, "a=setup:passive"));
+  ASSERT_TRUE(str_contains(cap.last_local_sdp, "a=group:BUNDLE"));
+  ASSERT_TRUE(str_contains(cap.last_local_sdp, "a=rtcp-mux"));
+  ASSERT_TRUE(str_contains(cap.last_local_sdp, "a=candidate:"));
 
   ASSERT_TRUE(logs.seen_engine_created >= 1);
   ASSERT_TRUE(logs.seen_peer_created >= 1);

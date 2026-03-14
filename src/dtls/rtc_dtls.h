@@ -90,5 +90,6 @@ void rtc_dtls_tick(rtc_dtls_ctx_t *ctx, uint32_t now_ms, rtc_dtls_event_t *out_e
 const rtc_dtls_key_material_t *rtc_dtls_get_key_material(const rtc_dtls_ctx_t *ctx);
 rtc_result_t rtc_dtls_get_last_error(const rtc_dtls_ctx_t *ctx);
 uint32_t rtc_dtls_get_handshake_elapsed_ms(const rtc_dtls_ctx_t *ctx, uint32_t now_ms);
+const char *rtc_dtls_get_local_fingerprint_sha256(void);
 
 #endif  // RTC_DTLS_H_

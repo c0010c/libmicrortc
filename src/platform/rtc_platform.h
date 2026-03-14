@@ -41,5 +41,6 @@ rtc_result_t rtc_platform_udp_recvfrom(int socket_fd, rtc_platform_net_addr_t *s
                                        uint16_t *out_recv_len);
 void rtc_platform_udp_close(int *io_socket_fd);
 int rtc_platform_parse_ipv4(const char *ip, uint8_t out_addr[4]);
+rtc_result_t rtc_platform_get_default_ipv4(uint8_t out_addr[4]);
 
 #endif  // RTC_PLATFORM_H_

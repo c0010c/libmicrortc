@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "test_sdp_fixtures.h"
+
 #define ASSERT_EQ_INT(expected, actual)                                                   \
   do {                                                                                    \
     int exp_val__ = (expected);                                                           \
@@ -49,6 +51,8 @@ typedef struct test_peer_capture {
   rtc_peer_state_t new_state;
   uint32_t local_description_count;
   uint32_t local_candidate_count;
+  char last_local_sdp[RTC_CFG_MAX_SDP_LEN];
+  char last_local_type[16];
   uint32_t video_frames;
   uint32_t audio_frames;
   uint8_t last_video[64];
@@ -68,6 +72,13 @@ static int test_str_eq(const char *lhs, const char *rhs) {
     return 0;
   }
   return strcmp(lhs, rhs) == 0;
+}
+
+static int test_str_contains(const char *text, const char *needle) {
+  if (!text || !needle) {
+    return 0;
+  }
+  return strstr(text, needle) != NULL;
 }
 
 static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
@@ -168,6 +179,8 @@ static void test_local_desc_cb(rtc_peer_t *peer, const char *sdp, const char *ty
     return;
   }
   cap->local_description_count++;
+  (void)snprintf(cap->last_local_sdp, sizeof(cap->last_local_sdp), "%s", sdp);
+  (void)snprintf(cap->last_local_type, sizeof(cap->last_local_type), "%s", type);
 }
 
 static void test_local_cand_cb(rtc_peer_t *peer, const char *candidate, void *user_data) {
@@ -240,8 +253,8 @@ static int poll_until_connected(rtc_engine_t *engine, rtc_peer_t *peer) {
   rtc_peer_state_t state;
   int i;
 
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, "v=0\na=fake\n", "offer"));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 40; ++i) {
@@ -296,6 +309,12 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_TRUE(cap.local_description_count >= 1);
   ASSERT_TRUE(cap.local_candidate_count >= 1);
   ASSERT_TRUE(cap.state_changes >= 1);
+  ASSERT_TRUE(test_str_eq(cap.last_local_type, "answer"));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=ice-lite"));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=setup:passive"));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=rtcp-mux"));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=group:BUNDLE"));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=candidate:"));
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_stop(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_stop(peer));
@@ -334,6 +353,7 @@ static int test_invalid_args_and_boundaries(void) {
   ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_get_state(peer, NULL));
   ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_set_remote_description(peer, NULL, "offer"));
   ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_set_remote_description(peer, "v=0", NULL));
+  ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "answer"));
   ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_add_remote_candidate(peer, NULL));
   ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_send_video_h264(peer, NULL, 1, 0, 1));
   ASSERT_EQ_INT(RTC_ERR_INVALID_ARG, rtc_peer_send_audio_g711(peer, RTC_AUDIO_CODEC_PCMA, NULL, 1, 0));
@@ -361,12 +381,184 @@ static int test_remote_candidate_parse_failure_is_explicit(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, "v=0\na=fake\n", "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
   ASSERT_EQ_INT(
       RTC_ERR_NOT_SUPPORTED,
       rtc_peer_add_remote_candidate(
           peer, "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ srflx"));
   ASSERT_EQ_INT(0, logs.seen_remote_candidate_added);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_partial_accept_rejects_unsupported_audio(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_opus_only, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 12; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    if (cap.local_description_count > 0u) {
+      break;
+    }
+  }
+
+  ASSERT_TRUE(cap.local_description_count >= 1);
+  ASSERT_TRUE(test_str_eq(cap.last_local_type, "answer"));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "m=audio 0 "));
+  ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "m=video 9 "));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_reject_all_unsupported_codecs(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED, rtc_peer_set_remote_description(peer, g_test_chrome_offer_unsupported, "offer"));
+  ASSERT_TRUE(logs.errors >= 1);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_missing_required_attr_fails(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_ERR_PROTOCOL, rtc_peer_set_remote_description(peer, g_test_chrome_offer_missing_ice_pwd, "offer"));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_offer_without_candidate_then_add_candidate(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_no_candidate, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 4; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+  }
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+  ASSERT_TRUE(state != RTC_PEER_STATE_FAILED);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+
+  for (i = 0; i < 40; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_CONNECTED) {
+      break;
+    }
+  }
+  ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_start_before_offer_waits_and_then_emits_answer(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 2; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+  }
+  ASSERT_EQ_INT(0, cap.local_description_count);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+
+  for (i = 0; i < 20; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    if (cap.local_description_count > 0u) {
+      break;
+    }
+  }
+
+  ASSERT_TRUE(cap.local_description_count >= 1);
+  ASSERT_TRUE(test_str_eq(cap.last_local_type, "answer"));
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
@@ -533,8 +725,8 @@ static int test_dtls_timeout_and_error_observability(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, "v=0\na=fake\n", "offer"));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 40; ++i) {
@@ -564,6 +756,11 @@ int main(void) {
   failures += test_lifecycle_and_connection();
   failures += test_invalid_args_and_boundaries();
   failures += test_remote_candidate_parse_failure_is_explicit();
+  failures += test_partial_accept_rejects_unsupported_audio();
+  failures += test_reject_all_unsupported_codecs();
+  failures += test_missing_required_attr_fails();
+  failures += test_offer_without_candidate_then_add_candidate();
+  failures += test_start_before_offer_waits_and_then_emits_answer();
   failures += test_resource_exhaustion();
   failures += test_media_loopback_and_stats();
   failures += test_queue_overflow_and_datachannel_stub();

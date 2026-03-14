@@ -592,6 +592,7 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
                                      const rtc_peer_config_t *config,
                                      rtc_peer_t **out_peer) {
   uint16_t i;
+  uint8_t local_ip[4];
   rtc_peer_t *peer = NULL;
   rtc_result_t vr;
 
@@ -643,6 +644,7 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
   }
 
   rtc_ice_init(&peer->ice);
+  rtc_ice_set_peer_id(&peer->ice, peer->peer_id);
   rtc_dtls_init(&peer->dtls);
   rtc_dtls_configure(&peer->dtls, peer->peer_id,
                      peer->config.dtls_handshake_timeout_ms,
@@ -656,6 +658,26 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
                  RTC_ERR_RESOURCE_EXHAUSTED, "transport init failed");
     memset(peer, 0, sizeof(*peer));
     return RTC_ERR_RESOURCE_EXHAUSTED;
+  }
+  vr = rtc_ice_set_local_fingerprint(&peer->ice, rtc_dtls_get_local_fingerprint_sha256());
+  if (vr != RTC_OK) {
+    rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_DTLS, vr,
+                 "local fingerprint setup failed");
+    rtc_transport_deinit(&peer->transport);
+    memset(peer, 0, sizeof(*peer));
+    return vr;
+  }
+  vr = rtc_platform_get_default_ipv4(local_ip);
+  if (vr != RTC_OK) {
+    rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_TRANSPORT, vr,
+                 "local ipv4 discovery failed");
+  } else {
+    vr = rtc_ice_set_local_host(&peer->ice, local_ip,
+                                rtc_transport_local_port(&peer->transport));
+    if (vr != RTC_OK) {
+      rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_ICE, vr,
+                   "local host setup failed");
+    }
   }
 
   engine->active_peer_count++;
@@ -789,6 +811,10 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
                                                       const char *sdp,
                                                       const char *type) {
   rtc_result_t vr;
+  uint8_t applied_transport_remote = 0u;
+  uint16_t i;
+  uint8_t ip[4];
+  uint16_t port = 0u;
 
   vr = rtc_validate_live_peer(peer, NULL, NULL);
   if (vr != RTC_OK) {
@@ -797,10 +823,50 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
 
   vr = rtc_ice_set_remote_description(&peer->ice, sdp, type);
   if (vr != RTC_OK) {
+    if (vr == RTC_ERR_PROTOCOL) {
+      rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_ICE, vr,
+                   "missing required attr or malformed offer");
+    } else if (vr == RTC_ERR_NOT_SUPPORTED) {
+      rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_ICE, vr,
+                   "unsupported offer codec/setup/fingerprint");
+    }
     rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_ICE, vr,
                  "set remote description failed");
     return vr;
   }
+
+  for (i = 0u; i < peer->ice.remote_candidate_count; ++i) {
+    if (!rtc_parse_candidate_host_ipv4(peer->ice.remote_candidates[i], ip, &port)) {
+      continue;
+    }
+    vr = rtc_transport_set_remote_ipv4(&peer->transport, ip[0], ip[1], ip[2], ip[3], port);
+    if (vr != RTC_OK) {
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, vr,
+                   "set transport remote failed");
+      return vr;
+    }
+    rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_TRANSPORT, RTC_OK,
+                 "transport remote updated");
+    applied_transport_remote = 1u;
+    break;
+  }
+  if (!applied_transport_remote) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, RTC_OK,
+                 "offer has no candidate");
+  }
+  if (peer->ice.audio_offer_present && !peer->ice.audio_accepted) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, RTC_ERR_NOT_SUPPORTED,
+                 "unsupported codec m-line rejected");
+  }
+  if (peer->ice.video_offer_present && !peer->ice.video_accepted) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, RTC_ERR_NOT_SUPPORTED,
+                 "unsupported codec m-line rejected");
+  }
+
+  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
+               "remote offer parsed");
+  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
+               "answer generated");
   rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
                "remote description set");
   return RTC_OK;

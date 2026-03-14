@@ -10,6 +10,9 @@
 
 #define RTC_DTLS_KEY_LABEL "EXTRACTOR-dtls_srtp"
 
+static const char *g_rtc_dtls_local_fingerprint_sha256 =
+    "B3:7D:98:A3:34:67:93:66:D0:17:9B:08:C5:0E:8B:94:57:B8:DA:E7:F2:A9:05:16:8D:A2:E6:F1:E0:49:A1:EB";
+
 static const mbedtls_ssl_srtp_profile g_rtc_dtls_profiles[] = {
     MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80,
     MBEDTLS_TLS_SRTP_UNSET,
@@ -532,4 +535,8 @@ uint32_t rtc_dtls_get_handshake_elapsed_ms(const rtc_dtls_ctx_t *ctx, uint32_t n
     return now_ms - ctx->handshake_start_ms;
   }
   return 0u;
+}
+
+const char *rtc_dtls_get_local_fingerprint_sha256(void) {
+  return g_rtc_dtls_local_fingerprint_sha256;
 }

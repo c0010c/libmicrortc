@@ -1,11 +1,17 @@
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+
 #include "platform/rtc_platform.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -205,4 +211,66 @@ int rtc_platform_parse_ipv4(const char *ip, uint8_t out_addr[4]) {
   }
   memcpy(out_addr, &in_addr4, 4u);
   return 1;
+}
+
+rtc_result_t rtc_platform_get_default_ipv4(uint8_t out_addr[4]) {
+  struct ifconf ifc;
+  struct ifreq ifreqs[16];
+  int fd;
+  int i;
+  int count;
+
+  if (!out_addr) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  memset(out_addr, 0, 4u);
+
+  fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    return rtc_platform_map_socket_errno(errno);
+  }
+
+  memset(&ifc, 0, sizeof(ifc));
+  memset(ifreqs, 0, sizeof(ifreqs));
+  ifc.ifc_len = (int)sizeof(ifreqs);
+  ifc.ifc_req = ifreqs;
+  if (ioctl(fd, SIOCGIFCONF, &ifc) < 0) {
+    (void)close(fd);
+    return rtc_platform_map_socket_errno(errno);
+  }
+
+  count = ifc.ifc_len / (int)sizeof(struct ifreq);
+  for (i = 0; i < count; ++i) {
+    struct ifreq flags_req;
+    struct sockaddr_in *addr_in;
+
+    if (ifreqs[i].ifr_addr.sa_family != AF_INET) {
+      continue;
+    }
+
+    memset(&flags_req, 0, sizeof(flags_req));
+    (void)snprintf(flags_req.ifr_name, sizeof(flags_req.ifr_name), "%s",
+                   ifreqs[i].ifr_name);
+    if (ioctl(fd, SIOCGIFFLAGS, &flags_req) < 0) {
+      continue;
+    }
+    if ((flags_req.ifr_flags & IFF_UP) == 0) {
+      continue;
+    }
+    if ((flags_req.ifr_flags & IFF_LOOPBACK) != 0) {
+      continue;
+    }
+
+    addr_in = (struct sockaddr_in *)&ifreqs[i].ifr_addr;
+    if (addr_in->sin_addr.s_addr == htonl(INADDR_ANY)) {
+      continue;
+    }
+
+    memcpy(out_addr, &addr_in->sin_addr, 4u);
+    (void)close(fd);
+    return RTC_OK;
+  }
+
+  (void)close(fd);
+  return RTC_ERR_NOT_SUPPORTED;
 }
