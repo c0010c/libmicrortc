@@ -36,6 +36,9 @@ struct rtc_engine {
   uint8_t in_use;
   uint16_t active_peer_limit;
   uint16_t active_peer_count;
+  uint8_t dtls_cert_mode;
+  uint8_t dtls_debug_enabled;
+  rtc_log_level_t dtls_backend_log_level;
   uint32_t next_peer_id;
   rtc_log_sink_t log_sink;
   rtc_engine_stats_t stats;

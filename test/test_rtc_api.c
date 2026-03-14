@@ -153,6 +153,8 @@ static void fill_peer_cfg(rtc_peer_config_t *cfg, test_peer_capture_t *cap) {
   cfg->size = (uint16_t)sizeof(*cfg);
   cfg->max_retries = 5;
   cfg->retry_interval_ms = 10;
+  cfg->dtls_handshake_timeout_ms = 3000;
+  cfg->dtls_handshake_max_retries = 16;
   cfg->on_state_change = test_state_cb;
   cfg->on_local_description = test_local_desc_cb;
   cfg->on_local_candidate = test_local_cand_cb;
@@ -213,6 +215,9 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &peer_stats));
   ASSERT_TRUE(peer_stats.local_candidate_count >= 1);
   ASSERT_TRUE(peer_stats.remote_candidate_count >= 1);
+  ASSERT_EQ_INT(RTC_DTLS_STATE_CONNECTED, peer_stats.dtls_state);
+  ASSERT_TRUE(peer_stats.srtp_active == 1);
+  ASSERT_TRUE(peer_stats.dtls_handshake_elapsed_ms > 0);
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_get_stats(engine, &engine_stats));
   ASSERT_TRUE(engine_stats.poll_count >= 1);
@@ -405,6 +410,53 @@ static int test_queue_overflow_and_datachannel_stub(void) {
   return 0;
 }
 
+static int test_dtls_timeout_and_error_observability(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_peer_stats_t stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&stats, 0, sizeof(stats));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  peer_cfg.dtls_handshake_timeout_ms = 1;
+  peer_cfg.dtls_handshake_max_retries = 1;
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, "v=0\na=fake\n", "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 40; ++i) {
+    now_ms += 10;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_FAILED) {
+      break;
+    }
+  }
+
+  ASSERT_EQ_INT(RTC_PEER_STATE_FAILED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_EQ_INT(RTC_ERR_DTLS_HANDSHAKE_FAILED, stats.dtls_last_error);
+  ASSERT_EQ_INT(RTC_DTLS_STATE_FAILED, stats.dtls_state);
+  ASSERT_TRUE(logs.errors >= 1);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
 int main(void) {
   int failures = 0;
 
@@ -413,6 +465,7 @@ int main(void) {
   failures += test_resource_exhaustion();
   failures += test_media_loopback_and_stats();
   failures += test_queue_overflow_and_datachannel_stub();
+  failures += test_dtls_timeout_and_error_observability();
 
   if (failures != 0) {
     printf("test failures: %d\n", failures);

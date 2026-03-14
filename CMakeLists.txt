@@ -7,6 +7,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 enable_testing()
+option(RTC_ENABLE_REAL_DTLS_SRTP "Enable mbedTLS+libSRTP integration" ON)
 
 set(RTC_SUPPORTED_PLATFORMS linux)
 set(RTC_TARGET_PLATFORM "" CACHE STRING "RTC platform implementation to compile")
@@ -45,6 +46,25 @@ message(STATUS
     "RTC platform selected: ${_rtc_selected_platform} "
     "(decision source: ${_rtc_selected_platform_source})")
 
+if(RTC_ENABLE_REAL_DTLS_SRTP)
+  set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+  set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(DISABLE_PACKAGE_CONFIG_AND_INSTALL ON CACHE BOOL "" FORCE)
+  set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+  set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+  set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+  set(MBEDTLS_USER_CONFIG_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtc_mbedtls_user_config.h"
+      CACHE FILEPATH "" FORCE)
+  add_subdirectory(third_party/mbedtls EXCLUDE_FROM_ALL)
+
+  set(LIBSRTP_TEST_APPS OFF CACHE BOOL "" FORCE)
+  set(ENABLE_WARNINGS OFF CACHE BOOL "" FORCE)
+  set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+  set(CRYPTO_LIBRARY internal CACHE STRING "" FORCE)
+  add_subdirectory(third_party/libsrtp EXCLUDE_FROM_ALL)
+endif()
+
 add_library(rtc_c STATIC
     src/rtc_api.c
     ${RTC_PLATFORM_SOURCES}
@@ -58,6 +78,15 @@ add_library(rtc_c STATIC
 
 target_include_directories(rtc_c PUBLIC include)
 target_include_directories(rtc_c PRIVATE src)
+
+if(RTC_ENABLE_REAL_DTLS_SRTP)
+  target_include_directories(rtc_c PRIVATE third_party/libsrtp/include)
+  target_link_libraries(rtc_c PRIVATE
+      MbedTLS::mbedcrypto
+      MbedTLS::mbedx509
+      MbedTLS::mbedtls
+      srtp3)
+endif()
 
 add_executable(rtc_api_test
     test/test_rtc_api.c

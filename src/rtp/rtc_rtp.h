@@ -15,10 +15,12 @@ typedef struct rtc_rtp_packet {
   rtc_audio_codec_t audio_codec;
   uint8_t marker;
   uint16_t payload_len;
+  uint16_t wire_len;
   uint16_t seq;
   uint32_t timestamp;
   uint32_t ssrc;
   uint8_t payload[RTC_CFG_MAX_MEDIA_PAYLOAD];
+  uint8_t wire[RTC_CFG_MTU + RTC_CFG_SRTP_MAX_TRAILER];
 } rtc_rtp_packet_t;
 
 typedef struct rtc_rtp_frame {

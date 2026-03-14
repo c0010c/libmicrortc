@@ -107,6 +107,20 @@ static void rtc_update_queue_stats(rtc_peer_t *peer) {
       rtc_transport_rx_high_watermark(&peer->transport);
 }
 
+static void rtc_update_security_stats(rtc_peer_t *peer, uint32_t now_ms) {
+  if (!peer) {
+    return;
+  }
+  peer->stats.dtls_state = (uint8_t)peer->dtls.state;
+  peer->stats.srtp_active =
+      (uint8_t)(peer->srtp.state == RTC_SRTP_STATE_ACTIVE ? 1u : 0u);
+  peer->stats.dtls_handshake_elapsed_ms =
+      rtc_dtls_get_handshake_elapsed_ms(&peer->dtls, now_ms);
+  if (rtc_dtls_get_last_error(&peer->dtls) != RTC_OK) {
+    peer->stats.dtls_last_error = (int16_t)rtc_dtls_get_last_error(&peer->dtls);
+  }
+}
+
 static void rtc_peer_set_state(rtc_peer_t *peer, rtc_peer_state_t next,
                                rtc_result_t code, const char *reason,
                                rtc_log_level_t level) {
@@ -262,9 +276,11 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
     }
 
     if (ice_event.connected) {
-      if (rtc_dtls_start(&peer->dtls) != RTC_OK) {
+      if (rtc_dtls_start(&peer->dtls, now_ms) != RTC_OK) {
+        peer->stats.dtls_last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
         peer->stats.protocol_error_count++;
-        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED, RTC_ERR_PROTOCOL,
+        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED,
+                           RTC_ERR_DTLS_HANDSHAKE_FAILED,
                            "dtls start failed", RTC_LOG_ERROR);
         return;
       }
@@ -285,22 +301,46 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
   if (peer->state == RTC_PEER_STATE_DTLS_HANDSHAKE) {
     rtc_dtls_event_t dtls_event;
-    rtc_dtls_tick(&peer->dtls, &dtls_event);
+    rtc_dtls_tick(&peer->dtls, now_ms, &dtls_event);
+    rtc_update_security_stats(peer, now_ms);
 
     if (dtls_event.connected) {
-      rtc_result_t r = rtc_srtp_activate(&peer->srtp);
-      if (r != RTC_OK) {
+      rtc_srtp_key_material_t keys;
+      const rtc_dtls_key_material_t *km = rtc_dtls_get_key_material(&peer->dtls);
+      rtc_result_t r;
+
+      if (!km || km->key_len != 30u) {
+        peer->stats.dtls_last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
         peer->stats.protocol_error_count++;
-        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED, r,
+        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED,
+                           RTC_ERR_DTLS_HANDSHAKE_FAILED, "dtls keying failed",
+                           RTC_LOG_ERROR);
+        return;
+      }
+
+      memset(&keys, 0, sizeof(keys));
+      keys.key_len = km->key_len;
+      keys.profile = (uint8_t)km->profile;
+      memcpy(keys.outbound_key, km->client_write_key, keys.key_len);
+      memcpy(keys.inbound_key, km->client_write_key, keys.key_len);
+
+      r = rtc_srtp_activate(&peer->srtp, &keys);
+      if (r != RTC_OK) {
+        peer->stats.dtls_last_error = RTC_ERR_SRTP_ACTIVATE_FAILED;
+        peer->stats.protocol_error_count++;
+        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED,
+                           RTC_ERR_SRTP_ACTIVATE_FAILED,
                            "srtp activate failed", RTC_LOG_ERROR);
         return;
       }
+      rtc_update_security_stats(peer, now_ms);
       rtc_peer_set_state(peer, RTC_PEER_STATE_CONNECTED, RTC_OK,
                          "media connected", RTC_LOG_INFO);
       return;
     }
 
     if (dtls_event.failed) {
+      peer->stats.dtls_last_error = dtls_event.error;
       peer->stats.protocol_error_count++;
       rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED, dtls_event.error,
                          "dtls failed", RTC_LOG_ERROR);
@@ -311,6 +351,7 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
   if (peer->state == RTC_PEER_STATE_CONNECTED) {
     rtc_peer_dispatch_incoming(peer, 4u);
+    rtc_update_security_stats(peer, now_ms);
   }
 }
 
@@ -347,6 +388,15 @@ rtc_result_t rtc_session_engine_create(const rtc_engine_config_t *config,
   engine->log_sink.min_level = config->min_log_level;
   engine->log_sink.cb = config->log_cb;
   engine->log_sink.user_data = config->log_user_data;
+  engine->dtls_cert_mode = config->dtls_cert_mode;
+  engine->dtls_debug_enabled = (uint8_t)(config->dtls_debug_enabled ? 1u : 0u);
+  engine->dtls_backend_log_level = config->dtls_backend_log_level;
+  if (engine->dtls_cert_mode > RTC_DTLS_CERT_MODE_EPHEMERAL) {
+    engine->dtls_cert_mode = RTC_DTLS_CERT_MODE_STATIC;
+  }
+  if (engine->dtls_backend_log_level > RTC_LOG_DEBUG) {
+    engine->dtls_backend_log_level = RTC_LOG_WARN;
+  }
 
   *out_engine = engine;
   rtc_log_engine(engine, RTC_LOG_INFO, RTC_MODULE_ENGINE, 0, RTC_OK,
@@ -478,9 +528,19 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
   if (peer->config.retry_interval_ms == 0u) {
     peer->config.retry_interval_ms = 20u;
   }
+  if (peer->config.dtls_handshake_timeout_ms == 0u) {
+    peer->config.dtls_handshake_timeout_ms = RTC_CFG_DTLS_HANDSHAKE_TIMEOUT_MS;
+  }
+  if (peer->config.dtls_handshake_max_retries == 0u) {
+    peer->config.dtls_handshake_max_retries = 16u;
+  }
 
   rtc_ice_init(&peer->ice);
   rtc_dtls_init(&peer->dtls);
+  rtc_dtls_configure(&peer->dtls, peer->peer_id,
+                     peer->config.dtls_handshake_timeout_ms,
+                     peer->config.dtls_handshake_max_retries,
+                     peer->engine->dtls_debug_enabled);
   rtc_srtp_init(&peer->srtp);
   rtc_rtp_init(&peer->rtp, peer->peer_id);
   rtc_transport_init(&peer->transport);
@@ -514,6 +574,8 @@ rtc_result_t rtc_session_peer_destroy(rtc_peer_t *peer) {
   }
 
   rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_PEER, RTC_OK, "peer destroyed");
+  rtc_srtp_deinit(&peer->srtp);
+  rtc_dtls_deinit(&peer->dtls);
   memset(&engine->peers[idx], 0, sizeof(engine->peers[idx]));
   if (engine->active_peer_count > 0u) {
     engine->active_peer_count--;
@@ -542,8 +604,14 @@ rtc_result_t rtc_session_peer_start(rtc_peer_t *peer) {
   }
 
   rtc_dtls_init(&peer->dtls);
+  rtc_dtls_configure(&peer->dtls, peer->peer_id,
+                     peer->config.dtls_handshake_timeout_ms,
+                     peer->config.dtls_handshake_max_retries,
+                     peer->engine->dtls_debug_enabled);
+  rtc_srtp_deinit(&peer->srtp);
   rtc_srtp_init(&peer->srtp);
   rtc_transport_init(&peer->transport);
+  peer->stats.dtls_last_error = RTC_OK;
 
   rtc_peer_set_state(peer, RTC_PEER_STATE_STARTING, RTC_OK, "peer start",
                      RTC_LOG_INFO);
@@ -562,6 +630,8 @@ rtc_result_t rtc_session_peer_stop(rtc_peer_t *peer) {
     return RTC_OK;
   }
 
+  rtc_srtp_deinit(&peer->srtp);
+  rtc_dtls_deinit(&peer->dtls);
   rtc_peer_set_state(peer, RTC_PEER_STATE_STOPPED, RTC_OK, "peer stop",
                      RTC_LOG_INFO);
   return RTC_OK;

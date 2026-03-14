@@ -32,7 +32,10 @@ typedef enum rtc_result {
   RTC_ERR_NOT_INIT = -6,
   RTC_ERR_NOT_SUPPORTED = -7,
   RTC_ERR_BUFFER_TOO_SMALL = -8,
-  RTC_ERR_OVERFLOW = -9
+  RTC_ERR_OVERFLOW = -9,
+  RTC_ERR_DTLS_HANDSHAKE_FAILED = -10,
+  RTC_ERR_SRTP_ACTIVATE_FAILED = -11,
+  RTC_ERR_AUTH_FAILED = -12
 } rtc_result_t;
 
 typedef enum rtc_peer_state {
@@ -49,6 +52,18 @@ typedef enum rtc_audio_codec {
   RTC_AUDIO_CODEC_PCMA = 0,
   RTC_AUDIO_CODEC_PCMU = 1
 } rtc_audio_codec_t;
+
+typedef enum rtc_dtls_state {
+  RTC_DTLS_STATE_NEW = 0,
+  RTC_DTLS_STATE_HANDSHAKE = 1,
+  RTC_DTLS_STATE_CONNECTED = 2,
+  RTC_DTLS_STATE_FAILED = 3
+} rtc_dtls_state_t;
+
+typedef enum rtc_dtls_cert_mode {
+  RTC_DTLS_CERT_MODE_STATIC = 0,
+  RTC_DTLS_CERT_MODE_EPHEMERAL = 1
+} rtc_dtls_cert_mode_t;
 
 typedef void (*rtc_log_callback_t)(rtc_log_level_t level, const char *module, uint32_t peer_id,
                                    rtc_result_t code, const char *message, void *user_data);
@@ -76,7 +91,10 @@ typedef struct rtc_engine_config {
   rtc_log_callback_t log_cb;
   void *log_user_data;
   uint16_t active_peer_limit;
-  uint16_t reserved;
+  uint8_t dtls_cert_mode;
+  uint8_t dtls_debug_enabled;
+  rtc_log_level_t dtls_backend_log_level;
+  uint8_t reserved;
 } rtc_engine_config_t;
 
 typedef struct rtc_peer_config {
@@ -84,6 +102,8 @@ typedef struct rtc_peer_config {
   uint16_t size;
   uint16_t max_retries;
   uint16_t retry_interval_ms;
+  uint16_t dtls_handshake_timeout_ms;
+  uint16_t dtls_handshake_max_retries;
   rtc_peer_state_change_cb_t on_state_change;
   rtc_local_description_cb_t on_local_description;
   rtc_local_candidate_cb_t on_local_candidate;
@@ -107,6 +127,10 @@ typedef struct rtc_peer_stats {
   uint16_t rtp_rx_queue_high_watermark;
   uint16_t local_candidate_count;
   uint16_t remote_candidate_count;
+  uint8_t dtls_state;
+  uint8_t srtp_active;
+  int16_t dtls_last_error;
+  uint32_t dtls_handshake_elapsed_ms;
 } rtc_peer_stats_t;
 
 typedef struct rtc_engine_stats {
