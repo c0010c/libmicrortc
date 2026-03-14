@@ -18,8 +18,9 @@
 开始任何改动前，必须先检查以下目录中的相关实现,如果实现相同，则直接实现，否则告诉用户差异，让用户抉择：
 
 - `/home/qshl/dev/rtc/goodlib/libdatachannel`
+- `amazon-kinesis-video-streams-webrtc-sdk-c`
 - `/home/qshl/dev/rtc/goodlib/libpeer`
-- `/home/qshl/dev/rtc/goodlib/webrtc`
+- `/home/qshl/dev/rtc/goodlib/metaRTC`
 
 必须先找相似实现，再编码。优先参考：
 - 同类状态机
