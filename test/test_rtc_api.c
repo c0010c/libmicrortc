@@ -27,6 +27,16 @@ typedef struct test_log_capture {
   uint32_t warns;
   uint32_t infos;
   uint32_t debugs;
+  uint32_t seen_engine_created;
+  uint32_t seen_engine_destroyed;
+  uint32_t seen_peer_created;
+  uint32_t seen_remote_description_set;
+  uint32_t seen_remote_candidate_added;
+  uint32_t seen_peer_start;
+  uint32_t seen_ice_checking;
+  uint32_t seen_dtls_handshake;
+  uint32_t seen_media_connected;
+  uint32_t seen_dtls_failed;
   rtc_result_t last_code;
   uint32_t last_peer_id;
   char last_module[24];
@@ -47,6 +57,18 @@ typedef struct test_peer_capture {
   uint16_t last_audio_len;
   rtc_audio_codec_t last_audio_codec;
 } test_peer_capture_t;
+
+typedef enum test_log_profile {
+  TEST_LOG_PROFILE_CONNECTED = 0,
+  TEST_LOG_PROFILE_DTLS_FAIL = 1
+} test_log_profile_t;
+
+static int test_str_eq(const char *lhs, const char *rhs) {
+  if (!lhs || !rhs) {
+    return 0;
+  }
+  return strcmp(lhs, rhs) == 0;
+}
 
 static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
                         rtc_result_t code, const char *message, void *user_data) {
@@ -71,6 +93,56 @@ static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer
   if (message) {
     (void)snprintf(cap->last_message, sizeof(cap->last_message), "%s", message);
   }
+
+  if (level == RTC_LOG_INFO) {
+    if (test_str_eq(module, "session.engine") && test_str_eq(message, "engine created")) {
+      cap->seen_engine_created++;
+    } else if (test_str_eq(module, "session.engine") && test_str_eq(message, "engine destroyed")) {
+      cap->seen_engine_destroyed++;
+    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "peer created")) {
+      cap->seen_peer_created++;
+    } else if (test_str_eq(module, "ice") && test_str_eq(message, "remote description set")) {
+      cap->seen_remote_description_set++;
+    } else if (test_str_eq(module, "ice") && test_str_eq(message, "remote candidate added")) {
+      cap->seen_remote_candidate_added++;
+    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "peer start")) {
+      cap->seen_peer_start++;
+    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "ice checking")) {
+      cap->seen_ice_checking++;
+    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "dtls handshake")) {
+      cap->seen_dtls_handshake++;
+    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "media connected")) {
+      cap->seen_media_connected++;
+    }
+  } else if (level == RTC_LOG_ERROR) {
+    if (test_str_eq(module, "session.peer") && test_str_eq(message, "dtls failed") &&
+        code == RTC_ERR_DTLS_HANDSHAKE_FAILED) {
+      cap->seen_dtls_failed++;
+    }
+  }
+}
+
+static int assert_log_baseline_minimum(const test_log_capture_t *logs,
+                                       test_log_profile_t profile) {
+  ASSERT_TRUE(logs != NULL);
+  ASSERT_TRUE(logs->seen_engine_created >= 1);
+  ASSERT_TRUE(logs->seen_engine_destroyed >= 1);
+  ASSERT_TRUE(logs->seen_peer_created >= 1);
+  ASSERT_TRUE(logs->seen_remote_description_set >= 1);
+  ASSERT_TRUE(logs->seen_remote_candidate_added >= 1);
+  ASSERT_TRUE(logs->seen_peer_start >= 1);
+  ASSERT_TRUE(logs->seen_ice_checking >= 1);
+  ASSERT_TRUE(logs->seen_dtls_handshake >= 1);
+
+  if (profile == TEST_LOG_PROFILE_CONNECTED) {
+    ASSERT_TRUE(logs->seen_media_connected >= 1);
+    ASSERT_TRUE(logs->seen_dtls_failed == 0);
+  } else {
+    ASSERT_TRUE(logs->seen_dtls_failed >= 1);
+    ASSERT_TRUE(logs->seen_media_connected == 0);
+  }
+
+  return 0;
 }
 
 static void test_state_cb(rtc_peer_t *peer, rtc_peer_state_t old_state,
@@ -233,6 +305,7 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
 
+  ASSERT_EQ_INT(0, assert_log_baseline_minimum(&logs, TEST_LOG_PROFILE_CONNECTED));
   ASSERT_TRUE(logs.infos >= 1);
   return 0;
 }
@@ -454,6 +527,7 @@ static int test_dtls_timeout_and_error_observability(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  ASSERT_EQ_INT(0, assert_log_baseline_minimum(&logs, TEST_LOG_PROFILE_DTLS_FAIL));
   return 0;
 }
 

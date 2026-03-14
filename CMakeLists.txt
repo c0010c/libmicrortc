@@ -96,3 +96,12 @@ target_include_directories(rtc_api_test PRIVATE include)
 target_link_libraries(rtc_api_test PRIVATE rtc_c)
 
 add_test(NAME rtc_api_test COMMAND rtc_api_test)
+
+add_executable(rtc_interop_smoke_test
+    test/test_rtc_interop_smoke.c
+)
+
+target_include_directories(rtc_interop_smoke_test PRIVATE include)
+target_link_libraries(rtc_interop_smoke_test PRIVATE rtc_c)
+
+add_test(NAME rtc_interop_smoke_test COMMAND rtc_interop_smoke_test)
