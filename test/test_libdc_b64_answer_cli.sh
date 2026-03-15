@@ -76,7 +76,7 @@ EOF_OFFER
 
 base64 -w 0 "$tmp_offer" >"$tmp_offer_b64"
 
-if ! "$bin" --run-ms 120 <"$tmp_offer_b64" >"$tmp_out" 2>"$tmp_err"; then
+if ! "$bin" --log-level debug --run-ms 120 <"$tmp_offer_b64" >"$tmp_out" 2>"$tmp_err"; then
   echo "[libdc-b64] expected success for valid offer" >&2
   cat "$tmp_out" >&2 || true
   cat "$tmp_err" >&2 || true
@@ -84,6 +84,14 @@ if ! "$bin" --run-ms 120 <"$tmp_offer_b64" >"$tmp_out" 2>"$tmp_err"; then
 fi
 
 grep -q 'answer_ready' "$tmp_out"
+grep -q 'video_file_loaded' "$tmp_out"
+grep -q 'video_track_created' "$tmp_out"
+grep -q 'video_packetizer_ready' "$tmp_out"
+if grep -q 'local_description type=offer' "$tmp_out"; then
+  echo "[libdc-b64] unexpected renegotiation local offer emitted" >&2
+  cat "$tmp_out" >&2
+  exit 1
+fi
 grep -E '^[A-Za-z0-9+/=]+$' "$tmp_out" | head -n1 >"$tmp_answer_b64"
 if [[ ! -s "$tmp_answer_b64" ]]; then
   echo "[libdc-b64] expected answer b64 line" >&2
