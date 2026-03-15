@@ -133,6 +133,8 @@ static void rtc_update_security_stats(rtc_peer_t *peer, uint32_t now_ms) {
   if (rtc_dtls_get_last_error(&peer->dtls) != RTC_OK) {
     peer->stats.dtls_last_error = (int16_t)rtc_dtls_get_last_error(&peer->dtls);
   }
+  peer->stats.dtls_rx_pkts = rtc_transport_dtls_rx_count(&peer->transport);
+  peer->stats.dtls_tx_pkts = rtc_transport_dtls_tx_count(&peer->transport);
 }
 
 static char rtc_ascii_tolower(char ch) {
@@ -570,6 +572,15 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
                        "transport remote select from ice failed");
         }
       }
+      sr = rtc_dtls_set_remote_fingerprint(&peer->dtls, peer->ice.remote_fingerprint);
+      if (sr != RTC_OK) {
+        peer->stats.dtls_last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+        peer->stats.protocol_error_count++;
+        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED,
+                           RTC_ERR_DTLS_HANDSHAKE_FAILED,
+                           "dtls remote fingerprint invalid", RTC_LOG_ERROR);
+        return;
+      }
       if (rtc_dtls_start(&peer->dtls, now_ms) != RTC_OK) {
         peer->stats.dtls_last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
         peer->stats.protocol_error_count++;
@@ -596,8 +607,118 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
   if (peer->state == RTC_PEER_STATE_DTLS_HANDSHAKE) {
     rtc_dtls_event_t dtls_event;
+    rtc_result_t dtls_io_error = RTC_OK;
+    uint16_t sent = 0u;
+    uint16_t received = 0u;
+    uint32_t dropped = 0u;
+    rtc_result_t io_result;
+
+    io_result = rtc_transport_pump_io(&peer->transport, 4u, &sent, &received, &dropped);
+    (void)sent;
+    (void)received;
+    if (io_result != RTC_OK) {
+      peer->stats.protocol_error_count++;
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, io_result,
+                   "pump io reported transport error");
+    }
+    if (dropped > 0u) {
+      peer->stats.dropped_packets += dropped;
+    }
+
+    for (;;) {
+      rtc_transport_stun_packet_t stun_pkt;
+      rtc_result_t r = rtc_transport_dequeue_stun(&peer->transport, &stun_pkt);
+      if (r == RTC_ERR_TIMEOUT) {
+        break;
+      }
+      if (r != RTC_OK) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
+                     "dequeue stun during dtls failed");
+        break;
+      }
+      rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_DTLS, RTC_OK,
+                   "ignore stun during dtls");
+    }
+
+    for (;;) {
+      rtc_transport_dtls_packet_t dtls_pkt;
+      rtc_result_t r = rtc_transport_dequeue_dtls(&peer->transport, &dtls_pkt);
+      if (r == RTC_ERR_TIMEOUT) {
+        break;
+      }
+      if (r != RTC_OK) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
+                     "dequeue dtls packet failed");
+        dtls_io_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+        break;
+      }
+      r = rtc_dtls_feed_incoming(&peer->dtls, dtls_pkt.data, dtls_pkt.len);
+      if (r == RTC_ERR_OVERFLOW) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
+                     "dtls inbox full, drop packet");
+        continue;
+      }
+      if (r != RTC_OK) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
+                     "dtls feed incoming failed");
+        dtls_io_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+        break;
+      }
+    }
+
     rtc_dtls_tick(&peer->dtls, now_ms, &dtls_event);
+
+    for (;;) {
+      uint8_t out_buf[RTC_CFG_DTLS_MAX_DATAGRAM];
+      uint16_t out_len = 0u;
+      uint16_t sent_len = 0u;
+      rtc_result_t r = rtc_dtls_pop_outgoing(&peer->dtls, out_buf,
+                                             (uint16_t)sizeof(out_buf), &out_len);
+      if (r == RTC_ERR_TIMEOUT) {
+        break;
+      }
+      if (r != RTC_OK) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
+                     "dtls pop outgoing failed");
+        dtls_io_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+        break;
+      }
+      if (!peer->transport.remote_addr_valid) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, RTC_ERR_INVALID_STATE,
+                     "dtls transport remote not set");
+        dtls_io_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+        break;
+      }
+      r = rtc_transport_send_dtls(&peer->transport, &peer->transport.remote_addr,
+                                  out_buf, out_len, &sent_len);
+      if (r == RTC_ERR_TIMEOUT) {
+        rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_DTLS, RTC_ERR_TIMEOUT,
+                     "dtls send would block");
+        continue;
+      }
+      if (r != RTC_OK || sent_len != out_len) {
+        peer->stats.protocol_error_count++;
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
+                     "dtls send failed");
+        dtls_io_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+        break;
+      }
+    }
+
     rtc_update_security_stats(peer, now_ms);
+    if (dtls_io_error != RTC_OK) {
+      peer->stats.dtls_last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
+      rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED,
+                         RTC_ERR_DTLS_HANDSHAKE_FAILED, "dtls failed",
+                         RTC_LOG_ERROR);
+      return;
+    }
 
     if (dtls_event.connected) {
       rtc_srtp_key_material_t keys;

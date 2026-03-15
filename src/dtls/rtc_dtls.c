@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include <mbedtls/md.h>
+
 #include "dtls/rtc_dtls_local_cert.h"
 
 #if defined(MBEDTLS_DEBUG_C)
@@ -25,10 +27,10 @@ static void rtc_dtls_mailbox_reset(rtc_dtls_mailbox_t *box) {
   memset(box, 0, sizeof(*box));
 }
 
-static int rtc_dtls_mailbox_push(rtc_dtls_mailbox_t *box,
-                                 const uint8_t *data,
+static int rtc_dtls_mailbox_push(rtc_dtls_mailbox_t *box, const uint8_t *data,
                                  uint16_t len) {
   rtc_dtls_datagram_t *slot;
+
   if (!box || !data || len == 0u || len > RTC_CFG_DTLS_MAX_DATAGRAM) {
     return 0;
   }
@@ -45,11 +47,10 @@ static int rtc_dtls_mailbox_push(rtc_dtls_mailbox_t *box,
   return 1;
 }
 
-static int rtc_dtls_mailbox_pop(rtc_dtls_mailbox_t *box,
-                                uint8_t *out,
-                                uint16_t cap,
-                                uint16_t *out_len) {
+static int rtc_dtls_mailbox_pop(rtc_dtls_mailbox_t *box, uint8_t *out,
+                                uint16_t cap, uint16_t *out_len) {
   rtc_dtls_datagram_t *slot;
+
   if (!box || !out || !out_len) {
     return 0;
   }
@@ -71,10 +72,7 @@ static int rtc_dtls_mailbox_pop(rtc_dtls_mailbox_t *box,
 }
 
 #if defined(MBEDTLS_DEBUG_C)
-static void rtc_dtls_debug_log(void *ctx,
-                               int level,
-                               const char *file,
-                               int line,
+static void rtc_dtls_debug_log(void *ctx, int level, const char *file, int line,
                                const char *str) {
   (void)ctx;
   (void)level;
@@ -86,6 +84,7 @@ static void rtc_dtls_debug_log(void *ctx,
 
 static int rtc_dtls_send_cb(void *ctx, const unsigned char *buf, size_t len) {
   rtc_dtls_endpoint_t *ep = (rtc_dtls_endpoint_t *)ctx;
+
   if (!ep || !buf) {
     return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
   }
@@ -100,7 +99,7 @@ static int rtc_dtls_send_cb(void *ctx, const unsigned char *buf, size_t len) {
 
 static int rtc_dtls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
   rtc_dtls_endpoint_t *ep = (rtc_dtls_endpoint_t *)ctx;
-  uint16_t packet_len = 0;
+  uint16_t packet_len = 0u;
 
   if (!ep || !buf) {
     return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
@@ -108,7 +107,6 @@ static int rtc_dtls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
   if (len == 0u || len > UINT16_MAX) {
     return MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL;
   }
-
   if (!rtc_dtls_mailbox_pop(ep->inbox, buf, (uint16_t)len, &packet_len)) {
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
@@ -183,31 +181,21 @@ static rtc_result_t rtc_dtls_endpoint_setup(rtc_dtls_endpoint_t *ep,
   }
 
   if (mbedtls_ctr_drbg_seed(&ep->drbg, mbedtls_entropy_func, &ep->entropy,
-                            (const unsigned char *)pers,
-                            strlen(pers)) != 0) {
+                            (const unsigned char *)pers, strlen(pers)) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-
-  if (mbedtls_x509_crt_parse(
-          &ep->cert,
-          (const unsigned char *)g_rtc_dtls_local_cert_pem,
-          sizeof(g_rtc_dtls_local_cert_pem)) != 0) {
+  if (mbedtls_x509_crt_parse(&ep->cert,
+                             (const unsigned char *)g_rtc_dtls_local_cert_pem,
+                             sizeof(g_rtc_dtls_local_cert_pem)) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-
-  if (mbedtls_pk_parse_key(
-          &ep->key,
-          (const unsigned char *)g_rtc_dtls_local_key_pem,
-          sizeof(g_rtc_dtls_local_key_pem),
-          NULL,
-          0,
-          mbedtls_ctr_drbg_random,
-          &ep->drbg) != 0) {
+  if (mbedtls_pk_parse_key(&ep->key,
+                           (const unsigned char *)g_rtc_dtls_local_key_pem,
+                           sizeof(g_rtc_dtls_local_key_pem), NULL, 0,
+                           mbedtls_ctr_drbg_random, &ep->drbg) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-
-  if (mbedtls_ssl_config_defaults(&ep->conf,
-                                  role,
+  if (mbedtls_ssl_config_defaults(&ep->conf, role,
                                   MBEDTLS_SSL_TRANSPORT_DATAGRAM,
                                   MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
@@ -226,14 +214,12 @@ static rtc_result_t rtc_dtls_endpoint_setup(rtc_dtls_endpoint_t *ep,
   if (mbedtls_ssl_conf_own_cert(&ep->conf, &ep->cert, &ep->key) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-
   if (mbedtls_ssl_conf_dtls_srtp_protection_profiles(&ep->conf,
                                                       g_rtc_dtls_profiles) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
 
   mbedtls_ssl_conf_dtls_cookies(&ep->conf, NULL, NULL, NULL);
-
   if (mbedtls_ssl_setup(&ep->ssl, &ep->conf) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
@@ -249,40 +235,101 @@ static rtc_result_t rtc_dtls_endpoint_setup(rtc_dtls_endpoint_t *ep,
   return RTC_OK;
 }
 
-static rtc_result_t rtc_dtls_step_endpoint(rtc_dtls_endpoint_t *ep,
-                                           uint8_t *out_progress) {
-  int r;
-  if (!ep || !out_progress) {
+static char rtc_dtls_ascii_tolower(char ch) {
+  if (ch >= 'A' && ch <= 'Z') {
+    return (char)(ch - 'A' + 'a');
+  }
+  return ch;
+}
+
+static int rtc_dtls_ascii_case_eq(const char *lhs, const char *rhs) {
+  size_t i = 0u;
+
+  if (!lhs || !rhs) {
+    return 0;
+  }
+  while (lhs[i] != '\0' && rhs[i] != '\0') {
+    if (rtc_dtls_ascii_tolower(lhs[i]) != rtc_dtls_ascii_tolower(rhs[i])) {
+      return 0;
+    }
+    i++;
+  }
+  return lhs[i] == '\0' && rhs[i] == '\0';
+}
+
+static rtc_result_t rtc_dtls_cert_sha256_fingerprint(const mbedtls_x509_crt *cert,
+                                                      char *out,
+                                                      uint16_t out_cap) {
+  const mbedtls_md_info_t *md_info = NULL;
+  mbedtls_md_context_t md_ctx;
+  unsigned char digest[32];
+  uint16_t pos = 0u;
+  uint16_t i;
+  int rc;
+
+  if (!cert || !out || out_cap < 96u) {
     return RTC_ERR_INVALID_ARG;
   }
 
-  if (mbedtls_ssl_is_handshake_over(&ep->ssl)) {
-    return RTC_OK;
+  md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!md_info) {
+    return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
 
-  r = mbedtls_ssl_handshake(&ep->ssl);
-  if (r == 0) {
-    *out_progress = 1u;
-    return RTC_OK;
+  mbedtls_md_init(&md_ctx);
+  rc = mbedtls_md_setup(&md_ctx, md_info, 0);
+  if (rc == 0) {
+    rc = mbedtls_md_starts(&md_ctx);
   }
-  if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE ||
-      r == MBEDTLS_ERR_SSL_TIMEOUT) {
-    return RTC_OK;
+  if (rc == 0) {
+    rc = mbedtls_md_update(&md_ctx, cert->raw.p, cert->raw.len);
   }
-#ifdef MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS
-  if (r == MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS) {
-    return RTC_OK;
+  if (rc == 0) {
+    rc = mbedtls_md_finish(&md_ctx, digest);
   }
-#endif
-  return RTC_ERR_DTLS_HANDSHAKE_FAILED;
+  mbedtls_md_free(&md_ctx);
+  if (rc != 0) {
+    return RTC_ERR_DTLS_HANDSHAKE_FAILED;
+  }
+
+  for (i = 0u; i < 32u; ++i) {
+    static const char k_hex[] = "0123456789ABCDEF";
+    uint16_t required = (uint16_t)(i == 31u ? 2u : 3u);
+    if (pos + required >= out_cap) {
+      return RTC_ERR_BUFFER_TOO_SMALL;
+    }
+    out[pos++] = k_hex[(digest[i] >> 4) & 0x0Fu];
+    out[pos++] = k_hex[digest[i] & 0x0Fu];
+    if (i != 31u) {
+      out[pos++] = ':';
+    }
+  }
+  out[pos] = '\0';
+  return RTC_OK;
 }
 
-static uint8_t rtc_dtls_handshake_done(const rtc_dtls_ctx_t *ctx) {
-  if (!ctx) {
-    return 0u;
+static rtc_result_t rtc_dtls_verify_remote_fingerprint(rtc_dtls_ctx_t *ctx) {
+  const mbedtls_x509_crt *remote_cert = NULL;
+  char actual[96];
+  rtc_result_t r;
+
+  if (!ctx || ctx->remote_fingerprint[0] == '\0') {
+    return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-  return (uint8_t)(mbedtls_ssl_is_handshake_over((mbedtls_ssl_context *)&ctx->client.ssl) &&
-                   mbedtls_ssl_is_handshake_over((mbedtls_ssl_context *)&ctx->server.ssl));
+
+  remote_cert = mbedtls_ssl_get_peer_cert(&ctx->endpoint.ssl);
+  if (!remote_cert) {
+    return RTC_ERR_DTLS_HANDSHAKE_FAILED;
+  }
+
+  r = rtc_dtls_cert_sha256_fingerprint(remote_cert, actual, (uint16_t)sizeof(actual));
+  if (r != RTC_OK) {
+    return r;
+  }
+  if (!rtc_dtls_ascii_case_eq(ctx->remote_fingerprint, actual)) {
+    return RTC_ERR_DTLS_HANDSHAKE_FAILED;
+  }
+  return RTC_OK;
 }
 
 static rtc_result_t rtc_dtls_derive_keying(rtc_dtls_ctx_t *ctx) {
@@ -293,19 +340,14 @@ static rtc_result_t rtc_dtls_derive_keying(rtc_dtls_ctx_t *ctx) {
     return RTC_ERR_INVALID_ARG;
   }
 
-  exp = &ctx->client.exported;
+  exp = &ctx->endpoint.exported;
   if (!exp->ready) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-
-  if (mbedtls_ssl_tls_prf(exp->prf,
-                          exp->master_secret,
-                          sizeof(exp->master_secret),
-                          RTC_DTLS_KEY_LABEL,
-                          exp->rand_bytes,
-                          sizeof(exp->rand_bytes),
-                          keying_material,
-                          sizeof(keying_material)) != 0) {
+  if (mbedtls_ssl_tls_prf(exp->prf, exp->master_secret,
+                          sizeof(exp->master_secret), RTC_DTLS_KEY_LABEL,
+                          exp->rand_bytes, sizeof(exp->rand_bytes),
+                          keying_material, sizeof(keying_material)) != 0) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
 
@@ -321,10 +363,8 @@ static rtc_result_t rtc_dtls_derive_keying(rtc_dtls_ctx_t *ctx) {
   return RTC_OK;
 }
 
-static void rtc_dtls_fail(rtc_dtls_ctx_t *ctx,
-                          rtc_dtls_event_t *out_event,
-                          rtc_result_t error,
-                          uint32_t now_ms) {
+static void rtc_dtls_fail(rtc_dtls_ctx_t *ctx, rtc_dtls_event_t *out_event,
+                          rtc_result_t error, uint32_t now_ms) {
   if (!ctx || !out_event) {
     return;
   }
@@ -346,14 +386,12 @@ void rtc_dtls_init(rtc_dtls_ctx_t *ctx) {
   ctx->handshake_max_retries = 16u;
   ctx->last_error = RTC_OK;
 
-  rtc_dtls_mailbox_reset(&ctx->client_inbox);
-  rtc_dtls_mailbox_reset(&ctx->server_inbox);
-  rtc_dtls_endpoint_init(&ctx->client);
-  rtc_dtls_endpoint_init(&ctx->server);
+  rtc_dtls_mailbox_reset(&ctx->inbound);
+  rtc_dtls_mailbox_reset(&ctx->outbound);
+  rtc_dtls_endpoint_init(&ctx->endpoint);
 }
 
-void rtc_dtls_configure(rtc_dtls_ctx_t *ctx,
-                        uint32_t peer_id,
+void rtc_dtls_configure(rtc_dtls_ctx_t *ctx, uint32_t peer_id,
                         uint16_t handshake_timeout_ms,
                         uint16_t handshake_max_retries,
                         uint8_t debug_enabled) {
@@ -375,15 +413,32 @@ void rtc_dtls_configure(rtc_dtls_ctx_t *ctx,
   ctx->debug_enabled = (uint8_t)(debug_enabled ? 1u : 0u);
 }
 
+rtc_result_t rtc_dtls_set_remote_fingerprint(rtc_dtls_ctx_t *ctx,
+                                             const char *fingerprint_sha256) {
+  size_t len;
+
+  if (!ctx || !fingerprint_sha256 || fingerprint_sha256[0] == '\0') {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  len = strlen(fingerprint_sha256);
+  if (len >= sizeof(ctx->remote_fingerprint)) {
+    return RTC_ERR_BUFFER_TOO_SMALL;
+  }
+
+  memset(ctx->remote_fingerprint, 0, sizeof(ctx->remote_fingerprint));
+  memcpy(ctx->remote_fingerprint, fingerprint_sha256, len);
+  return RTC_OK;
+}
+
 void rtc_dtls_deinit(rtc_dtls_ctx_t *ctx) {
   if (!ctx) {
     return;
   }
 
-  rtc_dtls_endpoint_deinit(&ctx->client);
-  rtc_dtls_endpoint_deinit(&ctx->server);
-  rtc_dtls_mailbox_reset(&ctx->client_inbox);
-  rtc_dtls_mailbox_reset(&ctx->server_inbox);
+  rtc_dtls_endpoint_deinit(&ctx->endpoint);
+  rtc_dtls_mailbox_reset(&ctx->inbound);
+  rtc_dtls_mailbox_reset(&ctx->outbound);
 
   ctx->state = RTC_DTLS_STATE_NEW;
   ctx->handshake_start_ms = 0u;
@@ -392,8 +447,7 @@ void rtc_dtls_deinit(rtc_dtls_ctx_t *ctx) {
   ctx->last_error = RTC_OK;
   memset(&ctx->keying_material, 0, sizeof(ctx->keying_material));
 
-  rtc_dtls_endpoint_init(&ctx->client);
-  rtc_dtls_endpoint_init(&ctx->server);
+  rtc_dtls_endpoint_init(&ctx->endpoint);
 }
 
 rtc_result_t rtc_dtls_start(rtc_dtls_ctx_t *ctx, uint32_t now_ms) {
@@ -409,32 +463,21 @@ rtc_result_t rtc_dtls_start(rtc_dtls_ctx_t *ctx, uint32_t now_ms) {
   if (ctx->state == RTC_DTLS_STATE_FAILED) {
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
   }
-
-  rtc_dtls_endpoint_deinit(&ctx->client);
-  rtc_dtls_endpoint_deinit(&ctx->server);
-  rtc_dtls_mailbox_reset(&ctx->client_inbox);
-  rtc_dtls_mailbox_reset(&ctx->server_inbox);
-  rtc_dtls_endpoint_init(&ctx->client);
-  rtc_dtls_endpoint_init(&ctx->server);
-
-  ctx->client.inbox = &ctx->client_inbox;
-  ctx->client.outbox = &ctx->server_inbox;
-  ctx->server.inbox = &ctx->server_inbox;
-  ctx->server.outbox = &ctx->client_inbox;
-
-  r = rtc_dtls_endpoint_setup(&ctx->client, 0u, ctx->debug_enabled);
-  if (r != RTC_OK) {
-    rtc_dtls_endpoint_deinit(&ctx->client);
-    rtc_dtls_endpoint_deinit(&ctx->server);
-    ctx->state = RTC_DTLS_STATE_FAILED;
-    ctx->last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
-    return RTC_ERR_DTLS_HANDSHAKE_FAILED;
+  if (ctx->remote_fingerprint[0] == '\0') {
+    return RTC_ERR_INVALID_STATE;
   }
 
-  r = rtc_dtls_endpoint_setup(&ctx->server, 1u, ctx->debug_enabled);
+  rtc_dtls_endpoint_deinit(&ctx->endpoint);
+  rtc_dtls_mailbox_reset(&ctx->inbound);
+  rtc_dtls_mailbox_reset(&ctx->outbound);
+  rtc_dtls_endpoint_init(&ctx->endpoint);
+
+  ctx->endpoint.inbox = &ctx->inbound;
+  ctx->endpoint.outbox = &ctx->outbound;
+
+  r = rtc_dtls_endpoint_setup(&ctx->endpoint, 1u, ctx->debug_enabled);
   if (r != RTC_OK) {
-    rtc_dtls_endpoint_deinit(&ctx->client);
-    rtc_dtls_endpoint_deinit(&ctx->server);
+    rtc_dtls_endpoint_deinit(&ctx->endpoint);
     ctx->state = RTC_DTLS_STATE_FAILED;
     ctx->last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
     return RTC_ERR_DTLS_HANDSHAKE_FAILED;
@@ -450,10 +493,34 @@ rtc_result_t rtc_dtls_start(rtc_dtls_ctx_t *ctx, uint32_t now_ms) {
   return RTC_OK;
 }
 
+rtc_result_t rtc_dtls_feed_incoming(rtc_dtls_ctx_t *ctx, const uint8_t *data,
+                                    uint16_t len) {
+  if (!ctx || !data || len == 0u || len > RTC_CFG_DTLS_MAX_DATAGRAM) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (ctx->state != RTC_DTLS_STATE_HANDSHAKE) {
+    return RTC_ERR_INVALID_STATE;
+  }
+  if (!rtc_dtls_mailbox_push(&ctx->inbound, data, len)) {
+    return RTC_ERR_OVERFLOW;
+  }
+  return RTC_OK;
+}
+
+rtc_result_t rtc_dtls_pop_outgoing(rtc_dtls_ctx_t *ctx, uint8_t *out_buf,
+                                   uint16_t out_cap, uint16_t *out_len) {
+  if (!ctx || !out_buf || !out_len || out_cap == 0u) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (!rtc_dtls_mailbox_pop(&ctx->outbound, out_buf, out_cap, out_len)) {
+    return RTC_ERR_TIMEOUT;
+  }
+  return RTC_OK;
+}
+
 void rtc_dtls_tick(rtc_dtls_ctx_t *ctx, uint32_t now_ms, rtc_dtls_event_t *out_event) {
-  uint8_t round;
-  uint8_t progress;
-  rtc_result_t r;
+  int r;
+  rtc_result_t vr;
 
   if (!ctx || !out_event) {
     return;
@@ -476,40 +543,43 @@ void rtc_dtls_tick(rtc_dtls_ctx_t *ctx, uint32_t now_ms, rtc_dtls_event_t *out_e
 
   ctx->handshake_attempts++;
 
-  for (round = 0; round < 6u; ++round) {
-    progress = 0u;
-
-    r = rtc_dtls_step_endpoint(&ctx->client, &progress);
-    if (r != RTC_OK) {
+  r = mbedtls_ssl_handshake(&ctx->endpoint.ssl);
+  if (r != 0 && r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE &&
+      r != MBEDTLS_ERR_SSL_TIMEOUT) {
+#ifdef MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS
+    if (r != MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS) {
       rtc_dtls_fail(ctx, out_event, RTC_ERR_DTLS_HANDSHAKE_FAILED, now_ms);
       return;
     }
-
-    r = rtc_dtls_step_endpoint(&ctx->server, &progress);
-    if (r != RTC_OK) {
-      rtc_dtls_fail(ctx, out_event, RTC_ERR_DTLS_HANDSHAKE_FAILED, now_ms);
-      return;
-    }
-
-    if (rtc_dtls_handshake_done(ctx)) {
-      r = rtc_dtls_derive_keying(ctx);
-      if (r != RTC_OK) {
-        rtc_dtls_fail(ctx, out_event, RTC_ERR_DTLS_HANDSHAKE_FAILED, now_ms);
-        return;
-      }
-      ctx->state = RTC_DTLS_STATE_CONNECTED;
-      ctx->handshake_elapsed_ms = now_ms - ctx->handshake_start_ms;
-      out_event->connected = 1u;
-      return;
-    }
-
-    if (!progress && ctx->client_inbox.count == 0u && ctx->server_inbox.count == 0u) {
-      break;
-    }
+#else
+    rtc_dtls_fail(ctx, out_event, RTC_ERR_DTLS_HANDSHAKE_FAILED, now_ms);
+    return;
+#endif
   }
+
+  if (!mbedtls_ssl_is_handshake_over(&ctx->endpoint.ssl)) {
+    return;
+  }
+
+  vr = rtc_dtls_verify_remote_fingerprint(ctx);
+  if (vr != RTC_OK) {
+    rtc_dtls_fail(ctx, out_event, RTC_ERR_DTLS_HANDSHAKE_FAILED, now_ms);
+    return;
+  }
+
+  vr = rtc_dtls_derive_keying(ctx);
+  if (vr != RTC_OK) {
+    rtc_dtls_fail(ctx, out_event, RTC_ERR_DTLS_HANDSHAKE_FAILED, now_ms);
+    return;
+  }
+
+  ctx->state = RTC_DTLS_STATE_CONNECTED;
+  ctx->handshake_elapsed_ms = now_ms - ctx->handshake_start_ms;
+  out_event->connected = 1u;
 }
 
-const rtc_dtls_key_material_t *rtc_dtls_get_key_material(const rtc_dtls_ctx_t *ctx) {
+const rtc_dtls_key_material_t *rtc_dtls_get_key_material(
+    const rtc_dtls_ctx_t *ctx) {
   if (!ctx || ctx->state != RTC_DTLS_STATE_CONNECTED ||
       ctx->keying_material.key_len == 0u) {
     return NULL;
@@ -524,11 +594,13 @@ rtc_result_t rtc_dtls_get_last_error(const rtc_dtls_ctx_t *ctx) {
   return ctx->last_error;
 }
 
-uint32_t rtc_dtls_get_handshake_elapsed_ms(const rtc_dtls_ctx_t *ctx, uint32_t now_ms) {
+uint32_t rtc_dtls_get_handshake_elapsed_ms(const rtc_dtls_ctx_t *ctx,
+                                           uint32_t now_ms) {
   if (!ctx) {
     return 0u;
   }
-  if (ctx->state == RTC_DTLS_STATE_CONNECTED || ctx->state == RTC_DTLS_STATE_FAILED) {
+  if (ctx->state == RTC_DTLS_STATE_CONNECTED ||
+      ctx->state == RTC_DTLS_STATE_FAILED) {
     return ctx->handshake_elapsed_ms;
   }
   if (ctx->state == RTC_DTLS_STATE_HANDSHAKE) {

@@ -54,6 +54,34 @@ static void build_test_packet(rtc_rtp_packet_t *pkt, uint16_t seq, uint8_t marke
   pkt->wire[15] = (uint8_t)(marker_byte + 3u);
 }
 
+static void build_test_dtls_packet(uint8_t *buf, uint16_t *out_len, uint8_t marker) {
+  if (!buf || !out_len) {
+    return;
+  }
+  memset(buf, 0, 20u);
+  buf[0] = 22u;
+  buf[1] = 0xFEu;
+  buf[2] = 0xFDu;
+  buf[3] = 0u;
+  buf[4] = 0u;
+  buf[5] = 0u;
+  buf[6] = 0u;
+  buf[7] = 0u;
+  buf[8] = 0u;
+  buf[9] = marker;
+  buf[10] = 0u;
+  buf[11] = 0u;
+  buf[12] = 0u;
+  buf[13] = 8u;
+  buf[14] = 1u;
+  buf[15] = marker;
+  buf[16] = marker;
+  buf[17] = marker;
+  buf[18] = marker;
+  buf[19] = marker;
+  *out_len = 20u;
+}
+
 static int test_udp_loopback_io(void) {
   rtc_transport_ctx_t ctx;
   rtc_rtp_packet_t packet;
@@ -236,6 +264,102 @@ static int test_recv_budget_consumes_invalid_packets(void) {
   return 0;
 }
 
+static int test_dtls_demux_to_dtls_queue(void) {
+  rtc_transport_ctx_t ctx;
+  rtc_platform_net_addr_t dst;
+  int sender_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint8_t dtls[RTC_CFG_MTU];
+  uint16_t dtls_len = 0u;
+  rtc_rtp_packet_t out_rtp;
+  rtc_transport_dtls_packet_t out_dtls;
+
+  memset(&ctx, 0, sizeof(ctx));
+  memset(&dst, 0, sizeof(dst));
+  rtc_transport_init(&ctx);
+  rtc_transport_set_loopback_mirror(&ctx, 0u);
+
+  ASSERT_TRUE(rtc_transport_local_port(&ctx) > 0u);
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&sender_fd));
+
+  dst.family = RTC_PLATFORM_IP_FAMILY_IPV4;
+  dst.port = rtc_transport_local_port(&ctx);
+  dst.addr[0] = 127u;
+  dst.addr[1] = 0u;
+  dst.addr[2] = 0u;
+  dst.addr[3] = 1u;
+
+  build_test_dtls_packet(dtls, &dtls_len, 0x33u);
+  {
+    uint16_t sent_len = 0u;
+    ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_sendto(sender_fd, &dst, dtls, dtls_len, &sent_len));
+    ASSERT_EQ_INT(dtls_len, sent_len);
+  }
+
+  {
+    uint16_t sent = 0u;
+    uint16_t recv = 0u;
+    uint32_t dropped = 0u;
+    ASSERT_EQ_INT(RTC_OK, rtc_transport_pump_io(&ctx, 4u, &sent, &recv, &dropped));
+  }
+
+  memset(&out_rtp, 0, sizeof(out_rtp));
+  ASSERT_EQ_INT(RTC_ERR_TIMEOUT, rtc_transport_dequeue_rx(&ctx, &out_rtp));
+  ASSERT_EQ_INT(RTC_OK, rtc_transport_dequeue_dtls(&ctx, &out_dtls));
+  ASSERT_EQ_INT(dtls_len, out_dtls.len);
+  ASSERT_EQ_INT(0, memcmp(dtls, out_dtls.data, dtls_len));
+
+  rtc_platform_udp_close(&sender_fd);
+  rtc_transport_deinit(&ctx);
+  return 0;
+}
+
+static int test_dtls_queue_overflow_is_bounded(void) {
+  rtc_transport_ctx_t ctx;
+  rtc_platform_net_addr_t dst;
+  int sender_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint8_t dtls[RTC_CFG_MTU];
+  uint16_t dtls_len = 0u;
+  uint32_t drop_before;
+  uint16_t i;
+
+  memset(&ctx, 0, sizeof(ctx));
+  memset(&dst, 0, sizeof(dst));
+  rtc_transport_init(&ctx);
+  rtc_transport_set_loopback_mirror(&ctx, 0u);
+
+  ASSERT_TRUE(rtc_transport_local_port(&ctx) > 0u);
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&sender_fd));
+
+  dst.family = RTC_PLATFORM_IP_FAMILY_IPV4;
+  dst.port = rtc_transport_local_port(&ctx);
+  dst.addr[0] = 127u;
+  dst.addr[1] = 0u;
+  dst.addr[2] = 0u;
+  dst.addr[3] = 1u;
+  drop_before = rtc_transport_dtls_drop_count(&ctx);
+
+  for (i = 0u; i < (uint16_t)(RTC_CFG_DTLS_MAILBOX_CAP + 6u); ++i) {
+    uint16_t sent_len = 0u;
+    build_test_dtls_packet(dtls, &dtls_len, (uint8_t)i);
+    ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_sendto(sender_fd, &dst, dtls, dtls_len, &sent_len));
+    ASSERT_EQ_INT(dtls_len, sent_len);
+  }
+
+  {
+    uint16_t sent = 0u;
+    uint16_t recv = 0u;
+    uint32_t dropped = 0u;
+    ASSERT_EQ_INT(RTC_OK, rtc_transport_pump_io(&ctx, (uint16_t)(RTC_CFG_DTLS_MAILBOX_CAP + 8u),
+                                                &sent, &recv, &dropped));
+    ASSERT_TRUE(dropped > 0u);
+  }
+  ASSERT_TRUE(rtc_transport_dtls_drop_count(&ctx) > drop_before);
+
+  rtc_platform_udp_close(&sender_fd);
+  rtc_transport_deinit(&ctx);
+  return 0;
+}
+
 int main(void) {
   int failures = 0;
 
@@ -243,6 +367,8 @@ int main(void) {
   failures += test_rx_overflow_drop_counter();
   failures += test_pump_bounds_and_watermarks();
   failures += test_recv_budget_consumes_invalid_packets();
+  failures += test_dtls_demux_to_dtls_queue();
+  failures += test_dtls_queue_overflow_is_bounded();
 
   if (failures != 0) {
     printf("transport test failures: %d\n", failures);

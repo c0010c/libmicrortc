@@ -1,8 +1,15 @@
 #include "rtc/rtc.h"
 
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/timing.h>
+#include <mbedtls/x509_crt.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "dtls/rtc_dtls_local_cert.h"
 #include "test_sdp_fixtures.h"
 #include "test_stun_helpers.h"
 
@@ -291,6 +298,353 @@ static void fill_peer_cfg(rtc_peer_config_t *cfg, test_peer_capture_t *cap) {
   cfg->user_data = cap;
 }
 
+typedef struct test_dtls_in_packet {
+  uint16_t len;
+  uint8_t data[RTC_CFG_DTLS_MAX_DATAGRAM];
+} test_dtls_in_packet_t;
+
+typedef struct test_remote_dtls_peer {
+  int remote_fd;
+  uint16_t remote_port;
+  rtc_platform_net_addr_t peer_addr;
+  uint8_t peer_addr_valid;
+  uint32_t dtls_in_drop_count;
+  uint16_t dtls_in_head;
+  uint16_t dtls_in_tail;
+  uint16_t dtls_in_count;
+  test_dtls_in_packet_t dtls_in[RTC_CFG_DTLS_MAILBOX_CAP];
+  char offer_ufrag[64];
+  char offer_pwd[64];
+  char local_ufrag[64];
+  uint8_t have_local_ufrag;
+  uint8_t started;
+  uint8_t connected;
+  uint8_t failed;
+  mbedtls_ssl_context ssl;
+  mbedtls_ssl_config conf;
+  mbedtls_x509_crt cert;
+  mbedtls_pk_context key;
+  mbedtls_entropy_context entropy;
+  mbedtls_ctr_drbg_context drbg;
+  mbedtls_timing_delay_context timer;
+} test_remote_dtls_peer_t;
+
+static const char *k_test_dtls_local_fingerprint =
+    "B3:7D:98:A3:34:67:93:66:D0:17:9B:08:C5:0E:8B:94:57:B8:DA:E7:F2:A9:05:16:8D:A2:E6:F1:E0:49:A1:EB";
+
+static const mbedtls_ssl_srtp_profile k_test_dtls_profiles[] = {
+    MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80,
+    MBEDTLS_TLS_SRTP_UNSET,
+};
+
+static int test_dtls_is_packet(const uint8_t *buf, uint16_t len) {
+  if (!buf || len == 0u) {
+    return 0;
+  }
+  return buf[0] >= 20u && buf[0] <= 63u;
+}
+
+static int test_dtls_in_push(test_remote_dtls_peer_t *peer, const uint8_t *buf,
+                             uint16_t len) {
+  test_dtls_in_packet_t *slot;
+
+  if (!peer || !buf || len == 0u || len > RTC_CFG_DTLS_MAX_DATAGRAM) {
+    return 0;
+  }
+  if (peer->dtls_in_count >= RTC_CFG_DTLS_MAILBOX_CAP) {
+    peer->dtls_in_drop_count++;
+    return 0;
+  }
+
+  slot = &peer->dtls_in[peer->dtls_in_tail];
+  slot->len = len;
+  memcpy(slot->data, buf, len);
+  peer->dtls_in_tail =
+      (uint16_t)((peer->dtls_in_tail + 1u) % RTC_CFG_DTLS_MAILBOX_CAP);
+  peer->dtls_in_count++;
+  return 1;
+}
+
+static int test_dtls_in_pop(test_remote_dtls_peer_t *peer, uint8_t *out,
+                            uint16_t cap, uint16_t *out_len) {
+  test_dtls_in_packet_t *slot;
+
+  if (!peer || !out || !out_len || peer->dtls_in_count == 0u) {
+    return 0;
+  }
+  slot = &peer->dtls_in[peer->dtls_in_head];
+  if (slot->len > cap) {
+    return 0;
+  }
+  memcpy(out, slot->data, slot->len);
+  *out_len = slot->len;
+  peer->dtls_in_head =
+      (uint16_t)((peer->dtls_in_head + 1u) % RTC_CFG_DTLS_MAILBOX_CAP);
+  peer->dtls_in_count--;
+  return 1;
+}
+
+static int test_remote_dtls_send_cb(void *ctx, const unsigned char *buf, size_t len) {
+  test_remote_dtls_peer_t *peer = (test_remote_dtls_peer_t *)ctx;
+  uint16_t sent_len = 0u;
+  rtc_result_t r;
+
+  if (!peer || !buf || len == 0u || len > RTC_CFG_DTLS_MAX_DATAGRAM) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
+  if (peer->remote_fd < 0 || !peer->peer_addr_valid) {
+    return MBEDTLS_ERR_SSL_WANT_WRITE;
+  }
+
+  r = rtc_platform_udp_sendto(peer->remote_fd, &peer->peer_addr, buf, (uint16_t)len,
+                              &sent_len);
+  if (r == RTC_ERR_TIMEOUT) {
+    return MBEDTLS_ERR_SSL_WANT_WRITE;
+  }
+  if (r != RTC_OK || sent_len != len) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
+
+  return (int)len;
+}
+
+static int test_remote_dtls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
+  test_remote_dtls_peer_t *peer = (test_remote_dtls_peer_t *)ctx;
+  uint16_t packet_len = 0u;
+
+  if (!peer || !buf || len == 0u || len > UINT16_MAX) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
+  if (!test_dtls_in_pop(peer, buf, (uint16_t)len, &packet_len)) {
+    return MBEDTLS_ERR_SSL_WANT_READ;
+  }
+  return (int)packet_len;
+}
+
+static int test_replace_offer_fingerprint(const char *offer_sdp,
+                                          const char *fingerprint,
+                                          char *out_offer,
+                                          uint16_t out_offer_cap) {
+  const char *needle = "a=fingerprint:sha-256 ";
+  const char *line_start = NULL;
+  const char *line_end = NULL;
+  size_t prefix_len;
+  size_t suffix_len;
+  size_t fp_len;
+  size_t total_len;
+
+  if (!offer_sdp || !fingerprint || !out_offer || out_offer_cap == 0u) {
+    return 0;
+  }
+
+  line_start = strstr(offer_sdp, needle);
+  if (!line_start) {
+    return 0;
+  }
+  line_end = strchr(line_start, '\n');
+  if (!line_end) {
+    line_end = offer_sdp + strlen(offer_sdp);
+  }
+
+  prefix_len = (size_t)(line_start - offer_sdp) + strlen(needle);
+  suffix_len = strlen(line_end);
+  fp_len = strlen(fingerprint);
+  total_len = prefix_len + fp_len + suffix_len + 1u;
+  if (total_len > out_offer_cap) {
+    return 0;
+  }
+
+  memcpy(out_offer, offer_sdp, prefix_len);
+  memcpy(out_offer + prefix_len, fingerprint, fp_len);
+  memcpy(out_offer + prefix_len + fp_len, line_end, suffix_len + 1u);
+  return 1;
+}
+
+static int test_remote_dtls_peer_init(test_remote_dtls_peer_t *peer,
+                                      const char *offer_sdp) {
+  const char *pers = "test-remote-dtls-client";
+  int rc;
+
+  if (!peer || !offer_sdp) {
+    return 0;
+  }
+
+  memset(peer, 0, sizeof(*peer));
+  peer->remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+
+  if (!rtc_test_extract_sdp_attr(offer_sdp, "a=ice-ufrag:", peer->offer_ufrag,
+                                 (uint16_t)sizeof(peer->offer_ufrag))) {
+    return 0;
+  }
+  if (!rtc_test_extract_sdp_attr(offer_sdp, "a=ice-pwd:", peer->offer_pwd,
+                                 (uint16_t)sizeof(peer->offer_pwd))) {
+    return 0;
+  }
+  if (rtc_platform_udp_create_nonblock(&peer->remote_fd) != RTC_OK) {
+    return 0;
+  }
+  if (rtc_platform_udp_bind(peer->remote_fd, 0u, &peer->remote_port) != RTC_OK) {
+    rtc_platform_udp_close(&peer->remote_fd);
+    return 0;
+  }
+
+  mbedtls_ssl_init(&peer->ssl);
+  mbedtls_ssl_config_init(&peer->conf);
+  mbedtls_x509_crt_init(&peer->cert);
+  mbedtls_pk_init(&peer->key);
+  mbedtls_entropy_init(&peer->entropy);
+  mbedtls_ctr_drbg_init(&peer->drbg);
+  memset(&peer->timer, 0, sizeof(peer->timer));
+
+  rc = mbedtls_ctr_drbg_seed(&peer->drbg, mbedtls_entropy_func, &peer->entropy,
+                             (const unsigned char *)pers, strlen(pers));
+  if (rc != 0) {
+    return 0;
+  }
+  rc = mbedtls_x509_crt_parse(&peer->cert,
+                              (const unsigned char *)g_rtc_dtls_local_cert_pem,
+                              sizeof(g_rtc_dtls_local_cert_pem));
+  if (rc != 0) {
+    return 0;
+  }
+  rc = mbedtls_pk_parse_key(&peer->key,
+                            (const unsigned char *)g_rtc_dtls_local_key_pem,
+                            sizeof(g_rtc_dtls_local_key_pem), NULL, 0,
+                            mbedtls_ctr_drbg_random, &peer->drbg);
+  if (rc != 0) {
+    return 0;
+  }
+  rc = mbedtls_ssl_config_defaults(&peer->conf, MBEDTLS_SSL_IS_CLIENT,
+                                   MBEDTLS_SSL_TRANSPORT_DATAGRAM,
+                                   MBEDTLS_SSL_PRESET_DEFAULT);
+  if (rc != 0) {
+    return 0;
+  }
+
+  mbedtls_ssl_conf_authmode(&peer->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
+  mbedtls_ssl_conf_rng(&peer->conf, mbedtls_ctr_drbg_random, &peer->drbg);
+  if (mbedtls_ssl_conf_own_cert(&peer->conf, &peer->cert, &peer->key) != 0) {
+    return 0;
+  }
+  if (mbedtls_ssl_conf_dtls_srtp_protection_profiles(&peer->conf,
+                                                      k_test_dtls_profiles) != 0) {
+    return 0;
+  }
+  mbedtls_ssl_conf_dtls_cookies(&peer->conf, NULL, NULL, NULL);
+  if (mbedtls_ssl_setup(&peer->ssl, &peer->conf) != 0) {
+    return 0;
+  }
+  mbedtls_ssl_set_bio(&peer->ssl, peer, test_remote_dtls_send_cb,
+                      test_remote_dtls_recv_cb, NULL);
+  mbedtls_ssl_set_timer_cb(&peer->ssl, &peer->timer, mbedtls_timing_set_delay,
+                           mbedtls_timing_get_delay);
+  mbedtls_ssl_set_mtu(&peer->ssl, RTC_CFG_MTU);
+  return 1;
+}
+
+static void test_remote_dtls_peer_deinit(test_remote_dtls_peer_t *peer) {
+  if (!peer) {
+    return;
+  }
+  rtc_platform_udp_close(&peer->remote_fd);
+  mbedtls_ssl_free(&peer->ssl);
+  mbedtls_ssl_config_free(&peer->conf);
+  mbedtls_x509_crt_free(&peer->cert);
+  mbedtls_pk_free(&peer->key);
+  mbedtls_ctr_drbg_free(&peer->drbg);
+  mbedtls_entropy_free(&peer->entropy);
+  memset(peer, 0, sizeof(*peer));
+  peer->remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+}
+
+static int test_remote_dtls_peer_step(test_remote_dtls_peer_t *peer,
+                                      const char *local_sdp) {
+  uint8_t packet[RTC_CFG_MTU];
+  char username[160];
+
+  if (!peer) {
+    return 0;
+  }
+
+  if (!peer->have_local_ufrag && local_sdp && local_sdp[0] != '\0') {
+    if (rtc_test_extract_sdp_attr(local_sdp, "a=ice-ufrag:", peer->local_ufrag,
+                                  (uint16_t)sizeof(peer->local_ufrag))) {
+      peer->have_local_ufrag = 1u;
+    }
+  }
+
+  for (;;) {
+    rtc_platform_net_addr_t src;
+    uint16_t recv_len = 0u;
+    rtc_result_t r = rtc_platform_udp_recvfrom(peer->remote_fd, &src, packet,
+                                               (uint16_t)sizeof(packet), &recv_len);
+    if (r == RTC_ERR_TIMEOUT) {
+      break;
+    }
+    if (r != RTC_OK) {
+      return 0;
+    }
+
+    if (rtc_test_stun_is_binding_request(packet, recv_len)) {
+      uint8_t tid[12];
+      uint8_t rsp[RTC_CFG_MTU];
+      uint16_t rsp_len = (uint16_t)sizeof(rsp);
+      uint16_t sent_len = 0u;
+
+      peer->peer_addr = src;
+      peer->peer_addr_valid = 1u;
+      if (!peer->have_local_ufrag) {
+        continue;
+      }
+      if (!rtc_test_stun_get_transaction_id(packet, recv_len, tid)) {
+        return 0;
+      }
+      if (snprintf(username, sizeof(username), "%s:%s", peer->offer_ufrag,
+                   peer->local_ufrag) <= 0) {
+        return 0;
+      }
+      if (!rtc_test_stun_build_binding_response(tid, username, peer->offer_pwd,
+                                                src.addr, src.port, rsp, &rsp_len)) {
+        return 0;
+      }
+      if (rtc_platform_udp_sendto(peer->remote_fd, &src, rsp, rsp_len,
+                                  &sent_len) != RTC_OK ||
+          sent_len != rsp_len) {
+        return 0;
+      }
+      continue;
+    }
+
+    if (test_dtls_is_packet(packet, recv_len)) {
+      peer->peer_addr = src;
+      peer->peer_addr_valid = 1u;
+      (void)test_dtls_in_push(peer, packet, recv_len);
+    }
+  }
+
+  if (!peer->started && peer->have_local_ufrag && peer->peer_addr_valid) {
+    peer->started = 1u;
+  }
+
+  if (peer->started && !peer->connected && !peer->failed) {
+    int hr = mbedtls_ssl_handshake(&peer->ssl);
+    if (hr == 0) {
+      peer->connected = 1u;
+    } else if (hr != MBEDTLS_ERR_SSL_WANT_READ &&
+               hr != MBEDTLS_ERR_SSL_WANT_WRITE &&
+               hr != MBEDTLS_ERR_SSL_TIMEOUT) {
+#ifdef MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS
+      if (hr != MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS) {
+        peer->failed = 1u;
+      }
+#else
+      peer->failed = 1u;
+#endif
+    }
+  }
+  return 1;
+}
+
 static int test_remote_stun_responder_step(int remote_fd, const char *offer_ufrag,
                                            const char *offer_pwd,
                                            const char *local_sdp) {
@@ -443,41 +797,38 @@ static int test_send_binding_request_from_remote(int remote_fd,
 static int poll_until_connected(rtc_engine_t *engine, rtc_peer_t *peer,
                                 test_peer_capture_t *cap) {
   uint32_t now_ms = 0;
-  rtc_peer_state_t state;
-  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
-  uint16_t remote_port = 0u;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  test_remote_dtls_peer_t remote_peer;
+  char offer_sdp[RTC_CFG_MAX_SDP_LEN];
   char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
-  char offer_ufrag[64];
-  char offer_pwd[64];
   int i;
 
   ASSERT_TRUE(cap != NULL);
-  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-ufrag:",
-                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
-  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-pwd:",
-                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
-  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
-  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(test_replace_offer_fingerprint(g_test_chrome_offer_h264_g711,
+                                             k_test_dtls_local_fingerprint,
+                                             offer_sdp,
+                                             (uint16_t)sizeof(offer_sdp)));
+  ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
-                                            remote_port, 2130706431u));
+                                            remote_peer.remote_port, 2130706431u));
 
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, offer_sdp, "offer"));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
-  for (i = 0; i < 40; ++i) {
+  for (i = 0; i < 300; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
-    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap->last_local_sdp);
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap->last_local_sdp));
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_CONNECTED) {
-      rtc_platform_udp_close(&remote_fd);
+      test_remote_dtls_peer_deinit(&remote_peer);
       return 0;
     }
   }
 
-  rtc_platform_udp_close(&remote_fd);
+  test_remote_dtls_peer_deinit(&remote_peer);
   printf("peer did not reach connected state\n");
   return 1;
 }
@@ -518,6 +869,8 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_EQ_INT(RTC_DTLS_STATE_CONNECTED, peer_stats.dtls_state);
   ASSERT_TRUE(peer_stats.srtp_active == 1);
   ASSERT_TRUE(peer_stats.dtls_handshake_elapsed_ms > 0);
+  ASSERT_TRUE(peer_stats.dtls_rx_pkts > 0u);
+  ASSERT_TRUE(peer_stats.dtls_tx_pkts > 0u);
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_get_stats(engine, &engine_stats));
   ASSERT_TRUE(engine_stats.poll_count >= 1);
@@ -704,11 +1057,9 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   test_log_capture_t logs;
   test_peer_capture_t cap;
   rtc_peer_state_t state = RTC_PEER_STATE_NEW;
-  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
-  uint16_t remote_port = 0u;
+  test_remote_dtls_peer_t remote_peer;
+  char offer_sdp[RTC_CFG_MAX_SDP_LEN];
   char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
-  char offer_ufrag[64];
-  char offer_pwd[64];
   uint32_t now_ms = 0;
   int i;
 
@@ -716,35 +1067,34 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   memset(&cap, 0, sizeof(cap));
   fill_engine_cfg(&engine_cfg, &logs);
   fill_peer_cfg(&peer_cfg, &cap);
-  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-ufrag:",
-                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
-  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-pwd:",
-                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
-  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
-  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(test_replace_offer_fingerprint(g_test_chrome_offer_no_candidate,
+                                             k_test_dtls_local_fingerprint,
+                                             offer_sdp,
+                                             (uint16_t)sizeof(offer_sdp)));
+  ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
-                                            remote_port, 2130706431u));
+                                            remote_peer.remote_port, 2130706431u));
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_no_candidate, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, offer_sdp, "offer"));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 4; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
-    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
   }
   ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
   ASSERT_TRUE(state != RTC_PEER_STATE_FAILED);
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
 
-  for (i = 0; i < 40; ++i) {
+  for (i = 0; i < 300; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
-    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_CONNECTED) {
       break;
@@ -752,7 +1102,7 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   }
   ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
 
-  rtc_platform_udp_close(&remote_fd);
+  test_remote_dtls_peer_deinit(&remote_peer);
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   return 0;
@@ -766,11 +1116,9 @@ static int test_candidate_before_offer_is_preserved(void) {
   test_log_capture_t logs;
   test_peer_capture_t cap;
   rtc_peer_state_t state = RTC_PEER_STATE_NEW;
-  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
-  uint16_t remote_port = 0u;
+  test_remote_dtls_peer_t remote_peer;
+  char offer_sdp[RTC_CFG_MAX_SDP_LEN];
   char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
-  char offer_ufrag[64];
-  char offer_pwd[64];
   uint32_t now_ms = 0;
   int i;
 
@@ -778,27 +1126,26 @@ static int test_candidate_before_offer_is_preserved(void) {
   memset(&cap, 0, sizeof(cap));
   fill_engine_cfg(&engine_cfg, &logs);
   fill_peer_cfg(&peer_cfg, &cap);
-  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-ufrag:",
-                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
-  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-pwd:",
-                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
-  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
-  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(test_replace_offer_fingerprint(g_test_chrome_offer_no_candidate,
+                                             k_test_dtls_local_fingerprint,
+                                             offer_sdp,
+                                             (uint16_t)sizeof(offer_sdp)));
+  ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
-                                            remote_port, 2130706431u));
+                                            remote_peer.remote_port, 2130706431u));
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_no_candidate, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, offer_sdp, "offer"));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
-  for (i = 0; i < 40; ++i) {
+  for (i = 0; i < 300; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
-    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_CONNECTED) {
       break;
@@ -806,7 +1153,7 @@ static int test_candidate_before_offer_is_preserved(void) {
   }
   ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
 
-  rtc_platform_udp_close(&remote_fd);
+  test_remote_dtls_peer_deinit(&remote_peer);
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   return 0;
@@ -984,7 +1331,7 @@ static int test_ice_protocol_error_observability(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
-  for (i = 0; i < 80; ++i) {
+  for (i = 0; i < 400; ++i) {
     now_ms += 10u;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
     if (!have_local_ufrag && cap.local_description_count > 0u) {
@@ -1261,6 +1608,64 @@ static int test_queue_overflow_and_datachannel_stub(void) {
   return 0;
 }
 
+static int test_dtls_fingerprint_mismatch_observability(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_peer_stats_t stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  test_remote_dtls_peer_t remote_peer;
+  char offer_sdp[RTC_CFG_MAX_SDP_LEN];
+  char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  uint32_t now_ms = 0u;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&stats, 0, sizeof(stats));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+  ASSERT_TRUE(test_replace_offer_fingerprint(
+      g_test_chrome_offer_h264_g711,
+      "AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA",
+      offer_sdp, (uint16_t)sizeof(offer_sdp)));
+  ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
+  ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
+                                            (uint16_t)sizeof(remote_candidate),
+                                            remote_peer.remote_port, 2130706431u));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, offer_sdp, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 80; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_FAILED || state == RTC_PEER_STATE_CONNECTED) {
+      break;
+    }
+  }
+
+  ASSERT_EQ_INT(RTC_PEER_STATE_FAILED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_EQ_INT(RTC_ERR_DTLS_HANDSHAKE_FAILED, stats.dtls_last_error);
+  ASSERT_EQ_INT(RTC_DTLS_STATE_FAILED, stats.dtls_state);
+  ASSERT_TRUE(logs.seen_dtls_failed >= 1u);
+
+  test_remote_dtls_peer_deinit(&remote_peer);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  ASSERT_EQ_INT(0, assert_log_baseline_minimum(&logs, TEST_LOG_PROFILE_DTLS_FAIL));
+  return 0;
+}
+
 static int test_dtls_timeout_and_error_observability(void) {
   rtc_engine_t *engine = NULL;
   rtc_peer_t *peer = NULL;
@@ -1344,6 +1749,7 @@ int main(void) {
   failures += test_resource_exhaustion();
   failures += test_media_loopback_and_stats();
   failures += test_queue_overflow_and_datachannel_stub();
+  failures += test_dtls_fingerprint_mismatch_observability();
   failures += test_dtls_timeout_and_error_observability();
 
   if (failures != 0) {

@@ -72,11 +72,11 @@ typedef struct rtc_dtls_ctx {
   uint16_t handshake_attempts;
   uint8_t debug_enabled;
   rtc_result_t last_error;
+  char remote_fingerprint[96];
   rtc_dtls_key_material_t keying_material;
-  rtc_dtls_endpoint_t client;
-  rtc_dtls_endpoint_t server;
-  rtc_dtls_mailbox_t client_inbox;
-  rtc_dtls_mailbox_t server_inbox;
+  rtc_dtls_endpoint_t endpoint;
+  rtc_dtls_mailbox_t inbound;
+  rtc_dtls_mailbox_t outbound;
 } rtc_dtls_ctx_t;
 
 void rtc_dtls_init(rtc_dtls_ctx_t *ctx);
@@ -84,8 +84,14 @@ void rtc_dtls_configure(rtc_dtls_ctx_t *ctx, uint32_t peer_id,
                         uint16_t handshake_timeout_ms,
                         uint16_t handshake_max_retries,
                         uint8_t debug_enabled);
+rtc_result_t rtc_dtls_set_remote_fingerprint(rtc_dtls_ctx_t *ctx,
+                                             const char *fingerprint_sha256);
 void rtc_dtls_deinit(rtc_dtls_ctx_t *ctx);
 rtc_result_t rtc_dtls_start(rtc_dtls_ctx_t *ctx, uint32_t now_ms);
+rtc_result_t rtc_dtls_feed_incoming(rtc_dtls_ctx_t *ctx, const uint8_t *data,
+                                    uint16_t len);
+rtc_result_t rtc_dtls_pop_outgoing(rtc_dtls_ctx_t *ctx, uint8_t *out_buf,
+                                   uint16_t out_cap, uint16_t *out_len);
 void rtc_dtls_tick(rtc_dtls_ctx_t *ctx, uint32_t now_ms, rtc_dtls_event_t *out_event);
 const rtc_dtls_key_material_t *rtc_dtls_get_key_material(const rtc_dtls_ctx_t *ctx);
 rtc_result_t rtc_dtls_get_last_error(const rtc_dtls_ctx_t *ctx);

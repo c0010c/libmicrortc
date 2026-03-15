@@ -15,6 +15,11 @@ typedef struct rtc_transport_ctx {
     uint16_t len;
     uint8_t data[RTC_CFG_MTU];
   } stun_rx_queue[RTC_CFG_RTCP_FB_QUEUE];
+  struct rtc_transport_dtls_packet {
+    rtc_platform_net_addr_t src_addr;
+    uint16_t len;
+    uint8_t data[RTC_CFG_DTLS_MAX_DATAGRAM];
+  } dtls_rx_queue[RTC_CFG_DTLS_MAILBOX_CAP];
   uint16_t tx_head;
   uint16_t tx_tail;
   uint16_t tx_size;
@@ -27,6 +32,10 @@ typedef struct rtc_transport_ctx {
   uint16_t stun_rx_tail;
   uint16_t stun_rx_size;
   uint16_t stun_rx_high_watermark;
+  uint16_t dtls_rx_head;
+  uint16_t dtls_rx_tail;
+  uint16_t dtls_rx_size;
+  uint16_t dtls_rx_high_watermark;
 
   int udp_socket_fd;
   uint16_t local_port;
@@ -47,9 +56,16 @@ typedef struct rtc_transport_ctx {
   uint32_t io_stun_tx_packets;
   uint32_t io_stun_tx_would_block_count;
   uint32_t io_stun_tx_error_count;
+  uint32_t io_dtls_rx_packets;
+  uint32_t io_dtls_rx_drop_packets;
+  uint32_t io_dtls_rx_error_count;
+  uint32_t io_dtls_tx_packets;
+  uint32_t io_dtls_tx_would_block_count;
+  uint32_t io_dtls_tx_error_count;
 } rtc_transport_ctx_t;
 
 typedef struct rtc_transport_stun_packet rtc_transport_stun_packet_t;
+typedef struct rtc_transport_dtls_packet rtc_transport_dtls_packet_t;
 
 void rtc_transport_init(rtc_transport_ctx_t *ctx);
 void rtc_transport_deinit(rtc_transport_ctx_t *ctx);
@@ -65,6 +81,10 @@ rtc_result_t rtc_transport_send_stun(rtc_transport_ctx_t *ctx,
                                      const rtc_platform_net_addr_t *remote,
                                      const uint8_t *buf, uint16_t len,
                                      uint16_t *out_sent_len);
+rtc_result_t rtc_transport_send_dtls(rtc_transport_ctx_t *ctx,
+                                     const rtc_platform_net_addr_t *remote,
+                                     const uint8_t *buf, uint16_t len,
+                                     uint16_t *out_sent_len);
 
 rtc_result_t rtc_transport_pump_io(rtc_transport_ctx_t *ctx, uint16_t max_packets,
                                    uint16_t *out_sent_count,
@@ -75,6 +95,8 @@ rtc_result_t rtc_transport_dequeue_rx(rtc_transport_ctx_t *ctx,
                                       rtc_rtp_packet_t *out_packet);
 rtc_result_t rtc_transport_dequeue_stun(rtc_transport_ctx_t *ctx,
                                         rtc_transport_stun_packet_t *out_packet);
+rtc_result_t rtc_transport_dequeue_dtls(rtc_transport_ctx_t *ctx,
+                                        rtc_transport_dtls_packet_t *out_packet);
 
 uint16_t rtc_transport_local_port(const rtc_transport_ctx_t *ctx);
 uint16_t rtc_transport_tx_depth(const rtc_transport_ctx_t *ctx);
@@ -83,7 +105,12 @@ uint16_t rtc_transport_rx_depth(const rtc_transport_ctx_t *ctx);
 uint16_t rtc_transport_rx_high_watermark(const rtc_transport_ctx_t *ctx);
 uint16_t rtc_transport_stun_depth(const rtc_transport_ctx_t *ctx);
 uint16_t rtc_transport_stun_high_watermark(const rtc_transport_ctx_t *ctx);
+uint16_t rtc_transport_dtls_depth(const rtc_transport_ctx_t *ctx);
+uint16_t rtc_transport_dtls_high_watermark(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_rx_drop_count(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_stun_drop_count(const rtc_transport_ctx_t *ctx);
+uint32_t rtc_transport_dtls_drop_count(const rtc_transport_ctx_t *ctx);
+uint32_t rtc_transport_dtls_rx_count(const rtc_transport_ctx_t *ctx);
+uint32_t rtc_transport_dtls_tx_count(const rtc_transport_ctx_t *ctx);
 
 #endif  // RTC_TRANSPORT_H_
