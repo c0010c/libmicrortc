@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#define RTC_SRTP_RTCP_MIN_LEN 8u
+
 static uint8_t g_rtc_srtp_initialized = 0u;
 
 static rtc_result_t rtc_srtp_map_error(srtp_err_status_t err) {
@@ -168,6 +170,69 @@ rtc_result_t rtc_srtp_unprotect(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet) {
     return rtc_srtp_map_error(r);
   }
   if (out_len > UINT16_MAX || out_len < RTC_CFG_RTP_HEADER_LEN) {
+    return RTC_ERR_PROTOCOL;
+  }
+
+  packet->wire_len = (uint16_t)out_len;
+  return RTC_OK;
+}
+
+rtc_result_t rtc_srtp_protect_rtcp(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet) {
+  srtp_err_status_t r;
+  size_t out_len;
+
+  if (!ctx || !packet) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (ctx->state != RTC_SRTP_STATE_ACTIVE || ctx->outbound_session == NULL) {
+    return RTC_ERR_INVALID_STATE;
+  }
+  if (packet->wire_len < RTC_SRTP_RTCP_MIN_LEN) {
+    return RTC_ERR_PROTOCOL;
+  }
+
+  out_len = sizeof(packet->wire);
+  r = srtp_protect_rtcp(ctx->outbound_session,
+                        packet->wire,
+                        packet->wire_len,
+                        packet->wire,
+                        &out_len,
+                        0u);
+  if (r != srtp_err_status_ok) {
+    return rtc_srtp_map_error(r);
+  }
+  if (out_len > UINT16_MAX) {
+    return RTC_ERR_OVERFLOW;
+  }
+
+  packet->wire_len = (uint16_t)out_len;
+  return RTC_OK;
+}
+
+rtc_result_t rtc_srtp_unprotect_rtcp(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet) {
+  srtp_err_status_t r;
+  size_t out_len;
+
+  if (!ctx || !packet) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (ctx->state != RTC_SRTP_STATE_ACTIVE || ctx->inbound_session == NULL) {
+    return RTC_ERR_INVALID_STATE;
+  }
+  if (packet->wire_len < RTC_SRTP_RTCP_MIN_LEN) {
+    return RTC_ERR_PROTOCOL;
+  }
+
+  out_len = sizeof(packet->wire);
+  r = srtp_unprotect_rtcp(ctx->inbound_session,
+                          packet->wire,
+                          packet->wire_len,
+                          packet->wire,
+                          &out_len);
+  if (r != srtp_err_status_ok) {
+    return rtc_srtp_map_error(r);
+  }
+  if (out_len > UINT16_MAX || out_len < RTC_SRTP_RTCP_MIN_LEN) {
     return RTC_ERR_PROTOCOL;
   }
 

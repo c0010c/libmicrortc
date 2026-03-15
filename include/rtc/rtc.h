@@ -138,6 +138,8 @@ typedef struct rtc_peer_stats {
   int16_t ice_last_error;
   uint32_t dtls_rx_pkts;
   uint32_t dtls_tx_pkts;
+  uint32_t srtp_unprotect_fail;
+  uint32_t rtcp_rx_pkts;
 } rtc_peer_stats_t;
 
 typedef struct rtc_engine_stats {

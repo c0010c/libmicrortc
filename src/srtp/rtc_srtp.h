@@ -35,5 +35,7 @@ rtc_result_t rtc_srtp_activate(rtc_srtp_ctx_t *ctx,
                                const rtc_srtp_key_material_t *keys);
 rtc_result_t rtc_srtp_protect(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet);
 rtc_result_t rtc_srtp_unprotect(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet);
+rtc_result_t rtc_srtp_protect_rtcp(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet);
+rtc_result_t rtc_srtp_unprotect_rtcp(rtc_srtp_ctx_t *ctx, rtc_rtp_packet_t *packet);
 
 #endif  // RTC_SRTP_H_

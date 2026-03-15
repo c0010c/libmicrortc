@@ -124,3 +124,15 @@ if(RTC_ENABLE_REAL_DTLS_SRTP)
 endif()
 
 add_test(NAME rtc_interop_smoke_test COMMAND rtc_interop_smoke_test)
+
+add_executable(rtc_srtp_test
+    test/test_rtc_srtp.c
+)
+
+target_include_directories(rtc_srtp_test PRIVATE include src)
+if(RTC_ENABLE_REAL_DTLS_SRTP)
+  target_include_directories(rtc_srtp_test PRIVATE third_party/libsrtp/include)
+endif()
+target_link_libraries(rtc_srtp_test PRIVATE rtc_c)
+
+add_test(NAME rtc_srtp_test COMMAND rtc_srtp_test)

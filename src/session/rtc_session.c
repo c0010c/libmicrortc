@@ -137,6 +137,29 @@ static void rtc_update_security_stats(rtc_peer_t *peer, uint32_t now_ms) {
   peer->stats.dtls_tx_pkts = rtc_transport_dtls_tx_count(&peer->transport);
 }
 
+static int rtc_is_rtcp_packet(const rtc_rtp_packet_t *packet) {
+  if (!packet || packet->wire_len < 2u) {
+    return 0;
+  }
+  if ((packet->wire[0] & 0xC0u) != 0x80u) {
+    return 0;
+  }
+  return packet->wire[1] >= 192u && packet->wire[1] <= 223u;
+}
+
+static void rtc_record_srtp_unprotect_fail(rtc_peer_t *peer, rtc_result_t code,
+                                           const char *message) {
+  uint32_t fail_count;
+  if (!peer) {
+    return;
+  }
+  peer->stats.protocol_error_count++;
+  fail_count = ++peer->stats.srtp_unprotect_fail;
+  if (fail_count == 1u || (fail_count % 64u) == 0u) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_SRTP, code, message);
+  }
+}
+
 static char rtc_ascii_tolower(char ch) {
   if (ch >= 'A' && ch <= 'Z') {
     return (char)(ch - 'A' + 'a');
@@ -340,11 +363,19 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
       break;
     }
 
+    if (rtc_is_rtcp_packet(&packet)) {
+      r = rtc_srtp_unprotect_rtcp(&peer->srtp, &packet);
+      if (r != RTC_OK) {
+        rtc_record_srtp_unprotect_fail(peer, r, "srtcp unprotect failed");
+        continue;
+      }
+      peer->stats.rtcp_rx_pkts++;
+      continue;
+    }
+
     r = rtc_srtp_unprotect(&peer->srtp, &packet);
     if (r != RTC_OK) {
-      peer->stats.protocol_error_count++;
-      rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_SRTP, r,
-                   "srtp unprotect failed");
+      rtc_record_srtp_unprotect_fail(peer, r, "srtp unprotect failed");
       continue;
     }
 
@@ -723,6 +754,8 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
     if (dtls_event.connected) {
       rtc_srtp_key_material_t keys;
       const rtc_dtls_key_material_t *km = rtc_dtls_get_key_material(&peer->dtls);
+      const uint8_t *outbound_key = NULL;
+      const uint8_t *inbound_key = NULL;
       rtc_result_t r;
 
       if (!km || km->key_len != 30u) {
@@ -737,8 +770,19 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
       memset(&keys, 0, sizeof(keys));
       keys.key_len = km->key_len;
       keys.profile = (uint8_t)km->profile;
-      memcpy(keys.outbound_key, km->client_write_key, keys.key_len);
-      memcpy(keys.inbound_key, km->client_write_key, keys.key_len);
+      if (peer->dtls.endpoint.is_server) {
+        outbound_key = km->server_write_key;
+        inbound_key = km->client_write_key;
+        rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_SRTP, RTC_OK,
+                     "srtp key role mapped server");
+      } else {
+        outbound_key = km->client_write_key;
+        inbound_key = km->server_write_key;
+        rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_SRTP, RTC_OK,
+                     "srtp key role mapped client");
+      }
+      memcpy(keys.outbound_key, outbound_key, keys.key_len);
+      memcpy(keys.inbound_key, inbound_key, keys.key_len);
 
       r = rtc_srtp_activate(&peer->srtp, &keys);
       if (r != RTC_OK) {

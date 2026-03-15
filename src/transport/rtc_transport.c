@@ -143,6 +143,16 @@ static int rtc_transport_is_dtls_packet(const uint8_t *buf, uint16_t len) {
   return buf[0] >= 20u && buf[0] <= 63u;
 }
 
+static int rtc_transport_is_rtcp_packet(const uint8_t *buf, uint16_t len) {
+  if (!buf || len < 8u) {
+    return 0;
+  }
+  if ((buf[0] & 0xC0u) != 0x80u) {
+    return 0;
+  }
+  return buf[1] >= 192u && buf[1] <= 223u;
+}
+
 void rtc_transport_init(rtc_transport_ctx_t *ctx) {
   rtc_result_t r;
 
@@ -151,7 +161,7 @@ void rtc_transport_init(rtc_transport_ctx_t *ctx) {
   }
   memset(ctx, 0, sizeof(*ctx));
   ctx->udp_socket_fd = RTC_PLATFORM_INVALID_SOCKET;
-  ctx->mirror_loopback = 1u;
+  ctx->mirror_loopback = 0u;
   rtc_transport_reset_queue(ctx->tx_queue, RTC_CFG_RTP_RX_QUEUE, &ctx->tx_head,
                             &ctx->tx_tail, &ctx->tx_size, &ctx->tx_high_watermark);
   rtc_transport_reset_queue(ctx->rx_queue, RTC_CFG_RTP_RX_QUEUE, &ctx->rx_head,
@@ -402,7 +412,8 @@ rtc_result_t rtc_transport_pump_io(rtc_transport_ctx_t *ctx, uint16_t max_packet
         }
         continue;
       }
-      if (read_len < RTC_CFG_RTP_HEADER_LEN) {
+      if (read_len < RTC_CFG_RTP_HEADER_LEN &&
+          !rtc_transport_is_rtcp_packet(packet.wire, read_len)) {
         had_protocol_error = 1u;
         ctx->io_rx_error_count++;
         ctx->io_dtls_rx_error_count++;
