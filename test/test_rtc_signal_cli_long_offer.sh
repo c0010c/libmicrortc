@@ -13,10 +13,10 @@ if [[ ! -x "$cli_bin" ]]; then
 fi
 
 tmp_out="$(mktemp)"
-trap 'rm -f "$tmp_out"' EXIT
+tmp_err="$(mktemp)"
+trap 'rm -f "$tmp_out" "$tmp_err"' EXIT
 
 {
-  echo "set-offer-begin"
   cat <<'EOF_OFFER'
 v=0
 o=- 4254106394216585985 2 IN IP4 127.0.0.1
@@ -47,13 +47,11 @@ EOF_OFFER
   for i in $(seq 1 900); do
     echo "a=x-pad-${i}:1234567890123456789012345678901234567890"
   done
-  echo "set-offer-end"
-  echo "quit"
-} | "$cli_bin" >"$tmp_out"
+} | "$cli_bin" --run-ms 120 >"$tmp_out" 2>"$tmp_err"
 
-grep -q "^OK set-offer-end$" "$tmp_out"
-if grep -q "^ERR -8 " "$tmp_out"; then
-  echo "unexpected SDP overflow (ERR -8) for long offer" >&2
+grep -q "^a=setup:" "$tmp_out"
+if grep -q "buffer_too_small" "$tmp_err"; then
+  echo "unexpected SDP overflow for long offer" >&2
   exit 1
 fi
 

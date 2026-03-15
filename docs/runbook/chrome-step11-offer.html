@@ -106,7 +106,7 @@
   <div class="wrap">
     <h1>Step11 Chrome Offer/Answer Helper</h1>
     <p class="tip">
-      Flow: create offer in Chrome -> paste to CLI -> paste answer back -> exchange candidate.
+      Flow: create offer in Chrome -> paste offer to CLI stdin and send EOF -> paste answer back.
       This page is for manual signaling with <code>rtc_signal_cli</code>.
     </p>
 
@@ -128,13 +128,13 @@
     </div>
 
     <div class="row">
-      <h2>3) Candidate Exchange</h2>
+      <h2>3) Optional Candidate Tooling</h2>
       <div class="btns">
         <button id="btn-copy-local-cand">Copy Local IPv4 Host Candidates</button>
         <button id="btn-add-remote-cand">Add Remote Candidate To Chrome</button>
       </div>
       <textarea id="local-candidates" spellcheck="false" placeholder="Local host IPv4 candidates gathered by Chrome."></textarea>
-      <textarea id="remote-candidate" spellcheck="false" placeholder="Paste one candidate from CLI EVENT LOCAL_CANDIDATE ... or raw candidate line."></textarea>
+      <textarea id="remote-candidate" spellcheck="false" placeholder="Paste one raw candidate line if manual candidate injection is needed."></textarea>
     </div>
 
     <div class="row">
@@ -271,7 +271,7 @@
         throw new Error("localDescription is empty after gathering complete");
       }
       offerEl.value = sanitizeSdpBlock(pc.localDescription.sdp);
-      log("Offer created with gathered candidates. Copy SDP to CLI with set-offer-begin/set-offer-end.", "ok");
+      log("Offer created with gathered candidates. Paste SDP to CLI stdin and end with EOF (Ctrl-D).", "ok");
     }
 
     async function applyAnswer() {

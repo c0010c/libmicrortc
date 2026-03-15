@@ -2,18 +2,28 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 #define RTC_SIGNAL_CLI_MAX_LINE 4096u
 #define RTC_SIGNAL_CLI_DEFAULT_BUDGET_US 500u
 #define RTC_SIGNAL_CLI_DEFAULT_RUN_STEP_MS 10u
+#define RTC_SIGNAL_CLI_ANSWER_WAIT_MS 500u
 #define RTC_SIGNAL_CLI_AUDIO_FRAME_MS 20u
 #define RTC_SIGNAL_CLI_VIDEO_FRAME_MS 67u
 #define RTC_SIGNAL_CLI_AUDIO_SAMPLES_PER_FRAME 160u
 #define RTC_SIGNAL_CLI_VIDEO_TS_STEP_90K 6000u
 #define RTC_SIGNAL_CLI_MEDIA_CATCHUP_MAX 16u
+#define RTC_SIGNAL_CLI_STATS_LOG_INTERVAL_MS 1000u
+#define RTC_SIGNAL_CLI_VIDEO_FILE_MAX_BYTES 131072u
+#define RTC_SIGNAL_CLI_VIDEO_PACKET_MAX_BYTES 65535u
+#define RTC_SIGNAL_CLI_VIDEO_PARAMSET_MAX_BYTES 2048u
+#define RTC_SIGNAL_CLI_ANSWER_B64_MAX \
+  ((((RTC_CFG_MAX_SDP_LEN) + 2u) / 3u) * 4u + 4u)
 
 static const uint8_t k_cli_audio_pcma_silence[RTC_SIGNAL_CLI_AUDIO_SAMPLES_PER_FRAME] = {
     0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
@@ -38,25 +48,59 @@ static const uint8_t k_cli_h264_idr_annexb[] = {
     0x01u, 0x68u, 0xCEu, 0x06u, 0xE2u, 0x00u, 0x00u, 0x00u, 0x01u, 0x65u, 0x88u,
     0x80u, 0x20u, 0x07u, 0xBFu, 0xFEu, 0xF7u, 0xD9u, 0x20u};
 
+typedef struct rtc_signal_cli_video_source {
+  uint8_t enabled;
+  uint8_t file_ready;
+  uint8_t fallback_active;
+  uint8_t warned_fallback;
+  char path[256];
+  size_t file_len;
+  size_t cursor;
+  size_t sps_len;
+  size_t pps_len;
+  uint8_t file_buf[RTC_SIGNAL_CLI_VIDEO_FILE_MAX_BYTES];
+  uint8_t sps_buf[RTC_SIGNAL_CLI_VIDEO_PARAMSET_MAX_BYTES];
+  uint8_t pps_buf[RTC_SIGNAL_CLI_VIDEO_PARAMSET_MAX_BYTES];
+  uint8_t packet_buf[RTC_SIGNAL_CLI_VIDEO_PACKET_MAX_BYTES];
+} rtc_signal_cli_video_source_t;
+
 typedef struct rtc_signal_cli_app {
   rtc_engine_t *engine;
   rtc_peer_t *peer;
   rtc_engine_config_t engine_cfg;
   rtc_peer_config_t peer_cfg;
   uint32_t now_ms;
-  uint8_t collecting_offer;
+  uint32_t run_ms;
+  uint8_t run_ms_enabled;
+  uint8_t answer_b64_enabled;
   uint8_t has_answer;
   uint8_t should_quit;
   uint8_t media_enabled;
   uint32_t next_audio_send_ms;
   uint32_t next_video_send_ms;
+  uint32_t next_stats_log_ms;
   uint32_t audio_ts8k;
   uint32_t video_ts90k;
+  uint32_t audio_send_ok;
+  uint32_t video_send_ok;
+  uint32_t audio_send_invalid_state;
+  uint32_t video_send_invalid_state;
+  uint32_t audio_send_overflow;
+  uint32_t video_send_overflow;
   size_t offer_len;
   char offer[RTC_CFG_MAX_SDP_LEN];
   char answer[RTC_CFG_MAX_SDP_LEN];
+  char answer_b64[RTC_SIGNAL_CLI_ANSWER_B64_MAX];
   char answer_type[16];
+  rtc_signal_cli_video_source_t video;
 } rtc_signal_cli_app_t;
+
+static volatile sig_atomic_t g_cli_sigint = 0;
+
+static void cli_signal_handler(int signum) {
+  (void)signum;
+  g_cli_sigint = 1;
+}
 
 static const char *cli_result_text(rtc_result_t code) {
   switch (code) {
@@ -127,80 +171,10 @@ static const char *cli_log_level_text(rtc_log_level_t level) {
   }
 }
 
-static const char *cli_skip_ws(const char *p) {
-  if (!p) {
-    return NULL;
-  }
-  while (*p == ' ' || *p == '\t') {
-    p++;
-  }
-  return p;
-}
-
-static void cli_rstrip_crlf(char *line) {
-  size_t len;
-  if (!line) {
-    return;
-  }
-  len = strlen(line);
-  while (len > 0u && (line[len - 1u] == '\n' || line[len - 1u] == '\r')) {
-    len--;
-  }
-  line[len] = '\0';
-}
-
-static int cli_parse_u32_token(const char *input, uint32_t *value,
-                               const char **out_rest) {
-  const char *p;
-  char *end = NULL;
-  unsigned long parsed;
-  if (!input || !value) {
-    return 0;
-  }
-  p = cli_skip_ws(input);
-  if (!p || *p == '\0') {
-    return 0;
-  }
-  errno = 0;
-  parsed = strtoul(p, &end, 10);
-  if (errno != 0 || end == p || parsed > UINT32_MAX) {
-    return 0;
-  }
-  *value = (uint32_t)parsed;
-  if (out_rest) {
-    *out_rest = end;
-  }
-  return 1;
-}
-
-static void cli_print_ok(const char *cmd) {
-  printf("OK %s\n", cmd ? cmd : "");
-  fflush(stdout);
-}
-
-static void cli_print_err(rtc_result_t code, const char *reason) {
-  const char *text = reason;
-  if (!text || text[0] == '\0') {
-    text = cli_result_text(code);
-  }
-  printf("ERR %d %s\n", (int)code, text);
-  fflush(stdout);
-}
-
-static void cli_emit_local_description(const char *sdp, const char *type) {
-  if (!sdp || !type) {
-    return;
-  }
-  printf("EVENT LOCAL_DESCRIPTION_BEGIN %s\n", type);
-  fputs(sdp, stdout);
-  if (sdp[0] != '\0') {
-    size_t len = strlen(sdp);
-    if (len == 0u || (sdp[len - 1u] != '\n' && sdp[len - 1u] != '\r')) {
-      fputc('\n', stdout);
-    }
-  }
-  printf("EVENT LOCAL_DESCRIPTION_END\n");
-  fflush(stdout);
+static void cli_log_internal(const char *level, rtc_result_t code,
+                             const char *message) {
+  fprintf(stderr, "%s\tcli\tpeer=0\tcode=%d\t%s\n", level ? level : "INFO",
+          (int)code, message ? message : "");
 }
 
 static void cli_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
@@ -213,11 +187,15 @@ static void cli_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_
 
 static void cli_state_cb(rtc_peer_t *peer, rtc_peer_state_t old_state,
                          rtc_peer_state_t new_state, void *user_data) {
-  (void)peer;
+  uint32_t peer_id = 0u;
+  rtc_result_t r;
   (void)user_data;
-  printf("EVENT STATE %s %s\n", cli_peer_state_text(old_state),
-         cli_peer_state_text(new_state));
-  fflush(stdout);
+  r = rtc_peer_get_id(peer, &peer_id);
+  if (r != RTC_OK) {
+    peer_id = 0u;
+  }
+  fprintf(stderr, "INFO\tpeer\tpeer=%" PRIu32 "\tcode=0\tstate %s -> %s\n", peer_id,
+          cli_peer_state_text(old_state), cli_peer_state_text(new_state));
 }
 
 static void cli_local_desc_cb(rtc_peer_t *peer, const char *sdp, const char *type,
@@ -232,18 +210,309 @@ static void cli_local_desc_cb(rtc_peer_t *peer, const char *sdp, const char *typ
   (void)snprintf(app->answer, sizeof(app->answer), "%s", sdp);
   (void)snprintf(app->answer_type, sizeof(app->answer_type), "%s", type);
   app->has_answer = 1u;
-  cli_emit_local_description(sdp, type);
+  cli_log_internal("INFO", RTC_OK, "local_description_ready");
 }
 
 static void cli_local_candidate_cb(rtc_peer_t *peer, const char *candidate,
                                    void *user_data) {
-  (void)peer;
+  uint32_t peer_id = 0u;
+  rtc_result_t r;
   (void)user_data;
-  if (!candidate) {
+
+  if (!peer || !candidate) {
     return;
   }
-  printf("EVENT LOCAL_CANDIDATE %s\n", candidate);
-  fflush(stdout);
+
+  r = rtc_peer_get_id(peer, &peer_id);
+  if (r != RTC_OK) {
+    peer_id = 0u;
+  }
+
+  fprintf(stderr, "DEBUG\tpeer\tpeer=%" PRIu32 "\tcode=0\tlocal_candidate %s\n", peer_id,
+          candidate);
+}
+
+static int cli_parse_u32_arg(const char *input, uint32_t *value) {
+  char *end = NULL;
+  unsigned long parsed;
+
+  if (!input || !value || input[0] == '\0') {
+    return 0;
+  }
+
+  errno = 0;
+  parsed = strtoul(input, &end, 10);
+  if (errno != 0 || end == input || *end != '\0' || parsed > UINT32_MAX) {
+    return 0;
+  }
+
+  *value = (uint32_t)parsed;
+  return 1;
+}
+
+static size_t cli_base64_encode(const uint8_t *src, size_t src_len, char *dst,
+                                size_t dst_cap) {
+  static const char k_b64[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  size_t i;
+  size_t o = 0u;
+  size_t need;
+
+  if (!src || !dst) {
+    return 0u;
+  }
+
+  need = ((src_len + 2u) / 3u) * 4u + 1u;
+  if (need > dst_cap) {
+    return 0u;
+  }
+
+  for (i = 0u; i < src_len; i += 3u) {
+    uint32_t chunk = ((uint32_t)src[i]) << 16;
+    size_t rem = src_len - i;
+    if (rem > 1u) {
+      chunk |= ((uint32_t)src[i + 1u]) << 8;
+    }
+    if (rem > 2u) {
+      chunk |= (uint32_t)src[i + 2u];
+    }
+    dst[o++] = k_b64[(chunk >> 18) & 0x3Fu];
+    dst[o++] = k_b64[(chunk >> 12) & 0x3Fu];
+    dst[o++] = (rem > 1u) ? k_b64[(chunk >> 6) & 0x3Fu] : '=';
+    dst[o++] = (rem > 2u) ? k_b64[chunk & 0x3Fu] : '=';
+  }
+
+  dst[o] = '\0';
+  return o;
+}
+
+static uint64_t cli_now_monotonic_ms64(void) {
+  struct timeval tv;
+  if (gettimeofday(&tv, NULL) != 0) {
+    return 0u;
+  }
+  return (uint64_t)tv.tv_sec * 1000u + (uint64_t)tv.tv_usec / 1000u;
+}
+
+static void cli_sleep_ms(uint32_t sleep_ms) {
+  struct timeval tv;
+  if (sleep_ms == 0u) {
+    return;
+  }
+  tv.tv_sec = (time_t)(sleep_ms / 1000u);
+  tv.tv_usec = (suseconds_t)((sleep_ms % 1000u) * 1000u);
+  (void)select(0, NULL, NULL, NULL, &tv);
+}
+
+static int cli_time_due(uint32_t now_ms, uint32_t target_ms) {
+  return (int32_t)(now_ms - target_ms) >= 0;
+}
+
+static void cli_rstrip_crlf(char *line) {
+  size_t len;
+  if (!line) {
+    return;
+  }
+  len = strlen(line);
+  while (len > 0u && (line[len - 1u] == '\n' || line[len - 1u] == '\r')) {
+    len--;
+  }
+  line[len] = '\0';
+}
+
+static void cli_drain_line(FILE *in) {
+  int ch;
+  if (!in) {
+    return;
+  }
+  do {
+    ch = fgetc(in);
+  } while (ch != EOF && ch != '\n');
+}
+
+static int cli_h264_start_code_size(const uint8_t *data, size_t remaining) {
+  if (!data) {
+    return 0;
+  }
+  if (remaining >= 4u && data[0] == 0x00u && data[1] == 0x00u && data[2] == 0x00u &&
+      data[3] == 0x01u) {
+    return 4;
+  }
+  if (remaining >= 3u && data[0] == 0x00u && data[1] == 0x00u && data[2] == 0x01u) {
+    return 3;
+  }
+  return 0;
+}
+
+static int cli_h264_find_start_code(const uint8_t *data, size_t data_len, size_t from,
+                                    size_t *out_pos, size_t *out_size) {
+  size_t i;
+  int sc_size;
+
+  if (!data || !out_pos || !out_size || from >= data_len) {
+    return 0;
+  }
+
+  for (i = from; i < data_len; ++i) {
+    sc_size = cli_h264_start_code_size(data + i, data_len - i);
+    if (sc_size > 0) {
+      *out_pos = i;
+      *out_size = (size_t)sc_size;
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static void cli_video_enable_fallback(rtc_signal_cli_app_t *app, const char *reason) {
+  rtc_signal_cli_video_source_t *video;
+  if (!app) {
+    return;
+  }
+
+  video = &app->video;
+  video->fallback_active = 1u;
+  video->file_ready = 0u;
+  if (!video->warned_fallback) {
+    char message[256];
+    (void)snprintf(message, sizeof(message), "video_file_fallback reason=%s",
+                   reason ? reason : "unknown");
+    cli_log_internal("WARN", RTC_ERR_PROTOCOL, message);
+    video->warned_fallback = 1u;
+  }
+}
+
+static rtc_result_t cli_video_load_file(rtc_signal_cli_app_t *app, const char *path) {
+  rtc_signal_cli_video_source_t *video;
+  FILE *fp = NULL;
+  size_t read_size;
+
+  if (!app || !path || path[0] == '\0') {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  video = &app->video;
+  memset(video, 0, sizeof(*video));
+  video->enabled = 1u;
+  video->fallback_active = 1u;
+  (void)snprintf(video->path, sizeof(video->path), "%s", path);
+
+  fp = fopen(path, "rb");
+  if (!fp) {
+    cli_log_internal("WARN", RTC_ERR_RESOURCE_EXHAUSTED, "video_file_open_failed");
+    return RTC_OK;
+  }
+
+  read_size = fread(video->file_buf, 1u, sizeof(video->file_buf), fp);
+  if (ferror(fp)) {
+    fclose(fp);
+    cli_video_enable_fallback(app, "video_file_read_failed");
+    return RTC_OK;
+  }
+  if (!feof(fp)) {
+    fclose(fp);
+    cli_video_enable_fallback(app, "video_file_too_large");
+    return RTC_OK;
+  }
+  (void)fclose(fp);
+
+  if (read_size == 0u) {
+    cli_video_enable_fallback(app, "video_file_empty");
+    return RTC_OK;
+  }
+
+  video->file_len = read_size;
+  video->cursor = 0u;
+  video->file_ready = 1u;
+  video->fallback_active = 0u;
+  video->warned_fallback = 0u;
+  cli_log_internal("INFO", RTC_OK, "video_file_loaded");
+
+  return RTC_OK;
+}
+
+static int cli_video_next_nal(rtc_signal_cli_app_t *app, const uint8_t **out_ptr,
+                              uint16_t *out_len, uint8_t *out_marker) {
+  rtc_signal_cli_video_source_t *video;
+  size_t nal_pos = 0u;
+  size_t nal_sc_size = 0u;
+  size_t next_pos = 0u;
+  size_t next_sc_size = 0u;
+  size_t nal_end;
+  size_t nal_len;
+  uint8_t nal_type;
+
+  if (!app || !out_ptr || !out_len || !out_marker) {
+    return 0;
+  }
+
+  video = &app->video;
+  if (!video->enabled || !video->file_ready || video->file_len == 0u) {
+    return 0;
+  }
+
+  if (video->cursor >= video->file_len) {
+    video->cursor = 0u;
+  }
+
+  if (!cli_h264_find_start_code(video->file_buf, video->file_len, video->cursor, &nal_pos,
+                                &nal_sc_size)) {
+    video->cursor = 0u;
+    if (!cli_h264_find_start_code(video->file_buf, video->file_len, video->cursor, &nal_pos,
+                                  &nal_sc_size)) {
+      cli_video_enable_fallback(app, "video_file_no_start_code");
+      return 0;
+    }
+  }
+
+  if (cli_h264_find_start_code(video->file_buf, video->file_len, nal_pos + nal_sc_size,
+                               &next_pos, &next_sc_size)) {
+    (void)next_sc_size;
+    nal_end = next_pos;
+    video->cursor = next_pos;
+  } else {
+    nal_end = video->file_len;
+    video->cursor = video->file_len;
+  }
+
+  if (nal_end <= nal_pos + nal_sc_size) {
+    cli_video_enable_fallback(app, "video_file_empty_nal");
+    return 0;
+  }
+
+  nal_len = nal_end - nal_pos;
+  if (nal_len > RTC_SIGNAL_CLI_VIDEO_PACKET_MAX_BYTES || nal_len > UINT16_MAX) {
+    cli_video_enable_fallback(app, "video_nal_too_large");
+    return 0;
+  }
+
+  nal_type = video->file_buf[nal_pos + nal_sc_size] & 0x1Fu;
+
+  if (nal_type == 7u && nal_len <= RTC_SIGNAL_CLI_VIDEO_PARAMSET_MAX_BYTES) {
+    memcpy(video->sps_buf, video->file_buf + nal_pos, nal_len);
+    video->sps_len = nal_len;
+  } else if (nal_type == 8u && nal_len <= RTC_SIGNAL_CLI_VIDEO_PARAMSET_MAX_BYTES) {
+    memcpy(video->pps_buf, video->file_buf + nal_pos, nal_len);
+    video->pps_len = nal_len;
+  }
+
+  if (nal_type == 5u && video->sps_len > 0u && video->pps_len > 0u &&
+      video->sps_len + video->pps_len + nal_len <= RTC_SIGNAL_CLI_VIDEO_PACKET_MAX_BYTES) {
+    memcpy(video->packet_buf, video->sps_buf, video->sps_len);
+    memcpy(video->packet_buf + video->sps_len, video->pps_buf, video->pps_len);
+    memcpy(video->packet_buf + video->sps_len + video->pps_len, video->file_buf + nal_pos,
+           nal_len);
+    *out_ptr = video->packet_buf;
+    *out_len = (uint16_t)(video->sps_len + video->pps_len + nal_len);
+    *out_marker = 1u;
+    return 1;
+  }
+
+  *out_ptr = video->file_buf + nal_pos;
+  *out_len = (uint16_t)nal_len;
+  *out_marker = 1u;
+  return 1;
 }
 
 static rtc_result_t cli_create_peer(rtc_signal_cli_app_t *app) {
@@ -251,58 +520,86 @@ static rtc_result_t cli_create_peer(rtc_signal_cli_app_t *app) {
   if (!app || !app->engine) {
     return RTC_ERR_INVALID_ARG;
   }
+
   app->peer = NULL;
   r = rtc_peer_create(app->engine, &app->peer_cfg, &app->peer);
   if (r != RTC_OK) {
     return r;
   }
-  app->collecting_offer = 0u;
+
+  app->has_answer = 0u;
+  app->should_quit = 0u;
   app->offer_len = 0u;
   app->offer[0] = '\0';
-  app->has_answer = 0u;
   app->answer[0] = '\0';
   app->answer_type[0] = '\0';
+  app->now_ms = 0u;
   app->media_enabled = 1u;
-  app->next_audio_send_ms = app->now_ms;
-  app->next_video_send_ms = app->now_ms;
+  app->next_audio_send_ms = 0u;
+  app->next_video_send_ms = 0u;
+  app->next_stats_log_ms = RTC_SIGNAL_CLI_STATS_LOG_INTERVAL_MS;
   app->audio_ts8k = 0u;
   app->video_ts90k = 0u;
+  app->audio_send_ok = 0u;
+  app->video_send_ok = 0u;
+  app->audio_send_invalid_state = 0u;
+  app->video_send_invalid_state = 0u;
+  app->audio_send_overflow = 0u;
+  app->video_send_overflow = 0u;
+
   return RTC_OK;
 }
 
-static rtc_result_t cli_restart_peer(rtc_signal_cli_app_t *app) {
+static void cli_log_peer_stats(rtc_signal_cli_app_t *app, const char *reason) {
+  rtc_peer_stats_t stats;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
   rtc_result_t r;
-  if (!app || !app->engine || !app->peer) {
-    return RTC_ERR_INVALID_STATE;
+  char msg[320];
+
+  if (!app || !app->peer) {
+    return;
   }
-  r = rtc_peer_destroy(app->peer);
+
+  memset(&stats, 0, sizeof(stats));
+  r = rtc_peer_get_state(app->peer, &state);
   if (r != RTC_OK) {
-    return r;
+    state = RTC_PEER_STATE_NEW;
   }
-  app->peer = NULL;
-  return cli_create_peer(app);
+  r = rtc_peer_get_stats(app->peer, &stats);
+  if (r != RTC_OK) {
+    (void)snprintf(msg, sizeof(msg),
+                   "stats_snapshot reason=%s state=%s stats_err=%d",
+                   reason ? reason : "periodic", cli_peer_state_text(state), (int)r);
+    cli_log_internal("WARN", r, msg);
+    return;
+  }
+
+  (void)snprintf(msg, sizeof(msg),
+                 "stats_snapshot reason=%s state=%s tx_video=%" PRIu32
+                 " tx_audio=%" PRIu32 " rx_video=%" PRIu32 " rx_audio=%" PRIu32
+                 " send_ok(v=%" PRIu32 ",a=%" PRIu32 ")"
+                 " send_invalid_state(v=%" PRIu32 ",a=%" PRIu32 ")"
+                 " send_overflow(v=%" PRIu32 ",a=%" PRIu32 ")"
+                 " qtx=%u qrx=%u srtp=%u ice_ok=%" PRIu32 " ice_fail=%" PRIu32,
+                 reason ? reason : "periodic", cli_peer_state_text(state),
+                 stats.tx_video_frames, stats.tx_audio_frames, stats.rx_video_frames,
+                 stats.rx_audio_frames, app->video_send_ok, app->audio_send_ok,
+                 app->video_send_invalid_state, app->audio_send_invalid_state,
+                 app->video_send_overflow, app->audio_send_overflow,
+                 (unsigned)stats.rtp_tx_queue_depth, (unsigned)stats.rtp_rx_queue_depth,
+                 (unsigned)stats.srtp_active, stats.ice_checks_ok, stats.ice_checks_failed);
+  cli_log_internal("INFO", RTC_OK, msg);
 }
 
-static rtc_result_t cli_offer_append_line(rtc_signal_cli_app_t *app,
-                                          const char *line) {
-  size_t line_len;
-  if (!app || !line) {
-    return RTC_ERR_INVALID_ARG;
+static void cli_maybe_log_peer_stats(rtc_signal_cli_app_t *app) {
+  if (!app) {
+    return;
   }
-  line_len = strlen(line);
-  if (app->offer_len + line_len + 2u >= sizeof(app->offer)) {
-    return RTC_ERR_BUFFER_TOO_SMALL;
+  if (app->now_ms < app->next_stats_log_ms) {
+    return;
   }
-  memcpy(app->offer + app->offer_len, line, line_len);
-  app->offer_len += line_len;
-  app->offer[app->offer_len++] = '\r';
-  app->offer[app->offer_len++] = '\n';
-  app->offer[app->offer_len] = '\0';
-  return RTC_OK;
-}
-
-static int cli_time_due(uint32_t now_ms, uint32_t target_ms) {
-  return (int32_t)(now_ms - target_ms) >= 0;
+  cli_log_peer_stats(app, "periodic");
+  app->next_stats_log_ms = app->now_ms + RTC_SIGNAL_CLI_STATS_LOG_INTERVAL_MS;
 }
 
 static rtc_result_t cli_media_send_once(rtc_signal_cli_app_t *app, uint8_t send_audio,
@@ -318,6 +615,13 @@ static rtc_result_t cli_media_send_once(rtc_signal_cli_app_t *app, uint8_t send_
                                  k_cli_audio_pcma_silence,
                                  (uint16_t)sizeof(k_cli_audio_pcma_silence),
                                  app->audio_ts8k);
+    if (r == RTC_OK) {
+      app->audio_send_ok++;
+    } else if (r == RTC_ERR_INVALID_STATE) {
+      app->audio_send_invalid_state++;
+    } else if (r == RTC_ERR_OVERFLOW) {
+      app->audio_send_overflow++;
+    }
     if (r != RTC_OK && r != RTC_ERR_INVALID_STATE && r != RTC_ERR_OVERFLOW) {
       return r;
     }
@@ -325,9 +629,26 @@ static rtc_result_t cli_media_send_once(rtc_signal_cli_app_t *app, uint8_t send_
   }
 
   if (send_video) {
-    r = rtc_peer_send_video_h264(app->peer, k_cli_h264_idr_annexb,
-                                 (uint16_t)sizeof(k_cli_h264_idr_annexb),
-                                 app->video_ts90k, 1u);
+    const uint8_t *payload = k_cli_h264_idr_annexb;
+    uint16_t payload_len = (uint16_t)sizeof(k_cli_h264_idr_annexb);
+    uint8_t marker = 1u;
+
+    if (app->video.enabled && app->video.file_ready && !app->video.fallback_active) {
+      if (!cli_video_next_nal(app, &payload, &payload_len, &marker)) {
+        payload = k_cli_h264_idr_annexb;
+        payload_len = (uint16_t)sizeof(k_cli_h264_idr_annexb);
+        marker = 1u;
+      }
+    }
+
+    r = rtc_peer_send_video_h264(app->peer, payload, payload_len, app->video_ts90k, marker);
+    if (r == RTC_OK) {
+      app->video_send_ok++;
+    } else if (r == RTC_ERR_INVALID_STATE) {
+      app->video_send_invalid_state++;
+    } else if (r == RTC_ERR_OVERFLOW) {
+      app->video_send_overflow++;
+    }
     if (r != RTC_OK && r != RTC_ERR_INVALID_STATE && r != RTC_ERR_OVERFLOW) {
       return r;
     }
@@ -383,345 +704,6 @@ static rtc_result_t cli_media_tick(rtc_signal_cli_app_t *app) {
   return RTC_OK;
 }
 
-static rtc_result_t cli_cmd_evidence_dump(rtc_signal_cli_app_t *app, const char *path) {
-  rtc_result_t r;
-  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
-  rtc_peer_stats_t peer_stats;
-  rtc_engine_stats_t engine_stats;
-  FILE *fp = NULL;
-  int write_rc;
-
-  if (!app || !path || path[0] == '\0') {
-    return RTC_ERR_INVALID_ARG;
-  }
-
-  memset(&peer_stats, 0, sizeof(peer_stats));
-  memset(&engine_stats, 0, sizeof(engine_stats));
-
-  r = rtc_peer_get_state(app->peer, &state);
-  if (r != RTC_OK) {
-    return r;
-  }
-  r = rtc_peer_get_stats(app->peer, &peer_stats);
-  if (r != RTC_OK) {
-    return r;
-  }
-  r = rtc_engine_get_stats(app->engine, &engine_stats);
-  if (r != RTC_OK) {
-    return r;
-  }
-
-  fp = fopen(path, "wb");
-  if (!fp) {
-    return RTC_ERR_RESOURCE_EXHAUSTED;
-  }
-
-  write_rc = fprintf(
-      fp,
-      "{\n"
-      "  \"schema\": \"rtc-step12-client-evidence-v1\",\n"
-      "  \"now_ms\": %" PRIu32 ",\n"
-      "  \"peer_state\": \"%s\",\n"
-      "  \"media_enabled\": %u,\n"
-      "  \"peer_stats\": {\n"
-      "    \"rx_audio_frames\": %" PRIu32 ",\n"
-      "    \"rx_video_frames\": %" PRIu32 ",\n"
-      "    \"tx_audio_frames\": %" PRIu32 ",\n"
-      "    \"tx_video_frames\": %" PRIu32 ",\n"
-      "    \"protocol_error_count\": %" PRIu32 ",\n"
-      "    \"queue_overflow_count\": %" PRIu32 ",\n"
-      "    \"dtls_last_error\": %d,\n"
-      "    \"dtls_state\": %u,\n"
-      "    \"dropped_packets\": %" PRIu32 "\n"
-      "  },\n"
-      "  \"engine_stats\": {\n"
-      "    \"poll_count\": %" PRIu32 ",\n"
-      "    \"poll_budget_exhaust_count\": %" PRIu32 "\n"
-      "  }\n"
-      "}\n",
-      app->now_ms, cli_peer_state_text(state), (unsigned)app->media_enabled,
-      peer_stats.rx_audio_frames, peer_stats.rx_video_frames, peer_stats.tx_audio_frames,
-      peer_stats.tx_video_frames, peer_stats.protocol_error_count,
-      peer_stats.queue_overflow_count, (int)peer_stats.dtls_last_error,
-      (unsigned)peer_stats.dtls_state, peer_stats.dropped_packets, engine_stats.poll_count,
-      engine_stats.poll_budget_exhaust_count);
-  if (write_rc < 0 || fclose(fp) != 0) {
-    return RTC_ERR_RESOURCE_EXHAUSTED;
-  }
-
-  return RTC_OK;
-}
-
-static rtc_result_t cli_cmd_tick(rtc_signal_cli_app_t *app, const char *args) {
-  rtc_result_t r;
-  uint32_t now_ms;
-  uint32_t budget_us = RTC_SIGNAL_CLI_DEFAULT_BUDGET_US;
-  const char *rest = NULL;
-  const char *tail = NULL;
-
-  if (!app || !args) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  if (!cli_parse_u32_token(args, &now_ms, &rest)) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  tail = cli_skip_ws(rest);
-  if (tail && *tail != '\0') {
-    if (!cli_parse_u32_token(tail, &budget_us, &tail)) {
-      return RTC_ERR_INVALID_ARG;
-    }
-    tail = cli_skip_ws(tail);
-    if (tail && *tail != '\0') {
-      return RTC_ERR_INVALID_ARG;
-    }
-  }
-  app->now_ms = now_ms;
-  r = cli_media_tick(app);
-  if (r != RTC_OK) {
-    return r;
-  }
-  r = rtc_engine_poll(app->engine, now_ms, budget_us);
-  if (r != RTC_OK) {
-    return r;
-  }
-  return RTC_OK;
-}
-
-static rtc_result_t cli_cmd_run(rtc_signal_cli_app_t *app, const char *args) {
-  rtc_result_t r;
-  uint32_t duration_ms;
-  uint32_t step_ms = RTC_SIGNAL_CLI_DEFAULT_RUN_STEP_MS;
-  uint32_t budget_us = RTC_SIGNAL_CLI_DEFAULT_BUDGET_US;
-  const char *rest = NULL;
-  const char *tail = NULL;
-  uint32_t elapsed = 0u;
-
-  if (!app || !args) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  if (!cli_parse_u32_token(args, &duration_ms, &rest)) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  tail = cli_skip_ws(rest);
-  if (tail && *tail != '\0') {
-    if (!cli_parse_u32_token(tail, &step_ms, &tail)) {
-      return RTC_ERR_INVALID_ARG;
-    }
-    tail = cli_skip_ws(tail);
-    if (tail && *tail != '\0') {
-      if (!cli_parse_u32_token(tail, &budget_us, &tail)) {
-        return RTC_ERR_INVALID_ARG;
-      }
-      tail = cli_skip_ws(tail);
-      if (tail && *tail != '\0') {
-        return RTC_ERR_INVALID_ARG;
-      }
-    }
-  }
-  if (step_ms == 0u) {
-    return RTC_ERR_INVALID_ARG;
-  }
-
-  while (elapsed < duration_ms) {
-    uint32_t advance = step_ms;
-    if (duration_ms - elapsed < advance) {
-      advance = duration_ms - elapsed;
-    }
-    if (UINT32_MAX - app->now_ms < advance) {
-      return RTC_ERR_OVERFLOW;
-    }
-    app->now_ms += advance;
-    elapsed += advance;
-    r = cli_media_tick(app);
-    if (r != RTC_OK) {
-      return r;
-    }
-    r = rtc_engine_poll(app->engine, app->now_ms, budget_us);
-    if (r != RTC_OK) {
-      return r;
-    }
-  }
-  return RTC_OK;
-}
-
-static rtc_result_t cli_cmd_get_answer(rtc_signal_cli_app_t *app) {
-  if (!app) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  if (!app->has_answer) {
-    return RTC_ERR_INVALID_STATE;
-  }
-  cli_emit_local_description(app->answer, app->answer_type);
-  return RTC_OK;
-}
-
-static rtc_result_t cli_cmd_state(rtc_signal_cli_app_t *app) {
-  rtc_peer_state_t state;
-  rtc_result_t r;
-  if (!app) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  r = rtc_peer_get_state(app->peer, &state);
-  if (r != RTC_OK) {
-    return r;
-  }
-  printf("STATE %s\n", cli_peer_state_text(state));
-  fflush(stdout);
-  return RTC_OK;
-}
-
-static rtc_result_t cli_cmd_stats(rtc_signal_cli_app_t *app) {
-  rtc_result_t r;
-  rtc_peer_stats_t peer_stats;
-  rtc_engine_stats_t engine_stats;
-  rtc_peer_state_t state;
-
-  if (!app) {
-    return RTC_ERR_INVALID_ARG;
-  }
-  r = rtc_peer_get_state(app->peer, &state);
-  if (r != RTC_OK) {
-    return r;
-  }
-  r = rtc_peer_get_stats(app->peer, &peer_stats);
-  if (r != RTC_OK) {
-    return r;
-  }
-  r = rtc_engine_get_stats(app->engine, &engine_stats);
-  if (r != RTC_OK) {
-    return r;
-  }
-
-  printf(
-      "STATS state=%s local_candidates=%u remote_candidates=%u "
-      "ice_sent=%u ice_ok=%u ice_failed=%u dtls_state=%u srtp_active=%u "
-      "dtls_last_error=%d dropped=%u retransmit=%u queue_overflow=%u "
-      "poll_count=%u poll_budget_exhaust=%u\n",
-      cli_peer_state_text(state), (unsigned)peer_stats.local_candidate_count,
-      (unsigned)peer_stats.remote_candidate_count, (unsigned)peer_stats.ice_checks_sent,
-      (unsigned)peer_stats.ice_checks_ok, (unsigned)peer_stats.ice_checks_failed,
-      (unsigned)peer_stats.dtls_state, (unsigned)peer_stats.srtp_active,
-      (int)peer_stats.dtls_last_error, (unsigned)peer_stats.dropped_packets,
-      (unsigned)peer_stats.retransmit_count, (unsigned)peer_stats.queue_overflow_count,
-      (unsigned)engine_stats.poll_count, (unsigned)engine_stats.poll_budget_exhaust_count);
-  fflush(stdout);
-  return RTC_OK;
-}
-
-static rtc_result_t cli_handle_command(rtc_signal_cli_app_t *app, char *line,
-                                       const char **out_cmd_name) {
-  char *cmd;
-  char *args;
-
-  if (!app || !line || !out_cmd_name) {
-    return RTC_ERR_INVALID_ARG;
-  }
-
-  if (app->collecting_offer) {
-    if (strcmp(line, "set-offer-end") == 0) {
-      app->collecting_offer = 0u;
-      *out_cmd_name = "set-offer-end";
-      return rtc_peer_set_remote_description(app->peer, app->offer, "offer");
-    }
-    *out_cmd_name = NULL;
-    return cli_offer_append_line(app, line);
-  }
-
-  cmd = line;
-  args = line;
-  while (*args != '\0' && *args != ' ' && *args != '\t') {
-    args++;
-  }
-  if (*args != '\0') {
-    *args = '\0';
-    args++;
-  }
-  args = (char *)cli_skip_ws(args);
-  if (!cmd[0]) {
-    return RTC_OK;
-  }
-
-  if (strcmp(cmd, "set-offer-begin") == 0) {
-    app->collecting_offer = 1u;
-    app->offer_len = 0u;
-    app->offer[0] = '\0';
-    *out_cmd_name = "set-offer-begin";
-    return RTC_OK;
-  }
-  if (strcmp(cmd, "add-remote-candidate") == 0) {
-    *out_cmd_name = "add-remote-candidate";
-    if (!args || args[0] == '\0') {
-      return RTC_ERR_INVALID_ARG;
-    }
-    return rtc_peer_add_remote_candidate(app->peer, args);
-  }
-  if (strcmp(cmd, "start") == 0) {
-    *out_cmd_name = "start";
-    return rtc_peer_start(app->peer);
-  }
-  if (strcmp(cmd, "tick") == 0) {
-    *out_cmd_name = "tick";
-    return cli_cmd_tick(app, args);
-  }
-  if (strcmp(cmd, "run") == 0) {
-    *out_cmd_name = "run";
-    return cli_cmd_run(app, args);
-  }
-  if (strcmp(cmd, "get-answer") == 0) {
-    *out_cmd_name = "get-answer";
-    return cli_cmd_get_answer(app);
-  }
-  if (strcmp(cmd, "state") == 0) {
-    *out_cmd_name = "state";
-    return cli_cmd_state(app);
-  }
-  if (strcmp(cmd, "stats") == 0) {
-    *out_cmd_name = "stats";
-    return cli_cmd_stats(app);
-  }
-  if (strcmp(cmd, "restart-peer") == 0) {
-    *out_cmd_name = "restart-peer";
-    return cli_restart_peer(app);
-  }
-  if (strcmp(cmd, "media-start") == 0) {
-    *out_cmd_name = "media-start";
-    app->media_enabled = 1u;
-    app->next_audio_send_ms = app->now_ms;
-    app->next_video_send_ms = app->now_ms;
-    return RTC_OK;
-  }
-  if (strcmp(cmd, "media-stop") == 0) {
-    *out_cmd_name = "media-stop";
-    app->media_enabled = 0u;
-    return RTC_OK;
-  }
-  if (strcmp(cmd, "evidence-dump") == 0) {
-    *out_cmd_name = "evidence-dump";
-    if (!args || args[0] == '\0') {
-      return RTC_ERR_INVALID_ARG;
-    }
-    return cli_cmd_evidence_dump(app, args);
-  }
-  if (strcmp(cmd, "quit") == 0) {
-    *out_cmd_name = "quit";
-    app->should_quit = 1u;
-    return RTC_OK;
-  }
-
-  *out_cmd_name = cmd;
-  return RTC_ERR_NOT_SUPPORTED;
-}
-
-static void cli_drain_line(FILE *in) {
-  int ch;
-  if (!in) {
-    return;
-  }
-  do {
-    ch = fgetc(in);
-  } while (ch != EOF && ch != '\n');
-}
-
 static int cli_init(rtc_signal_cli_app_t *app) {
   rtc_result_t r;
   if (!app) {
@@ -755,6 +737,7 @@ static int cli_init(rtc_signal_cli_app_t *app) {
     fprintf(stderr, "rtc_engine_create failed: %d (%s)\n", (int)r, cli_result_text(r));
     return 1;
   }
+
   r = cli_create_peer(app);
   if (r != RTC_OK) {
     fprintf(stderr, "rtc_peer_create failed: %d (%s)\n", (int)r, cli_result_text(r));
@@ -780,46 +763,265 @@ static void cli_deinit(rtc_signal_cli_app_t *app) {
   }
 }
 
-int main(void) {
-  rtc_signal_cli_app_t app;
+static void cli_usage(const char *prog) {
+  fprintf(stderr,
+          "usage: %s [--video-file <path>] [--run-ms <ms>] [--answer-b64] [-h|--help]\n"
+          "\n"
+          "stdin: offer SDP text, terminated by EOF\n"
+          "stdout: answer SDP only (raw SDP by default; base64 with --answer-b64)\n"
+          "stderr: logs and errors\n",
+          prog ? prog : "rtc_signal_cli");
+}
+
+static rtc_result_t cli_read_offer_from_stdin(rtc_signal_cli_app_t *app) {
   char line[RTC_SIGNAL_CLI_MAX_LINE];
+
+  if (!app) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  app->offer_len = 0u;
+  app->offer[0] = '\0';
+
+  while (fgets(line, sizeof(line), stdin) != NULL) {
+    size_t len = strlen(line);
+    int has_newline = (len > 0u && line[len - 1u] == '\n');
+
+    if (!has_newline && !feof(stdin)) {
+      cli_drain_line(stdin);
+      return RTC_ERR_BUFFER_TOO_SMALL;
+    }
+
+    cli_rstrip_crlf(line);
+    len = strlen(line);
+
+    if (app->offer_len + len + 2u >= sizeof(app->offer)) {
+      return RTC_ERR_BUFFER_TOO_SMALL;
+    }
+
+    memcpy(app->offer + app->offer_len, line, len);
+    app->offer_len += len;
+    app->offer[app->offer_len++] = '\r';
+    app->offer[app->offer_len++] = '\n';
+    app->offer[app->offer_len] = '\0';
+  }
+
+  if (ferror(stdin)) {
+    return RTC_ERR_PROTOCOL;
+  }
+
+  if (app->offer_len == 0u) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  return RTC_OK;
+}
+
+static rtc_result_t cli_update_runtime_tick(rtc_signal_cli_app_t *app,
+                                            uint64_t start_ms64) {
+  uint64_t now64;
+  uint64_t elapsed;
+  rtc_result_t r;
+
+  if (!app || !app->engine) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  now64 = cli_now_monotonic_ms64();
+  elapsed = (now64 >= start_ms64) ? (now64 - start_ms64) : 0u;
+  if (elapsed > UINT32_MAX) {
+    app->now_ms = UINT32_MAX;
+  } else {
+    app->now_ms = (uint32_t)elapsed;
+  }
+
+  r = cli_media_tick(app);
+  if (r != RTC_OK) {
+    cli_log_peer_stats(app, "media_tick_error");
+    return r;
+  }
+
+  cli_maybe_log_peer_stats(app);
+
+  return rtc_engine_poll(app->engine, app->now_ms, RTC_SIGNAL_CLI_DEFAULT_BUDGET_US);
+}
+
+static rtc_result_t cli_wait_for_answer(rtc_signal_cli_app_t *app,
+                                        uint64_t start_ms64) {
+  rtc_result_t r;
+
+  if (!app) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  while (!app->has_answer) {
+    r = cli_update_runtime_tick(app, start_ms64);
+    if (r != RTC_OK) {
+      return r;
+    }
+
+    if (app->has_answer) {
+      return RTC_OK;
+    }
+
+    if (app->now_ms >= RTC_SIGNAL_CLI_ANSWER_WAIT_MS) {
+      return RTC_ERR_TIMEOUT;
+    }
+
+    if (g_cli_sigint) {
+      return RTC_ERR_TIMEOUT;
+    }
+
+    cli_sleep_ms(RTC_SIGNAL_CLI_DEFAULT_RUN_STEP_MS);
+  }
+
+  return RTC_OK;
+}
+
+static rtc_result_t cli_run_after_answer(rtc_signal_cli_app_t *app,
+                                         uint64_t start_ms64) {
+  rtc_result_t r;
+
+  if (!app) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  while (!g_cli_sigint && !app->should_quit) {
+    r = cli_update_runtime_tick(app, start_ms64);
+    if (r != RTC_OK) {
+      return r;
+    }
+
+    if (app->run_ms_enabled && app->now_ms >= app->run_ms) {
+      return RTC_OK;
+    }
+
+    cli_sleep_ms(RTC_SIGNAL_CLI_DEFAULT_RUN_STEP_MS);
+  }
+
+  return RTC_OK;
+}
+
+int main(int argc, char **argv) {
+  static rtc_signal_cli_app_t app;
+  rtc_result_t r;
+  const char *video_path = NULL;
+  uint32_t run_ms = 0u;
+  uint8_t run_ms_enabled = 0u;
+  uint8_t answer_b64_enabled = 0u;
+  uint64_t start_ms64;
+  int i;
+
+  for (i = 1; i < argc; ++i) {
+    const char *arg = argv[i];
+    if (strcmp(arg, "--video-file") == 0) {
+      if (i + 1 >= argc) {
+        cli_usage(argv[0]);
+        return 2;
+      }
+      video_path = argv[++i];
+      continue;
+    }
+    if (strcmp(arg, "--run-ms") == 0) {
+      if (i + 1 >= argc || !cli_parse_u32_arg(argv[i + 1], &run_ms)) {
+        cli_usage(argv[0]);
+        return 2;
+      }
+      run_ms_enabled = 1u;
+      ++i;
+      continue;
+    }
+    if (strcmp(arg, "--answer-b64") == 0) {
+      answer_b64_enabled = 1u;
+      continue;
+    }
+    if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+      cli_usage(argv[0]);
+      return 0;
+    }
+    cli_usage(argv[0]);
+    return 2;
+  }
 
   if (cli_init(&app) != 0) {
     return 1;
   }
 
-  while (!app.should_quit && fgets(line, sizeof(line), stdin) != NULL) {
-    rtc_result_t cmd_result;
-    const char *cmd_name = "";
-    size_t len = strlen(line);
-    int line_has_newline = (len > 0u && line[len - 1u] == '\n');
+  app.run_ms_enabled = run_ms_enabled;
+  app.run_ms = run_ms;
+  app.answer_b64_enabled = answer_b64_enabled;
 
-    if (!line_has_newline && !feof(stdin)) {
-      cli_drain_line(stdin);
-      app.collecting_offer = 0u;
-      cli_print_err(RTC_ERR_BUFFER_TOO_SMALL, "line_too_long");
-      continue;
+  if (video_path) {
+    r = cli_video_load_file(&app, video_path);
+    if (r != RTC_OK) {
+      fprintf(stderr, "video init failed: %d (%s)\n", (int)r, cli_result_text(r));
+      cli_deinit(&app);
+      return 1;
     }
+  }
 
-    cli_rstrip_crlf(line);
-    if (line[0] == '\0' && !app.collecting_offer) {
-      continue;
-    }
+  (void)signal(SIGINT, cli_signal_handler);
 
-    cmd_result = cli_handle_command(&app, line, &cmd_name);
-    if (cmd_name == NULL && cmd_result == RTC_OK) {
-      continue;
+  r = cli_read_offer_from_stdin(&app);
+  if (r != RTC_OK) {
+    fprintf(stderr, "read offer failed: %d (%s)\n", (int)r, cli_result_text(r));
+    cli_deinit(&app);
+    return 1;
+  }
+
+  r = rtc_peer_set_remote_description(app.peer, app.offer, "offer");
+  if (r != RTC_OK) {
+    fprintf(stderr, "set remote description failed: %d (%s)\n", (int)r,
+            cli_result_text(r));
+    cli_deinit(&app);
+    return 1;
+  }
+
+  r = rtc_peer_start(app.peer);
+  if (r != RTC_OK) {
+    fprintf(stderr, "peer start failed: %d (%s)\n", (int)r, cli_result_text(r));
+    cli_deinit(&app);
+    return 1;
+  }
+
+  start_ms64 = cli_now_monotonic_ms64();
+
+  r = cli_wait_for_answer(&app, start_ms64);
+  if (r != RTC_OK || !app.has_answer || strcmp(app.answer_type, "answer") != 0) {
+    fprintf(stderr, "answer not ready: %d (%s)\n", (int)r, cli_result_text(r));
+    cli_deinit(&app);
+    return 1;
+  }
+
+  if (app.answer_b64_enabled) {
+    size_t answer_len = strlen(app.answer);
+    size_t encoded_len = cli_base64_encode((const uint8_t *)app.answer, answer_len,
+                                           app.answer_b64, sizeof(app.answer_b64));
+    if (encoded_len == 0u) {
+      fprintf(stderr, "answer base64 encode failed: %d (%s)\n", (int)RTC_ERR_BUFFER_TOO_SMALL,
+              cli_result_text(RTC_ERR_BUFFER_TOO_SMALL));
+      cli_deinit(&app);
+      return 1;
     }
-    if (cmd_result == RTC_OK) {
-      cli_print_ok(cmd_name);
-    } else {
-      char reason[96];
-      (void)snprintf(reason, sizeof(reason), "%s failed", cmd_name ? cmd_name : "cmd");
-      cli_print_err(cmd_result, reason);
-      if (app.collecting_offer && cmd_result != RTC_OK) {
-        app.collecting_offer = 0u;
+    fputs(app.answer_b64, stdout);
+    fputc('\n', stdout);
+  } else {
+    fputs(app.answer, stdout);
+    if (app.answer[0] != '\0') {
+      size_t answer_len = strlen(app.answer);
+      if (answer_len == 0u ||
+          (app.answer[answer_len - 1u] != '\n' && app.answer[answer_len - 1u] != '\r')) {
+        fputc('\n', stdout);
       }
     }
+  }
+  fflush(stdout);
+
+  r = cli_run_after_answer(&app, start_ms64);
+  if (r != RTC_OK) {
+    fprintf(stderr, "run loop failed: %d (%s)\n", (int)r, cli_result_text(r));
+    cli_deinit(&app);
+    return 1;
   }
 
   cli_deinit(&app);

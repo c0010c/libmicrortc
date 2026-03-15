@@ -720,8 +720,9 @@ static void rtc_ice_prepare_local_credentials(rtc_ice_ctx_t *ctx) {
     return;
   }
   if (ctx->local_ice_ufrag[0] == '\0') {
-    (void)snprintf(ctx->local_ice_ufrag, sizeof(ctx->local_ice_ufrag), "u%u",
-                   ctx->peer_id);
+    /* Keep ufrag >=4 chars for browser SDP validators. */
+    (void)snprintf(ctx->local_ice_ufrag, sizeof(ctx->local_ice_ufrag), "u%08u",
+                   ctx->peer_id % 100000000u);
   }
   if (ctx->local_ice_pwd[0] == '\0') {
     (void)snprintf(ctx->local_ice_pwd, sizeof(ctx->local_ice_pwd),
