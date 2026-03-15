@@ -13,9 +13,10 @@ if [[ ! -x "$cli_bin" ]]; then
 fi
 
 tmp_out="$(mktemp)"
-trap 'rm -f "$tmp_out"' EXIT
+tmp_evidence="$(mktemp)"
+trap 'rm -f "$tmp_out" "$tmp_evidence"' EXIT
 
-cat <<'EOF_CMDS' | "$cli_bin" >"$tmp_out"
+cat <<EOF_CMDS | "$cli_bin" >"$tmp_out"
 set-offer-begin
 v=0
 o=- 897654321234567890 2 IN IP4 127.0.0.1
@@ -87,6 +88,9 @@ set-offer-end
 start
 run 200 10 500
 get-answer
+media-stop
+media-start
+evidence-dump $tmp_evidence
 quit
 EOF_CMDS
 
@@ -94,6 +98,10 @@ grep -q "^EVENT LOCAL_DESCRIPTION_BEGIN answer$" "$tmp_out"
 grep -q "^EVENT LOCAL_DESCRIPTION_END$" "$tmp_out"
 grep -q "^EVENT LOCAL_CANDIDATE " "$tmp_out"
 grep -q "^ERR -7 " "$tmp_out"
+grep -q "^OK media-stop$" "$tmp_out"
+grep -q "^OK media-start$" "$tmp_out"
+grep -q "^OK evidence-dump$" "$tmp_out"
+grep -q '"schema": "rtc-step12-client-evidence-v1"' "$tmp_evidence"
 
 desc_count="$(grep -c "^EVENT LOCAL_DESCRIPTION_BEGIN answer$" "$tmp_out" || true)"
 if [[ "${desc_count:-0}" -lt 2 ]]; then

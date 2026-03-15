@@ -164,3 +164,7 @@ add_test(NAME rtc_signal_cli_smoke
 add_test(NAME rtc_signal_cli_long_offer
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rtc_signal_cli_long_offer.sh
             $<TARGET_FILE:rtc_signal_cli>)
+
+add_test(NAME step12_matrix_auto
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/run_step12_matrix.sh
+            --auto-only)

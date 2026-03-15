@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTC Step12 Acceptance</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111827;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top right, #1e293b 0%, var(--bg) 45%);
+      color: var(--text);
+      font: 14px/1.45 "SFMono-Regular", Consolas, Menlo, monospace;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 16px auto;
+      padding: 0 12px 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+    .tip {
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+    .row {
+      margin-bottom: 12px;
+      background: color-mix(in srgb, var(--panel) 85%, black 15%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .row h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    button {
+      border: 1px solid #475569;
+      background: #1f2937;
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+    }
+    button:hover {
+      border-color: #64748b;
+    }
+    textarea, pre {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
+      font: inherit;
+      white-space: pre-wrap;
+    }
+    .video-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    video {
+      width: 100%;
+      height: 240px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #000;
+    }
+    .status-line {
+      margin: 2px 0;
+    }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Step12 Chrome Acceptance Page (Non-Trickle)</h1>
+    <p class="tip">
+      Flow: Start Capture -> Create Offer -> copy Offer to CLI -> paste Answer from CLI -> Start 5 min Acceptance -> Export web evidence JSON.
+    </p>
+
+    <div class="row">
+      <h2>1) Local/Remote Preview</h2>
+      <div class="btns">
+        <button id="btn-capture">Start Capture</button>
+      </div>
+      <div class="video-grid">
+        <div>
+          <div class="tip">Local</div>
+          <video id="local-video" autoplay playsinline muted></video>
+        </div>
+        <div>
+          <div class="tip">Remote (Device -> Browser)</div>
+          <video id="remote-video" autoplay playsinline></video>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <h2>2) Offer/Answer</h2>
+      <div class="btns">
+        <button id="btn-create-offer">Create Offer (Wait ICE Complete)</button>
+        <button id="btn-copy-offer">Copy Offer</button>
+        <button id="btn-apply-answer">Apply Answer</button>
+      </div>
+      <textarea id="offer" spellcheck="false" placeholder="Offer SDP (with candidates)"></textarea>
+      <textarea id="answer" spellcheck="false" placeholder="Paste Answer SDP from CLI"></textarea>
+    </div>
+
+    <div class="row">
+      <h2>3) Stats + Acceptance</h2>
+      <div class="btns">
+        <button id="btn-start-acceptance">Start 5min Acceptance</button>
+        <button id="btn-export-evidence">Export Web Evidence</button>
+      </div>
+      <div id="status"></div>
+      <pre id="stats"></pre>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    let pc = null;
+    let localStream = null;
+    let remoteStream = new MediaStream();
+    let acceptTimerId = 0;
+    let statsTimerId = 0;
+    let acceptStartMs = 0;
+    let lastSummary = null;
+    let connectionFailed = false;
+    const stateHistory = [];
+
+    const localVideo = document.getElementById("local-video");
+    const remoteVideo = document.getElementById("remote-video");
+    const offerEl = document.getElementById("offer");
+    const answerEl = document.getElementById("answer");
+    const statusEl = document.getElementById("status");
+    const statsEl = document.getElementById("stats");
+
+    function setStatus(msg, cls) {
+      const line = document.createElement("div");
+      line.className = `status-line ${cls || ""}`;
+      line.textContent = msg;
+      statusEl.appendChild(line);
+    }
+
+    function clearStatus() {
+      statusEl.innerHTML = "";
+    }
+
+    function waitIceGatheringComplete(peer, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        if (!peer) {
+          reject(new Error("peer is null"));
+          return;
+        }
+        if (peer.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(() => {
+          peer.removeEventListener("icegatheringstatechange", onStateChange);
+          reject(new Error("ice gathering timeout"));
+        }, timeoutMs);
+        function onStateChange() {
+          if (peer.iceGatheringState === "complete") {
+            clearTimeout(timer);
+            peer.removeEventListener("icegatheringstatechange", onStateChange);
+            resolve();
+          }
+        }
+        peer.addEventListener("icegatheringstatechange", onStateChange);
+      });
+    }
+
+    function hasIpv4HostCandidate(sdp) {
+      if (!sdp) {
+        return false;
+      }
+      const lines = sdp.split(/\r?\n/);
+      return lines.some((line) =>
+        /^a=candidate:/i.test(line) &&
+        /\styp\s+host(\s|$)/i.test(line) &&
+        /\s(\d{1,3}(?:\.\d{1,3}){3})\s\d+\s/.test(line));
+    }
+
+    async function startCapture() {
+      if (localStream) {
+        setStatus("Capture already started", "warn");
+        return;
+      }
+      localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+      localVideo.srcObject = localStream;
+      setStatus("Capture ready", "ok");
+    }
+
+    function stopPeer() {
+      if (pc) {
+        pc.ontrack = null;
+        pc.oniceconnectionstatechange = null;
+        pc.close();
+        pc = null;
+      }
+    }
+
+    async function createOffer() {
+      clearStatus();
+      if (!localStream) {
+        await startCapture();
+      }
+      stopPeer();
+      connectionFailed = false;
+      stateHistory.length = 0;
+      lastSummary = null;
+      remoteStream = new MediaStream();
+      remoteVideo.srcObject = remoteStream;
+
+      pc = new RTCPeerConnection({iceServers: [], bundlePolicy: "max-bundle"});
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+      pc.ontrack = (ev) => {
+        ev.streams[0].getTracks().forEach((t) => remoteStream.addTrack(t));
+      };
+      pc.oniceconnectionstatechange = () => {
+        const st = pc.iceConnectionState;
+        stateHistory.push({at_ms: Date.now(), state: st});
+        setStatus(`iceConnectionState=${st}`, st === "connected" ? "ok" : "");
+        if (st === "failed" || st === "disconnected") {
+          connectionFailed = true;
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitIceGatheringComplete(pc, 8000);
+
+      const sdp = (pc.localDescription && pc.localDescription.sdp) || "";
+      if (!hasIpv4HostCandidate(sdp)) {
+        offerEl.value = "";
+        setStatus("No IPv4 host candidate in Offer (likely mDNS-only). Disable Chrome mDNS hide-local-ip.", "err");
+        return;
+      }
+      offerEl.value = sdp;
+      setStatus("Offer generated (candidates embedded)", "ok");
+    }
+
+    async function applyAnswer() {
+      if (!pc) {
+        setStatus("Create Offer first", "err");
+        return;
+      }
+      const sdp = answerEl.value.trim();
+      if (!sdp) {
+        setStatus("Answer is empty", "err");
+        return;
+      }
+      await pc.setRemoteDescription({type: "answer", sdp});
+      setStatus("Answer applied", "ok");
+    }
+
+    async function collectSummary() {
+      const summary = {
+        outbound_audio_bytes: 0,
+        outbound_video_bytes: 0,
+        inbound_audio_bytes: 0,
+        inbound_video_bytes: 0,
+        inbound_audio_packets_lost: 0,
+        inbound_video_packets_lost: 0,
+        connection_state: pc ? pc.iceConnectionState : "none"
+      };
+      if (!pc) {
+        return summary;
+      }
+      const stats = await pc.getStats();
+      stats.forEach((rep) => {
+        if (rep.type === "outbound-rtp" && !rep.isRemote) {
+          if (rep.kind === "audio") {
+            summary.outbound_audio_bytes += rep.bytesSent || 0;
+          } else if (rep.kind === "video") {
+            summary.outbound_video_bytes += rep.bytesSent || 0;
+          }
+        } else if (rep.type === "inbound-rtp" && !rep.isRemote) {
+          if (rep.kind === "audio") {
+            summary.inbound_audio_bytes += rep.bytesReceived || 0;
+            summary.inbound_audio_packets_lost += rep.packetsLost || 0;
+          } else if (rep.kind === "video") {
+            summary.inbound_video_bytes += rep.bytesReceived || 0;
+            summary.inbound_video_packets_lost += rep.packetsLost || 0;
+          }
+        }
+      });
+      return summary;
+    }
+
+    function renderStats(summary, elapsedSec) {
+      statsEl.textContent = JSON.stringify({
+        elapsed_sec: elapsedSec,
+        summary
+      }, null, 2);
+    }
+
+    async function startAcceptance() {
+      if (!pc || !pc.currentRemoteDescription) {
+        setStatus("Apply Answer first", "err");
+        return;
+      }
+      if (acceptTimerId) {
+        clearInterval(acceptTimerId);
+      }
+      if (statsTimerId) {
+        clearInterval(statsTimerId);
+      }
+      acceptStartMs = Date.now();
+      lastSummary = await collectSummary();
+      renderStats(lastSummary, 0);
+      setStatus("Acceptance timer started (target 300s)", "ok");
+
+      statsTimerId = setInterval(async () => {
+        const elapsedSec = Math.floor((Date.now() - acceptStartMs) / 1000);
+        const summary = await collectSummary();
+        lastSummary = summary;
+        renderStats(summary, elapsedSec);
+      }, 1000);
+
+      acceptTimerId = setInterval(async () => {
+        const elapsedSec = Math.floor((Date.now() - acceptStartMs) / 1000);
+        if (elapsedSec < 300) {
+          return;
+        }
+        clearInterval(acceptTimerId);
+        clearInterval(statsTimerId);
+        acceptTimerId = 0;
+        statsTimerId = 0;
+        const finalSummary = await collectSummary();
+        lastSummary = finalSummary;
+
+        const bidirectionalGrowth =
+          finalSummary.outbound_audio_bytes > 0 &&
+          finalSummary.outbound_video_bytes > 0 &&
+          finalSummary.inbound_audio_bytes > 0 &&
+          finalSummary.inbound_video_bytes > 0;
+        const passed = !connectionFailed && bidirectionalGrowth;
+        if (passed) {
+          setStatus("5min acceptance PASS", "ok");
+        } else {
+          setStatus("5min acceptance FAIL", "err");
+        }
+      }, 1000);
+    }
+
+    function exportEvidence() {
+      const now = Date.now();
+      const durationSec = acceptStartMs ? Math.floor((now - acceptStartMs) / 1000) : 0;
+      const summary = lastSummary || {};
+      const bidirectionalGrowth =
+        (summary.outbound_audio_bytes || 0) > 0 &&
+        (summary.outbound_video_bytes || 0) > 0 &&
+        (summary.inbound_audio_bytes || 0) > 0 &&
+        (summary.inbound_video_bytes || 0) > 0;
+      const evidence = {
+        schema: "rtc-step12-web-evidence-v1",
+        created_at_ms: now,
+        duration_sec: durationSec,
+        connection_failed: connectionFailed,
+        bidirectional_growth: bidirectionalGrowth,
+        state_history: stateHistory,
+        last_stats: summary
+      };
+      const blob = new Blob([JSON.stringify(evidence, null, 2)], {type: "application/json"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "step12-web-evidence.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setStatus("Web evidence exported", "ok");
+    }
+
+    document.getElementById("btn-capture").addEventListener("click", () => {
+      startCapture().catch((e) => setStatus(`capture failed: ${e.message}`, "err"));
+    });
+    document.getElementById("btn-create-offer").addEventListener("click", () => {
+      createOffer().catch((e) => setStatus(`create offer failed: ${e.message}`, "err"));
+    });
+    document.getElementById("btn-copy-offer").addEventListener("click", async () => {
+      const text = offerEl.value.trim();
+      if (!text) {
+        setStatus("Offer is empty", "warn");
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setStatus("Offer copied", "ok");
+    });
+    document.getElementById("btn-apply-answer").addEventListener("click", () => {
+      applyAnswer().catch((e) => setStatus(`apply answer failed: ${e.message}`, "err"));
+    });
+    document.getElementById("btn-start-acceptance").addEventListener("click", () => {
+      startAcceptance().catch((e) => setStatus(`acceptance start failed: ${e.message}`, "err"));
+    });
+    document.getElementById("btn-export-evidence").addEventListener("click", exportEvidence);
+  </script>
+</body>
+</html>

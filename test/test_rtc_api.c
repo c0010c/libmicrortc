@@ -7,6 +7,7 @@
 #include <mbedtls/timing.h>
 #include <mbedtls/x509_crt.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "dtls/rtc_dtls_local_cert.h"
@@ -2446,39 +2447,136 @@ static int test_dtls_timeout_and_error_observability(void) {
   return 0;
 }
 
+typedef enum test_group {
+  TEST_GROUP_POSITIVE = 0,
+  TEST_GROUP_NEGATIVE = 1,
+  TEST_GROUP_BOUNDARY = 2
+} test_group_t;
+
+typedef struct test_case_entry {
+  const char *name;
+  test_group_t group;
+  int (*fn)(void);
+} test_case_entry_t;
+
+static const char *test_group_text(test_group_t group) {
+  switch (group) {
+    case TEST_GROUP_POSITIVE:
+      return "positive";
+    case TEST_GROUP_NEGATIVE:
+      return "negative";
+    case TEST_GROUP_BOUNDARY:
+      return "boundary";
+    default:
+      return "unknown";
+  }
+}
+
+static int test_group_from_env(const char *env, int *run_all, test_group_t *group) {
+  if (!run_all || !group) {
+    return 0;
+  }
+  *run_all = 0;
+  if (!env || env[0] == '\0' || strcmp(env, "all") == 0) {
+    *run_all = 1;
+    return 1;
+  }
+  if (strcmp(env, "positive") == 0) {
+    *group = TEST_GROUP_POSITIVE;
+    return 1;
+  }
+  if (strcmp(env, "negative") == 0) {
+    *group = TEST_GROUP_NEGATIVE;
+    return 1;
+  }
+  if (strcmp(env, "boundary") == 0) {
+    *group = TEST_GROUP_BOUNDARY;
+    return 1;
+  }
+  return 0;
+}
+
 int main(void) {
+  static const test_case_entry_t k_cases[] = {
+      {"lifecycle_and_connection", TEST_GROUP_POSITIVE, test_lifecycle_and_connection},
+      {"invalid_args_and_boundaries", TEST_GROUP_BOUNDARY, test_invalid_args_and_boundaries},
+      {"remote_candidate_parse_failure_is_explicit", TEST_GROUP_NEGATIVE,
+       test_remote_candidate_parse_failure_is_explicit},
+      {"partial_accept_rejects_unsupported_audio", TEST_GROUP_POSITIVE,
+       test_partial_accept_rejects_unsupported_audio},
+      {"reject_all_unsupported_codecs", TEST_GROUP_NEGATIVE, test_reject_all_unsupported_codecs},
+      {"missing_required_attr_fails", TEST_GROUP_NEGATIVE, test_missing_required_attr_fails},
+      {"missing_ssrc_is_accepted", TEST_GROUP_POSITIVE, test_missing_ssrc_is_accepted},
+      {"offer_without_candidate_then_add_candidate", TEST_GROUP_POSITIVE,
+       test_offer_without_candidate_then_add_candidate},
+      {"candidate_before_offer_is_preserved", TEST_GROUP_POSITIVE,
+       test_candidate_before_offer_is_preserved},
+      {"h264_packetization_mode_requires_exact_one", TEST_GROUP_NEGATIVE,
+       test_h264_packetization_mode_requires_exact_one},
+      {"start_before_offer_waits_and_then_emits_answer", TEST_GROUP_POSITIVE,
+       test_start_before_offer_waits_and_then_emits_answer},
+      {"ice_timeout_error_observability", TEST_GROUP_NEGATIVE, test_ice_timeout_error_observability},
+      {"ice_protocol_error_observability", TEST_GROUP_NEGATIVE,
+       test_ice_protocol_error_observability},
+      {"ice_resource_exhausted_error_observability", TEST_GROUP_BOUNDARY,
+       test_ice_resource_exhausted_error_observability},
+      {"resource_exhaustion", TEST_GROUP_BOUNDARY, test_resource_exhaustion},
+      {"media_send_path_and_stats", TEST_GROUP_POSITIVE, test_media_send_path_and_stats},
+      {"invalid_srtp_srtcp_packet_observability", TEST_GROUP_NEGATIVE,
+       test_invalid_srtp_srtcp_packet_observability},
+      {"rtcp_feedback_rr_pli_nack_counts_and_callback", TEST_GROUP_POSITIVE,
+       test_rtcp_feedback_rr_pli_nack_counts_and_callback},
+      {"rtcp_nack_triggers_retransmit", TEST_GROUP_POSITIVE, test_rtcp_nack_triggers_retransmit},
+      {"rtcp_malformed_packet_observability", TEST_GROUP_NEGATIVE,
+       test_rtcp_malformed_packet_observability},
+      {"stop_start_reconnect_rebuilds_srtp", TEST_GROUP_POSITIVE,
+       test_stop_start_reconnect_rebuilds_srtp},
+      {"queue_overflow_and_datachannel_stub", TEST_GROUP_BOUNDARY,
+       test_queue_overflow_and_datachannel_stub},
+      {"dtls_fingerprint_mismatch_observability", TEST_GROUP_NEGATIVE,
+       test_dtls_fingerprint_mismatch_observability},
+      {"dtls_timeout_and_error_observability", TEST_GROUP_NEGATIVE,
+       test_dtls_timeout_and_error_observability},
+  };
+  const char *group_env = getenv("RTC_API_GROUP");
+  test_group_t selected_group = TEST_GROUP_POSITIVE;
+  int run_all = 1;
   int failures = 0;
+  size_t i;
+  size_t ran = 0u;
 
-  failures += test_lifecycle_and_connection();
-  failures += test_invalid_args_and_boundaries();
-  failures += test_remote_candidate_parse_failure_is_explicit();
-  failures += test_partial_accept_rejects_unsupported_audio();
-  failures += test_reject_all_unsupported_codecs();
-  failures += test_missing_required_attr_fails();
-  failures += test_missing_ssrc_is_accepted();
-  failures += test_offer_without_candidate_then_add_candidate();
-  failures += test_candidate_before_offer_is_preserved();
-  failures += test_h264_packetization_mode_requires_exact_one();
-  failures += test_start_before_offer_waits_and_then_emits_answer();
-  failures += test_ice_timeout_error_observability();
-  failures += test_ice_protocol_error_observability();
-  failures += test_ice_resource_exhausted_error_observability();
-  failures += test_resource_exhaustion();
-  failures += test_media_send_path_and_stats();
-  failures += test_invalid_srtp_srtcp_packet_observability();
-  failures += test_rtcp_feedback_rr_pli_nack_counts_and_callback();
-  failures += test_rtcp_nack_triggers_retransmit();
-  failures += test_rtcp_malformed_packet_observability();
-  failures += test_stop_start_reconnect_rebuilds_srtp();
-  failures += test_queue_overflow_and_datachannel_stub();
-  failures += test_dtls_fingerprint_mismatch_observability();
-  failures += test_dtls_timeout_and_error_observability();
+  if (!test_group_from_env(group_env, &run_all, &selected_group)) {
+    printf("invalid RTC_API_GROUP=%s (expected all|positive|negative|boundary)\n",
+           group_env ? group_env : "(null)");
+    return 2;
+  }
 
+  for (i = 0u; i < (sizeof(k_cases) / sizeof(k_cases[0])); ++i) {
+    int rc;
+    if (!run_all && k_cases[i].group != selected_group) {
+      continue;
+    }
+    printf("CASE %s group=%s\n", k_cases[i].name, test_group_text(k_cases[i].group));
+    rc = k_cases[i].fn();
+    if (rc != 0) {
+      failures += rc;
+    }
+    ran++;
+  }
+
+  if (ran == 0u) {
+    printf("no tests executed\n");
+    return 2;
+  }
   if (failures != 0) {
     printf("test failures: %d\n", failures);
     return 1;
   }
 
-  printf("all tests passed\n");
+  if (run_all) {
+    printf("all tests passed\n");
+  } else {
+    printf("%s tests passed\n", test_group_text(selected_group));
+  }
   return 0;
 }

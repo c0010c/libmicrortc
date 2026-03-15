@@ -9,6 +9,34 @@
 #define RTC_SIGNAL_CLI_MAX_LINE 4096u
 #define RTC_SIGNAL_CLI_DEFAULT_BUDGET_US 500u
 #define RTC_SIGNAL_CLI_DEFAULT_RUN_STEP_MS 10u
+#define RTC_SIGNAL_CLI_AUDIO_FRAME_MS 20u
+#define RTC_SIGNAL_CLI_VIDEO_FRAME_MS 67u
+#define RTC_SIGNAL_CLI_AUDIO_SAMPLES_PER_FRAME 160u
+#define RTC_SIGNAL_CLI_VIDEO_TS_STEP_90K 6000u
+#define RTC_SIGNAL_CLI_MEDIA_CATCHUP_MAX 16u
+
+static const uint8_t k_cli_audio_pcma_silence[RTC_SIGNAL_CLI_AUDIO_SAMPLES_PER_FRAME] = {
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u, 0xD5u,
+    0xD5u, 0xD5u, 0xD5u, 0xD5u};
+
+/* Minimal H264 Annex-B sample: SPS + PPS + IDR */
+static const uint8_t k_cli_h264_idr_annexb[] = {
+    0x00u, 0x00u, 0x00u, 0x01u, 0x67u, 0x42u, 0xE0u, 0x1Eu, 0x8Du, 0x68u, 0x54u,
+    0x05u, 0x01u, 0xEDu, 0x00u, 0xF0u, 0x88u, 0x45u, 0x80u, 0x00u, 0x00u, 0x00u,
+    0x01u, 0x68u, 0xCEu, 0x06u, 0xE2u, 0x00u, 0x00u, 0x00u, 0x01u, 0x65u, 0x88u,
+    0x80u, 0x20u, 0x07u, 0xBFu, 0xFEu, 0xF7u, 0xD9u, 0x20u};
 
 typedef struct rtc_signal_cli_app {
   rtc_engine_t *engine;
@@ -19,6 +47,11 @@ typedef struct rtc_signal_cli_app {
   uint8_t collecting_offer;
   uint8_t has_answer;
   uint8_t should_quit;
+  uint8_t media_enabled;
+  uint32_t next_audio_send_ms;
+  uint32_t next_video_send_ms;
+  uint32_t audio_ts8k;
+  uint32_t video_ts90k;
   size_t offer_len;
   char offer[RTC_CFG_MAX_SDP_LEN];
   char answer[RTC_CFG_MAX_SDP_LEN];
@@ -229,6 +262,11 @@ static rtc_result_t cli_create_peer(rtc_signal_cli_app_t *app) {
   app->has_answer = 0u;
   app->answer[0] = '\0';
   app->answer_type[0] = '\0';
+  app->media_enabled = 1u;
+  app->next_audio_send_ms = app->now_ms;
+  app->next_video_send_ms = app->now_ms;
+  app->audio_ts8k = 0u;
+  app->video_ts90k = 0u;
   return RTC_OK;
 }
 
@@ -263,6 +301,157 @@ static rtc_result_t cli_offer_append_line(rtc_signal_cli_app_t *app,
   return RTC_OK;
 }
 
+static int cli_time_due(uint32_t now_ms, uint32_t target_ms) {
+  return (int32_t)(now_ms - target_ms) >= 0;
+}
+
+static rtc_result_t cli_media_send_once(rtc_signal_cli_app_t *app, uint8_t send_audio,
+                                        uint8_t send_video) {
+  rtc_result_t r = RTC_OK;
+
+  if (!app || !app->peer) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  if (send_audio) {
+    r = rtc_peer_send_audio_g711(app->peer, RTC_AUDIO_CODEC_PCMA,
+                                 k_cli_audio_pcma_silence,
+                                 (uint16_t)sizeof(k_cli_audio_pcma_silence),
+                                 app->audio_ts8k);
+    if (r != RTC_OK && r != RTC_ERR_INVALID_STATE && r != RTC_ERR_OVERFLOW) {
+      return r;
+    }
+    app->audio_ts8k += RTC_SIGNAL_CLI_AUDIO_SAMPLES_PER_FRAME;
+  }
+
+  if (send_video) {
+    r = rtc_peer_send_video_h264(app->peer, k_cli_h264_idr_annexb,
+                                 (uint16_t)sizeof(k_cli_h264_idr_annexb),
+                                 app->video_ts90k, 1u);
+    if (r != RTC_OK && r != RTC_ERR_INVALID_STATE && r != RTC_ERR_OVERFLOW) {
+      return r;
+    }
+    app->video_ts90k += RTC_SIGNAL_CLI_VIDEO_TS_STEP_90K;
+  }
+
+  return RTC_OK;
+}
+
+static rtc_result_t cli_media_tick(rtc_signal_cli_app_t *app) {
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_result_t r;
+  uint32_t audio_sent = 0u;
+  uint32_t video_sent = 0u;
+
+  if (!app || !app->peer) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (!app->media_enabled) {
+    return RTC_OK;
+  }
+
+  r = rtc_peer_get_state(app->peer, &state);
+  if (r != RTC_OK) {
+    return r;
+  }
+  if (state != RTC_PEER_STATE_CONNECTED) {
+    app->next_audio_send_ms = app->now_ms + RTC_SIGNAL_CLI_AUDIO_FRAME_MS;
+    app->next_video_send_ms = app->now_ms + RTC_SIGNAL_CLI_VIDEO_FRAME_MS;
+    return RTC_OK;
+  }
+
+  while (cli_time_due(app->now_ms, app->next_audio_send_ms) &&
+         audio_sent < RTC_SIGNAL_CLI_MEDIA_CATCHUP_MAX) {
+    r = cli_media_send_once(app, 1u, 0u);
+    if (r != RTC_OK) {
+      return r;
+    }
+    app->next_audio_send_ms += RTC_SIGNAL_CLI_AUDIO_FRAME_MS;
+    audio_sent++;
+  }
+
+  while (cli_time_due(app->now_ms, app->next_video_send_ms) &&
+         video_sent < RTC_SIGNAL_CLI_MEDIA_CATCHUP_MAX) {
+    r = cli_media_send_once(app, 0u, 1u);
+    if (r != RTC_OK) {
+      return r;
+    }
+    app->next_video_send_ms += RTC_SIGNAL_CLI_VIDEO_FRAME_MS;
+    video_sent++;
+  }
+
+  return RTC_OK;
+}
+
+static rtc_result_t cli_cmd_evidence_dump(rtc_signal_cli_app_t *app, const char *path) {
+  rtc_result_t r;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_peer_stats_t peer_stats;
+  rtc_engine_stats_t engine_stats;
+  FILE *fp = NULL;
+  int write_rc;
+
+  if (!app || !path || path[0] == '\0') {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  memset(&peer_stats, 0, sizeof(peer_stats));
+  memset(&engine_stats, 0, sizeof(engine_stats));
+
+  r = rtc_peer_get_state(app->peer, &state);
+  if (r != RTC_OK) {
+    return r;
+  }
+  r = rtc_peer_get_stats(app->peer, &peer_stats);
+  if (r != RTC_OK) {
+    return r;
+  }
+  r = rtc_engine_get_stats(app->engine, &engine_stats);
+  if (r != RTC_OK) {
+    return r;
+  }
+
+  fp = fopen(path, "wb");
+  if (!fp) {
+    return RTC_ERR_RESOURCE_EXHAUSTED;
+  }
+
+  write_rc = fprintf(
+      fp,
+      "{\n"
+      "  \"schema\": \"rtc-step12-client-evidence-v1\",\n"
+      "  \"now_ms\": %" PRIu32 ",\n"
+      "  \"peer_state\": \"%s\",\n"
+      "  \"media_enabled\": %u,\n"
+      "  \"peer_stats\": {\n"
+      "    \"rx_audio_frames\": %" PRIu32 ",\n"
+      "    \"rx_video_frames\": %" PRIu32 ",\n"
+      "    \"tx_audio_frames\": %" PRIu32 ",\n"
+      "    \"tx_video_frames\": %" PRIu32 ",\n"
+      "    \"protocol_error_count\": %" PRIu32 ",\n"
+      "    \"queue_overflow_count\": %" PRIu32 ",\n"
+      "    \"dtls_last_error\": %d,\n"
+      "    \"dtls_state\": %u,\n"
+      "    \"dropped_packets\": %" PRIu32 "\n"
+      "  },\n"
+      "  \"engine_stats\": {\n"
+      "    \"poll_count\": %" PRIu32 ",\n"
+      "    \"poll_budget_exhaust_count\": %" PRIu32 "\n"
+      "  }\n"
+      "}\n",
+      app->now_ms, cli_peer_state_text(state), (unsigned)app->media_enabled,
+      peer_stats.rx_audio_frames, peer_stats.rx_video_frames, peer_stats.tx_audio_frames,
+      peer_stats.tx_video_frames, peer_stats.protocol_error_count,
+      peer_stats.queue_overflow_count, (int)peer_stats.dtls_last_error,
+      (unsigned)peer_stats.dtls_state, peer_stats.dropped_packets, engine_stats.poll_count,
+      engine_stats.poll_budget_exhaust_count);
+  if (write_rc < 0 || fclose(fp) != 0) {
+    return RTC_ERR_RESOURCE_EXHAUSTED;
+  }
+
+  return RTC_OK;
+}
+
 static rtc_result_t cli_cmd_tick(rtc_signal_cli_app_t *app, const char *args) {
   rtc_result_t r;
   uint32_t now_ms;
@@ -286,11 +475,15 @@ static rtc_result_t cli_cmd_tick(rtc_signal_cli_app_t *app, const char *args) {
       return RTC_ERR_INVALID_ARG;
     }
   }
+  app->now_ms = now_ms;
+  r = cli_media_tick(app);
+  if (r != RTC_OK) {
+    return r;
+  }
   r = rtc_engine_poll(app->engine, now_ms, budget_us);
   if (r != RTC_OK) {
     return r;
   }
-  app->now_ms = now_ms;
   return RTC_OK;
 }
 
@@ -339,6 +532,10 @@ static rtc_result_t cli_cmd_run(rtc_signal_cli_app_t *app, const char *args) {
     }
     app->now_ms += advance;
     elapsed += advance;
+    r = cli_media_tick(app);
+    if (r != RTC_OK) {
+      return r;
+    }
     r = rtc_engine_poll(app->engine, app->now_ms, budget_us);
     if (r != RTC_OK) {
       return r;
@@ -485,6 +682,25 @@ static rtc_result_t cli_handle_command(rtc_signal_cli_app_t *app, char *line,
   if (strcmp(cmd, "restart-peer") == 0) {
     *out_cmd_name = "restart-peer";
     return cli_restart_peer(app);
+  }
+  if (strcmp(cmd, "media-start") == 0) {
+    *out_cmd_name = "media-start";
+    app->media_enabled = 1u;
+    app->next_audio_send_ms = app->now_ms;
+    app->next_video_send_ms = app->now_ms;
+    return RTC_OK;
+  }
+  if (strcmp(cmd, "media-stop") == 0) {
+    *out_cmd_name = "media-stop";
+    app->media_enabled = 0u;
+    return RTC_OK;
+  }
+  if (strcmp(cmd, "evidence-dump") == 0) {
+    *out_cmd_name = "evidence-dump";
+    if (!args || args[0] == '\0') {
+      return RTC_ERR_INVALID_ARG;
+    }
+    return cli_cmd_evidence_dump(app, args);
   }
   if (strcmp(cmd, "quit") == 0) {
     *out_cmd_name = "quit";
