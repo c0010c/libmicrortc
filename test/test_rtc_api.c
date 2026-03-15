@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "dtls/rtc_dtls_local_cert.h"
+#include "srtp/rtc_srtp.h"
 #include "test_sdp_fixtures.h"
 #include "test_stun_helpers.h"
 
@@ -76,6 +77,8 @@ typedef struct test_peer_capture {
   uint8_t seen_ice_checking;
   uint8_t seen_dtls_handshake;
   uint8_t seen_connected;
+  uint32_t keyframe_requests;
+  uint32_t last_keyframe_media_ssrc;
 } test_peer_capture_t;
 
 typedef enum test_log_profile {
@@ -95,6 +98,39 @@ static int test_str_contains(const char *text, const char *needle) {
     return 0;
   }
   return strstr(text, needle) != NULL;
+}
+
+static void test_write_u16be(uint8_t *dst, uint16_t value) {
+  if (!dst) {
+    return;
+  }
+  dst[0] = (uint8_t)((value >> 8) & 0xFFu);
+  dst[1] = (uint8_t)(value & 0xFFu);
+}
+
+static void test_write_u32be(uint8_t *dst, uint32_t value) {
+  if (!dst) {
+    return;
+  }
+  dst[0] = (uint8_t)((value >> 24) & 0xFFu);
+  dst[1] = (uint8_t)((value >> 16) & 0xFFu);
+  dst[2] = (uint8_t)((value >> 8) & 0xFFu);
+  dst[3] = (uint8_t)(value & 0xFFu);
+}
+
+static uint16_t test_read_u16be(const uint8_t *src) {
+  if (!src) {
+    return 0u;
+  }
+  return (uint16_t)(((uint16_t)src[0] << 8) | (uint16_t)src[1]);
+}
+
+static uint32_t test_read_u32be(const uint8_t *src) {
+  if (!src) {
+    return 0u;
+  }
+  return ((uint32_t)src[0] << 24) | ((uint32_t)src[1] << 16) |
+         ((uint32_t)src[2] << 8) | (uint32_t)src[3];
 }
 
 static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
@@ -272,6 +308,17 @@ static void test_audio_cb(rtc_peer_t *peer, rtc_audio_codec_t codec, const uint8
   memcpy(cap->last_audio, payload, cap->last_audio_len);
 }
 
+static void test_keyframe_request_cb(rtc_peer_t *peer, uint32_t media_ssrc,
+                                     void *user_data) {
+  test_peer_capture_t *cap = (test_peer_capture_t *)user_data;
+  (void)peer;
+  if (!cap) {
+    return;
+  }
+  cap->keyframe_requests++;
+  cap->last_keyframe_media_ssrc = media_ssrc;
+}
+
 static void fill_engine_cfg(rtc_engine_config_t *cfg, test_log_capture_t *logs) {
   memset(cfg, 0, sizeof(*cfg));
   cfg->version = RTC_API_VERSION;
@@ -295,6 +342,7 @@ static void fill_peer_cfg(rtc_peer_config_t *cfg, test_peer_capture_t *cap) {
   cfg->on_local_candidate = test_local_cand_cb;
   cfg->on_video_frame = test_video_cb;
   cfg->on_audio_frame = test_audio_cb;
+  cfg->on_keyframe_request = test_keyframe_request_cb;
   cfg->user_data = cap;
 }
 
@@ -320,6 +368,12 @@ typedef struct test_remote_dtls_peer {
   uint8_t started;
   uint8_t connected;
   uint8_t failed;
+  uint8_t srtp_ready;
+  uint8_t saw_outbound_rtp;
+  uint16_t first_outbound_seq;
+  uint32_t first_outbound_ssrc;
+  uint32_t matching_rtp_count;
+  rtc_srtp_ctx_t srtp;
   mbedtls_ssl_context ssl;
   mbedtls_ssl_config conf;
   mbedtls_x509_crt cert;
@@ -342,6 +396,16 @@ static int test_dtls_is_packet(const uint8_t *buf, uint16_t len) {
     return 0;
   }
   return buf[0] >= 20u && buf[0] <= 63u;
+}
+
+static int test_rtcp_is_packet(const uint8_t *buf, uint16_t len) {
+  if (!buf || len < 8u) {
+    return 0;
+  }
+  if ((buf[0] & 0xC0u) != 0x80u) {
+    return 0;
+  }
+  return buf[1] >= 192u && buf[1] <= 223u;
 }
 
 static int test_dtls_in_push(test_remote_dtls_peer_t *peer, const uint8_t *buf,
@@ -381,6 +445,114 @@ static int test_dtls_in_pop(test_remote_dtls_peer_t *peer, uint8_t *out,
   peer->dtls_in_head =
       (uint16_t)((peer->dtls_in_head + 1u) % RTC_CFG_DTLS_MAILBOX_CAP);
   peer->dtls_in_count--;
+  return 1;
+}
+
+static int test_remote_dtls_peer_setup_srtp(test_remote_dtls_peer_t *peer) {
+  static const char k_dtls_srtp_label[] = "EXTRACTOR-dtls_srtp";
+  uint8_t keying_material[60];
+  rtc_srtp_key_material_t key_material;
+  int rc;
+
+  if (!peer || !peer->connected) {
+    return 0;
+  }
+  if (peer->srtp_ready) {
+    return 1;
+  }
+
+  rc = mbedtls_ssl_export_keying_material(
+      &peer->ssl, keying_material, sizeof(keying_material), k_dtls_srtp_label,
+      sizeof(k_dtls_srtp_label) - 1u, NULL, 0u, 0);
+  if (rc != 0) {
+    return 0;
+  }
+
+  memset(&key_material, 0, sizeof(key_material));
+  key_material.profile = 1u;
+  key_material.key_len = 30u;
+
+  memcpy(key_material.outbound_key, keying_material, 16u);
+  memcpy(key_material.inbound_key, keying_material + 16u, 16u);
+  memcpy(key_material.outbound_key + 16u, keying_material + 32u, 14u);
+  memcpy(key_material.inbound_key + 16u, keying_material + 46u, 14u);
+
+  rtc_srtp_init(&peer->srtp);
+  if (rtc_srtp_activate(&peer->srtp, &key_material) != RTC_OK) {
+    return 0;
+  }
+  peer->srtp_ready = 1u;
+  return 1;
+}
+
+static void test_remote_dtls_peer_observe_media(test_remote_dtls_peer_t *peer,
+                                                const uint8_t *packet,
+                                                uint16_t packet_len) {
+  rtc_rtp_packet_t parsed;
+  uint16_t seq;
+  uint32_t ssrc;
+
+  if (!peer || !packet || packet_len == 0u) {
+    return;
+  }
+
+  if (test_rtcp_is_packet(packet, packet_len)) {
+    if (peer->srtp_ready && packet_len <= sizeof(parsed.wire)) {
+      memset(&parsed, 0, sizeof(parsed));
+      memcpy(parsed.wire, packet, packet_len);
+      parsed.wire_len = packet_len;
+      (void)rtc_srtp_unprotect_rtcp(&peer->srtp, &parsed);
+    }
+    return;
+  }
+
+  if (packet_len < RTC_CFG_RTP_HEADER_LEN) {
+    return;
+  }
+  seq = test_read_u16be(packet + 2u);
+  ssrc = test_read_u32be(packet + 8u);
+  if (!peer->saw_outbound_rtp) {
+    peer->saw_outbound_rtp = 1u;
+    peer->first_outbound_seq = seq;
+    peer->first_outbound_ssrc = ssrc;
+    peer->matching_rtp_count = 1u;
+    return;
+  }
+
+  if (seq == peer->first_outbound_seq && ssrc == peer->first_outbound_ssrc) {
+    peer->matching_rtp_count++;
+  }
+}
+
+static int test_remote_dtls_peer_send_srtcp(test_remote_dtls_peer_t *peer,
+                                            const uint8_t *packet,
+                                            uint16_t packet_len) {
+  rtc_rtp_packet_t rtcp_packet;
+  uint16_t sent_len = 0u;
+  rtc_result_t r;
+
+  if (!peer || !packet || packet_len < 8u || !peer->peer_addr_valid ||
+      !peer->srtp_ready || peer->remote_fd < 0) {
+    return 0;
+  }
+  if (packet_len > sizeof(rtcp_packet.wire)) {
+    return 0;
+  }
+
+  memset(&rtcp_packet, 0, sizeof(rtcp_packet));
+  memcpy(rtcp_packet.wire, packet, packet_len);
+  rtcp_packet.wire_len = packet_len;
+
+  r = rtc_srtp_protect_rtcp(&peer->srtp, &rtcp_packet);
+  if (r != RTC_OK) {
+    return 0;
+  }
+
+  r = rtc_platform_udp_sendto(peer->remote_fd, &peer->peer_addr, rtcp_packet.wire,
+                              rtcp_packet.wire_len, &sent_len);
+  if (r != RTC_OK || sent_len != rtcp_packet.wire_len) {
+    return 0;
+  }
   return 1;
 }
 
@@ -471,6 +643,7 @@ static int test_remote_dtls_peer_init(test_remote_dtls_peer_t *peer,
 
   memset(peer, 0, sizeof(*peer));
   peer->remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+  rtc_srtp_init(&peer->srtp);
 
   if (!rtc_test_extract_sdp_attr(offer_sdp, "a=ice-ufrag:", peer->offer_ufrag,
                                  (uint16_t)sizeof(peer->offer_ufrag))) {
@@ -546,6 +719,7 @@ static void test_remote_dtls_peer_deinit(test_remote_dtls_peer_t *peer) {
   if (!peer) {
     return;
   }
+  rtc_srtp_deinit(&peer->srtp);
   rtc_platform_udp_close(&peer->remote_fd);
   mbedtls_ssl_free(&peer->ssl);
   mbedtls_ssl_config_free(&peer->conf);
@@ -619,7 +793,12 @@ static int test_remote_dtls_peer_step(test_remote_dtls_peer_t *peer,
       peer->peer_addr = src;
       peer->peer_addr_valid = 1u;
       (void)test_dtls_in_push(peer, packet, recv_len);
+      continue;
     }
+
+    peer->peer_addr = src;
+    peer->peer_addr_valid = 1u;
+    test_remote_dtls_peer_observe_media(peer, packet, recv_len);
   }
 
   if (!peer->started && peer->have_local_ufrag && peer->peer_addr_valid) {
@@ -630,6 +809,10 @@ static int test_remote_dtls_peer_step(test_remote_dtls_peer_t *peer,
     int hr = mbedtls_ssl_handshake(&peer->ssl);
     if (hr == 0) {
       peer->connected = 1u;
+      if (!test_remote_dtls_peer_setup_srtp(peer)) {
+        peer->failed = 1u;
+        return 0;
+      }
     } else if (hr != MBEDTLS_ERR_SSL_WANT_READ &&
                hr != MBEDTLS_ERR_SSL_WANT_WRITE &&
                hr != MBEDTLS_ERR_SSL_TIMEOUT) {
@@ -791,6 +974,115 @@ static int test_send_binding_request_from_remote(int remote_fd,
       sent_len != req_len) {
     return 0;
   }
+  return 1;
+}
+
+static uint16_t test_build_rtcp_rr_packet(uint8_t *out, uint16_t out_cap,
+                                          uint32_t sender_ssrc,
+                                          uint32_t media_ssrc) {
+  if (!out || out_cap < 32u) {
+    return 0u;
+  }
+
+  memset(out, 0, 32u);
+  out[0] = 0x81u;
+  out[1] = 201u;
+  test_write_u16be(out + 2u, 7u);
+  test_write_u32be(out + 4u, sender_ssrc);
+  test_write_u32be(out + 8u, media_ssrc);
+  return 32u;
+}
+
+static uint16_t test_build_rtcp_pli_packet(uint8_t *out, uint16_t out_cap,
+                                           uint32_t sender_ssrc,
+                                           uint32_t media_ssrc) {
+  if (!out || out_cap < 12u) {
+    return 0u;
+  }
+
+  memset(out, 0, 12u);
+  out[0] = 0x81u;
+  out[1] = 206u;
+  test_write_u16be(out + 2u, 2u);
+  test_write_u32be(out + 4u, sender_ssrc);
+  test_write_u32be(out + 8u, media_ssrc);
+  return 12u;
+}
+
+static uint16_t test_build_rtcp_nack_packet(uint8_t *out, uint16_t out_cap,
+                                            uint32_t sender_ssrc,
+                                            uint32_t media_ssrc,
+                                            uint16_t pid, uint16_t blp) {
+  if (!out || out_cap < 16u) {
+    return 0u;
+  }
+
+  memset(out, 0, 16u);
+  out[0] = 0x81u;
+  out[1] = 205u;
+  test_write_u16be(out + 2u, 3u);
+  test_write_u32be(out + 4u, sender_ssrc);
+  test_write_u32be(out + 8u, media_ssrc);
+  test_write_u16be(out + 12u, pid);
+  test_write_u16be(out + 14u, blp);
+  return 16u;
+}
+
+static uint16_t test_build_rtcp_malformed_pli_packet(uint8_t *out,
+                                                     uint16_t out_cap,
+                                                     uint32_t sender_ssrc,
+                                                     uint32_t media_ssrc) {
+  if (!out || out_cap < 12u) {
+    return 0u;
+  }
+
+  memset(out, 0, 12u);
+  out[0] = 0x81u;
+  out[1] = 206u;
+  /* length=3 means 16 bytes, but body only has 12 bytes */
+  test_write_u16be(out + 2u, 3u);
+  test_write_u32be(out + 4u, sender_ssrc);
+  test_write_u32be(out + 8u, media_ssrc);
+  return 12u;
+}
+
+static int test_append_bytes(uint8_t *dst, uint16_t dst_cap, uint16_t *io_len,
+                             const uint8_t *src, uint16_t src_len) {
+  uint16_t cur_len;
+  if (!dst || !io_len || !src) {
+    return 0;
+  }
+  cur_len = *io_len;
+  if ((uint32_t)cur_len + (uint32_t)src_len > (uint32_t)dst_cap) {
+    return 0;
+  }
+  memcpy(dst + cur_len, src, src_len);
+  *io_len = (uint16_t)(cur_len + src_len);
+  return 1;
+}
+
+static int poll_until_remote_observes_first_rtp(rtc_engine_t *engine,
+                                                test_peer_capture_t *cap,
+                                                test_remote_dtls_peer_t *remote_peer,
+                                                uint32_t *inout_now_ms) {
+  uint32_t now_ms = 0u;
+  int i;
+
+  if (!engine || !cap || !remote_peer || !inout_now_ms) {
+    return 1;
+  }
+  now_ms = *inout_now_ms;
+
+  for (i = 0; i < 80; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    ASSERT_TRUE(test_remote_dtls_peer_step(remote_peer, cap->last_local_sdp));
+    if (remote_peer->saw_outbound_rtp) {
+      *inout_now_ms = now_ms;
+      return 0;
+    }
+  }
+  printf("remote did not observe outbound rtp\n");
   return 1;
 }
 
@@ -1705,6 +1997,216 @@ static int test_invalid_srtp_srtcp_packet_observability(void) {
   return 0;
 }
 
+static int test_rtcp_feedback_rr_pli_nack_counts_and_callback(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_stats_t before_stats;
+  rtc_peer_stats_t after_stats;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  test_remote_dtls_peer_t remote_peer;
+  uint8_t video_payload[] = {0x65u, 0x90u, 0x11u, 0x22u, 0x33u};
+  uint8_t rr_packet[32];
+  uint8_t pli_packet[12];
+  uint8_t nack_packet[16];
+  uint8_t compound[64];
+  uint16_t compound_len = 0u;
+  uint32_t now_ms = 0u;
+  uint32_t feedback_sender_ssrc = 0x01020304u;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&before_stats, 0, sizeof(before_stats));
+  memset(&after_stats, 0, sizeof(after_stats));
+  memset(&remote_peer, 0, sizeof(remote_peer));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(0, poll_until_connected_with_remote(engine, peer, &cap, &remote_peer,
+                                                    &now_ms, g_test_chrome_offer_h264_g711));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_send_video_h264(peer, video_payload,
+                                                 (uint16_t)sizeof(video_payload),
+                                                 90000u, 1u));
+  ASSERT_EQ_INT(0, poll_until_remote_observes_first_rtp(engine, &cap, &remote_peer,
+                                                        &now_ms));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &before_stats));
+  ASSERT_TRUE(test_build_rtcp_rr_packet(rr_packet, (uint16_t)sizeof(rr_packet),
+                                        feedback_sender_ssrc,
+                                        remote_peer.first_outbound_ssrc) ==
+              sizeof(rr_packet));
+  ASSERT_TRUE(test_build_rtcp_pli_packet(pli_packet, (uint16_t)sizeof(pli_packet),
+                                         feedback_sender_ssrc,
+                                         remote_peer.first_outbound_ssrc) ==
+              sizeof(pli_packet));
+  ASSERT_TRUE(test_build_rtcp_nack_packet(nack_packet, (uint16_t)sizeof(nack_packet),
+                                          feedback_sender_ssrc,
+                                          remote_peer.first_outbound_ssrc,
+                                          remote_peer.first_outbound_seq, 0u) ==
+              sizeof(nack_packet));
+  ASSERT_TRUE(test_append_bytes(compound, (uint16_t)sizeof(compound), &compound_len,
+                                rr_packet, (uint16_t)sizeof(rr_packet)));
+  ASSERT_TRUE(test_append_bytes(compound, (uint16_t)sizeof(compound), &compound_len,
+                                pli_packet, (uint16_t)sizeof(pli_packet)));
+  ASSERT_TRUE(test_append_bytes(compound, (uint16_t)sizeof(compound), &compound_len,
+                                nack_packet, (uint16_t)sizeof(nack_packet)));
+  ASSERT_TRUE(test_remote_dtls_peer_send_srtcp(&remote_peer, compound, compound_len));
+
+  for (i = 0; i < 30; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
+  }
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+  ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &after_stats));
+  ASSERT_TRUE(after_stats.rtcp_rx_pkts >= before_stats.rtcp_rx_pkts + 1u);
+  ASSERT_TRUE(after_stats.rtcp_rr_rx >= before_stats.rtcp_rr_rx + 1u);
+  ASSERT_TRUE(after_stats.rtcp_pli_rx >= before_stats.rtcp_pli_rx + 1u);
+  ASSERT_TRUE(after_stats.rtcp_nack_rx >= before_stats.rtcp_nack_rx + 1u);
+  ASSERT_TRUE(cap.keyframe_requests >= 1u);
+  ASSERT_EQ_INT((int)remote_peer.first_outbound_ssrc,
+                (int)cap.last_keyframe_media_ssrc);
+
+  test_remote_dtls_peer_deinit(&remote_peer);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_rtcp_nack_triggers_retransmit(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_stats_t before_stats;
+  rtc_peer_stats_t after_stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  test_remote_dtls_peer_t remote_peer;
+  uint8_t video_payload[] = {0x65u, 0x44u, 0x99u, 0xAAu};
+  uint8_t nack_packet[16];
+  uint32_t now_ms = 0u;
+  uint32_t feedback_sender_ssrc = 0x11223344u;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&before_stats, 0, sizeof(before_stats));
+  memset(&after_stats, 0, sizeof(after_stats));
+  memset(&remote_peer, 0, sizeof(remote_peer));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(0, poll_until_connected_with_remote(engine, peer, &cap, &remote_peer,
+                                                    &now_ms, g_test_chrome_offer_h264_g711));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_send_video_h264(peer, video_payload,
+                                                 (uint16_t)sizeof(video_payload),
+                                                 123456u, 1u));
+  ASSERT_EQ_INT(0, poll_until_remote_observes_first_rtp(engine, &cap, &remote_peer,
+                                                        &now_ms));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &before_stats));
+
+  ASSERT_TRUE(test_build_rtcp_nack_packet(nack_packet, (uint16_t)sizeof(nack_packet),
+                                          feedback_sender_ssrc,
+                                          remote_peer.first_outbound_ssrc,
+                                          remote_peer.first_outbound_seq, 0u) ==
+              sizeof(nack_packet));
+  ASSERT_TRUE(test_remote_dtls_peer_send_srtcp(&remote_peer, nack_packet,
+                                               (uint16_t)sizeof(nack_packet)));
+
+  for (i = 0; i < 40; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
+  }
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &after_stats));
+  ASSERT_TRUE(after_stats.rtcp_nack_retx >= before_stats.rtcp_nack_retx + 1u);
+  ASSERT_TRUE(after_stats.retransmit_count >= before_stats.retransmit_count + 1u);
+  ASSERT_TRUE(remote_peer.matching_rtp_count >= 2u);
+
+  test_remote_dtls_peer_deinit(&remote_peer);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_rtcp_malformed_packet_observability(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_stats_t before_stats;
+  rtc_peer_stats_t after_stats;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  test_remote_dtls_peer_t remote_peer;
+  uint8_t malformed_pli[12];
+  uint8_t video_payload[] = {0x65u, 0x55u, 0x66u};
+  uint32_t now_ms = 0u;
+  uint32_t feedback_sender_ssrc = 0x55667788u;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&before_stats, 0, sizeof(before_stats));
+  memset(&after_stats, 0, sizeof(after_stats));
+  memset(&remote_peer, 0, sizeof(remote_peer));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(0, poll_until_connected_with_remote(engine, peer, &cap, &remote_peer,
+                                                    &now_ms, g_test_chrome_offer_h264_g711));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_send_video_h264(peer, video_payload,
+                                                 (uint16_t)sizeof(video_payload),
+                                                 77777u, 1u));
+  ASSERT_EQ_INT(0, poll_until_remote_observes_first_rtp(engine, &cap, &remote_peer,
+                                                        &now_ms));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &before_stats));
+  ASSERT_TRUE(
+      test_build_rtcp_malformed_pli_packet(malformed_pli,
+                                           (uint16_t)sizeof(malformed_pli),
+                                           feedback_sender_ssrc,
+                                           remote_peer.first_outbound_ssrc) ==
+      sizeof(malformed_pli));
+  ASSERT_TRUE(test_remote_dtls_peer_send_srtcp(&remote_peer, malformed_pli,
+                                               (uint16_t)sizeof(malformed_pli)));
+
+  for (i = 0; i < 24; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    ASSERT_TRUE(test_remote_dtls_peer_step(&remote_peer, cap.last_local_sdp));
+  }
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+  ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &after_stats));
+  ASSERT_TRUE(after_stats.rtcp_rx_pkts >= before_stats.rtcp_rx_pkts + 1u);
+  ASSERT_TRUE(after_stats.protocol_error_count >= before_stats.protocol_error_count + 1u);
+
+  test_remote_dtls_peer_deinit(&remote_peer);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
 static int test_stop_start_reconnect_rebuilds_srtp(void) {
   rtc_engine_t *engine = NULL;
   rtc_peer_t *peer = NULL;
@@ -1936,6 +2438,9 @@ int main(void) {
   failures += test_resource_exhaustion();
   failures += test_media_send_path_and_stats();
   failures += test_invalid_srtp_srtcp_packet_observability();
+  failures += test_rtcp_feedback_rr_pli_nack_counts_and_callback();
+  failures += test_rtcp_nack_triggers_retransmit();
+  failures += test_rtcp_malformed_packet_observability();
   failures += test_stop_start_reconnect_rebuilds_srtp();
   failures += test_queue_overflow_and_datachannel_stub();
   failures += test_dtls_fingerprint_mismatch_observability();

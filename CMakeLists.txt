@@ -73,6 +73,7 @@ add_library(rtc_c STATIC
     src/dtls/rtc_dtls.c
     src/srtp/rtc_srtp.c
     src/rtp/rtc_rtp.c
+    src/rtp/rtc_rtcp.c
     src/session/rtc_session.c
 )
 
@@ -94,6 +95,9 @@ add_executable(rtc_api_test
 
 target_include_directories(rtc_api_test PRIVATE include)
 target_include_directories(rtc_api_test PRIVATE src third_party/mbedtls/include)
+if(RTC_ENABLE_REAL_DTLS_SRTP)
+  target_include_directories(rtc_api_test PRIVATE third_party/libsrtp/include)
+endif()
 target_link_libraries(rtc_api_test PRIVATE rtc_c)
 if(RTC_ENABLE_REAL_DTLS_SRTP)
   target_compile_definitions(rtc_api_test PRIVATE

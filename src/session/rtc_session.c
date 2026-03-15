@@ -3,12 +3,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "rtp/rtc_rtcp.h"
+
 #define RTC_MODULE_ENGINE "session.engine"
 #define RTC_MODULE_PEER "session.peer"
 #define RTC_MODULE_ICE "ice"
 #define RTC_MODULE_DTLS "dtls"
 #define RTC_MODULE_SRTP "srtp"
 #define RTC_MODULE_RTP "rtp"
+#define RTC_MODULE_RTCP "rtcp"
 #define RTC_MODULE_TRANSPORT "transport"
 
 static rtc_engine_t g_engine_pool[RTC_CFG_MAX_ENGINES];
@@ -141,6 +144,11 @@ typedef struct rtc_video_send_ctx {
   rtc_peer_t *peer;
 } rtc_video_send_ctx_t;
 
+static void rtc_peer_rtx_cache_store(rtc_peer_t *peer,
+                                     const rtc_rtp_packet_t *packet);
+static void rtc_peer_handle_rtcp_packet(rtc_peer_t *peer,
+                                        const rtc_rtp_packet_t *packet);
+
 static rtc_result_t rtc_session_video_tx_packet_cb(rtc_rtp_packet_t *packet,
                                                    void *user_data) {
   rtc_video_send_ctx_t *ctx = (rtc_video_send_ctx_t *)user_data;
@@ -162,6 +170,8 @@ static rtc_result_t rtc_session_video_tx_packet_cb(rtc_rtp_packet_t *packet,
     rtc_update_queue_stats(ctx->peer);
     return r;
   }
+
+  rtc_peer_rtx_cache_store(ctx->peer, packet);
   return RTC_OK;
 }
 
@@ -173,6 +183,191 @@ static int rtc_is_rtcp_packet(const rtc_rtp_packet_t *packet) {
     return 0;
   }
   return packet->wire[1] >= 192u && packet->wire[1] <= 223u;
+}
+
+static int rtc_should_log_rate_limited(uint32_t count) {
+  return count == 1u || (count % 64u) == 0u;
+}
+
+static void rtc_log_rtcp_event(rtc_peer_t *peer, rtc_log_level_t level,
+                               rtc_result_t code, uint8_t pt, uint8_t fmt,
+                               uint32_t media_ssrc, uint16_t seq,
+                               const char *reason) {
+  char msg[160];
+  if (!peer || !reason) {
+    return;
+  }
+  (void)snprintf(msg, sizeof(msg), "pt=%u fmt=%u media_ssrc=%u seq=%u %s",
+                 (unsigned)pt, (unsigned)fmt, (unsigned)media_ssrc,
+                 (unsigned)seq, reason);
+  rtc_log_peer(peer, level, RTC_MODULE_RTCP, code, msg);
+}
+
+static void rtc_peer_rtx_cache_reset(rtc_peer_t *peer) {
+  if (!peer) {
+    return;
+  }
+  memset(peer->rtx_cache, 0, sizeof(peer->rtx_cache));
+  peer->rtx_cache_head = 0u;
+  peer->rtx_cache_size = 0u;
+}
+
+static void rtc_peer_rtx_cache_store(rtc_peer_t *peer,
+                                     const rtc_rtp_packet_t *packet) {
+  rtc_rtx_cache_entry_t *entry;
+  uint16_t index;
+
+  if (!peer || !packet || packet->wire_len == 0u ||
+      packet->wire_len > (uint16_t)sizeof(peer->rtx_cache[0].wire)) {
+    return;
+  }
+
+  if (peer->rtx_cache_size < RTC_CFG_RTX_CACHE) {
+    index = (uint16_t)((peer->rtx_cache_head + peer->rtx_cache_size) %
+                       RTC_CFG_RTX_CACHE);
+    peer->rtx_cache_size++;
+  } else {
+    index = peer->rtx_cache_head;
+    peer->rtx_cache_head =
+        (uint16_t)((peer->rtx_cache_head + 1u) % RTC_CFG_RTX_CACHE);
+  }
+
+  entry = &peer->rtx_cache[index];
+  memset(entry, 0, sizeof(*entry));
+  entry->in_use = 1u;
+  entry->seq = packet->seq;
+  entry->ssrc = packet->ssrc;
+  entry->wire_len = packet->wire_len;
+  memcpy(entry->wire, packet->wire, packet->wire_len);
+}
+
+static const rtc_rtx_cache_entry_t *rtc_peer_rtx_cache_find(
+    const rtc_peer_t *peer, uint32_t ssrc, uint16_t seq) {
+  uint16_t i;
+  if (!peer) {
+    return NULL;
+  }
+  for (i = 0u; i < peer->rtx_cache_size; ++i) {
+    uint32_t index = (uint32_t)peer->rtx_cache_head +
+                     (uint32_t)peer->rtx_cache_size - 1u - (uint32_t)i;
+    const rtc_rtx_cache_entry_t *entry =
+        &peer->rtx_cache[index % RTC_CFG_RTX_CACHE];
+    if (!entry->in_use) {
+      continue;
+    }
+    if (entry->ssrc == ssrc && entry->seq == seq) {
+      return entry;
+    }
+  }
+  return NULL;
+}
+
+static void rtc_peer_retransmit_nack_seq(rtc_peer_t *peer, uint8_t pt, uint8_t fmt,
+                                         uint32_t media_ssrc, uint16_t seq) {
+  const rtc_rtx_cache_entry_t *entry;
+  rtc_rtp_packet_t packet;
+  rtc_result_t r;
+
+  if (!peer) {
+    return;
+  }
+
+  entry = rtc_peer_rtx_cache_find(peer, media_ssrc, seq);
+  if (!entry) {
+    uint32_t miss_count;
+    peer->stats.dropped_packets++;
+    miss_count = ++peer->rtcp_nack_miss_count;
+    if (rtc_should_log_rate_limited(miss_count)) {
+      rtc_log_rtcp_event(peer, RTC_LOG_WARN, RTC_ERR_TIMEOUT, pt, fmt, media_ssrc,
+                         seq, "nack cache miss");
+    }
+    return;
+  }
+
+  memset(&packet, 0, sizeof(packet));
+  packet.seq = entry->seq;
+  packet.ssrc = entry->ssrc;
+  packet.wire_len = entry->wire_len;
+  memcpy(packet.wire, entry->wire, entry->wire_len);
+
+  r = rtc_transport_enqueue_tx(&peer->transport, &packet);
+  if (r != RTC_OK) {
+    uint32_t queue_full_count;
+    peer->stats.dropped_packets++;
+    queue_full_count = ++peer->rtcp_nack_queue_full_count;
+    if (rtc_should_log_rate_limited(queue_full_count)) {
+      rtc_log_rtcp_event(peer, RTC_LOG_WARN, r, pt, fmt, media_ssrc, seq,
+                         "nack retransmit queue full");
+    }
+    rtc_update_queue_stats(peer);
+    return;
+  }
+
+  peer->stats.rtcp_nack_retx++;
+  peer->stats.retransmit_count++;
+}
+
+static void rtc_peer_handle_rtcp_packet(rtc_peer_t *peer,
+                                        const rtc_rtp_packet_t *packet) {
+  rtc_rtcp_parser_t parser;
+  rtc_result_t r;
+
+  if (!peer || !packet || packet->wire_len == 0u) {
+    return;
+  }
+
+  rtc_rtcp_parser_init(&parser, packet->wire, packet->wire_len);
+  for (;;) {
+    rtc_rtcp_event_t event;
+    uint16_t i;
+
+    r = rtc_rtcp_parser_next(&parser, &event);
+    if (r == RTC_ERR_TIMEOUT) {
+      return;
+    }
+    if (r != RTC_OK) {
+      uint32_t malformed_count;
+      char msg[144];
+
+      peer->stats.protocol_error_count++;
+      malformed_count = ++peer->rtcp_malformed_count;
+      if (rtc_should_log_rate_limited(malformed_count)) {
+        (void)snprintf(msg, sizeof(msg), "parse failed pt=%u fmt=%u offset=%u",
+                       (unsigned)parser.last_pt, (unsigned)parser.last_fmt,
+                       (unsigned)parser.last_offset);
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTCP, r, msg);
+      }
+      return;
+    }
+
+    if (event.type == RTC_RTCP_EVENT_RR) {
+      peer->stats.rtcp_rr_rx++;
+      continue;
+    }
+
+    if (event.type == RTC_RTCP_EVENT_PLI) {
+      peer->stats.rtcp_pli_rx++;
+      if (peer->config.on_keyframe_request) {
+        peer->config.on_keyframe_request(peer, event.media_ssrc,
+                                         peer->config.user_data);
+      }
+      continue;
+    }
+
+    if (event.type == RTC_RTCP_EVENT_NACK) {
+      peer->stats.rtcp_nack_rx++;
+      for (i = 0u; i < event.nack_seq_count; ++i) {
+        rtc_peer_retransmit_nack_seq(peer, event.pt, event.fmt,
+                                     event.media_ssrc, event.nack_seq[i]);
+      }
+      if (event.nack_truncated) {
+        peer->stats.dropped_packets++;
+        rtc_log_rtcp_event(peer, RTC_LOG_WARN, RTC_ERR_OVERFLOW, event.pt,
+                           event.fmt, event.media_ssrc, 0u,
+                           "nack list truncated by local bound");
+      }
+    }
+  }
 }
 
 static void rtc_record_srtp_unprotect_fail(rtc_peer_t *peer, rtc_result_t code,
@@ -398,6 +593,7 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
         continue;
       }
       peer->stats.rtcp_rx_pkts++;
+      rtc_peer_handle_rtcp_packet(peer, &packet);
       continue;
     }
 
@@ -1062,6 +1258,7 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
   rtc_srtp_init(&peer->srtp);
   rtc_rtp_init(&peer->rtp, peer->peer_id);
   rtc_transport_init(&peer->transport);
+  rtc_peer_rtx_cache_reset(peer);
   if (rtc_transport_local_port(&peer->transport) == 0u) {
     rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_TRANSPORT,
                  RTC_ERR_RESOURCE_EXHAUSTED, "transport init failed");
@@ -1160,6 +1357,10 @@ rtc_result_t rtc_session_peer_start(rtc_peer_t *peer) {
                      peer->engine->dtls_debug_enabled);
   rtc_srtp_deinit(&peer->srtp);
   rtc_srtp_init(&peer->srtp);
+  rtc_peer_rtx_cache_reset(peer);
+  peer->rtcp_malformed_count = 0u;
+  peer->rtcp_nack_miss_count = 0u;
+  peer->rtcp_nack_queue_full_count = 0u;
   peer->stats.dtls_last_error = RTC_OK;
   peer->stats.ice_last_error = RTC_OK;
   peer->stats.ice_checks_sent = 0u;
@@ -1185,6 +1386,7 @@ rtc_result_t rtc_session_peer_stop(rtc_peer_t *peer) {
   }
 
   rtc_srtp_deinit(&peer->srtp);
+  rtc_peer_rtx_cache_reset(peer);
   rtc_dtls_deinit(&peer->dtls);
   rtc_peer_set_state(peer, RTC_PEER_STATE_STOPPED, RTC_OK, "peer stop",
                      RTC_LOG_INFO);
@@ -1450,6 +1652,7 @@ rtc_result_t rtc_session_peer_send_audio_g711(rtc_peer_t *peer,
     return vr;
   }
 
+  rtc_peer_rtx_cache_store(peer, &packet);
   peer->stats.tx_audio_frames++;
   rtc_update_queue_stats(peer);
   return RTC_OK;

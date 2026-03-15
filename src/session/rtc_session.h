@@ -17,6 +17,14 @@
 
 struct rtc_engine;
 
+typedef struct rtc_rtx_cache_entry {
+  uint8_t in_use;
+  uint16_t seq;
+  uint32_t ssrc;
+  uint16_t wire_len;
+  uint8_t wire[RTC_CFG_MTU + RTC_CFG_SRTP_MAX_TRAILER];
+} rtc_rtx_cache_entry_t;
+
 struct rtc_peer {
   uint8_t in_use;
   uint32_t peer_id;
@@ -30,6 +38,12 @@ struct rtc_peer {
   rtc_srtp_ctx_t srtp;
   rtc_rtp_ctx_t rtp;
   rtc_transport_ctx_t transport;
+  rtc_rtx_cache_entry_t rtx_cache[RTC_CFG_RTX_CACHE];
+  uint16_t rtx_cache_head;
+  uint16_t rtx_cache_size;
+  uint32_t rtcp_malformed_count;
+  uint32_t rtcp_nack_miss_count;
+  uint32_t rtcp_nack_queue_full_count;
 };
 
 struct rtc_engine {

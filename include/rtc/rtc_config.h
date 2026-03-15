@@ -94,6 +94,10 @@
 #error "RTC_CFG_MAX_PEERS must be >= 1"
 #endif
 
+#if RTC_CFG_RTX_CACHE == 0
+#error "RTC_CFG_RTX_CACHE must be >= 1"
+#endif
+
 #if RTC_CFG_MAX_CANDIDATE_PAIRS < RTC_CFG_MAX_LOCAL_CANDIDATES
 #error "RTC_CFG_MAX_CANDIDATE_PAIRS should be >= RTC_CFG_MAX_LOCAL_CANDIDATES"
 #endif

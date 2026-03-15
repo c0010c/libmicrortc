@@ -84,6 +84,9 @@ typedef void (*rtc_audio_frame_cb_t)(rtc_peer_t *peer, rtc_audio_codec_t codec,
                                      const uint8_t *payload, uint16_t payload_len,
                                      uint32_t timestamp8k, void *user_data);
 
+typedef void (*rtc_keyframe_request_cb_t)(rtc_peer_t *peer, uint32_t media_ssrc,
+                                          void *user_data);
+
 typedef struct rtc_engine_config {
   uint16_t version;
   uint16_t size;
@@ -110,6 +113,7 @@ typedef struct rtc_peer_config {
   rtc_video_frame_cb_t on_video_frame;
   rtc_audio_frame_cb_t on_audio_frame;
   void *user_data;
+  rtc_keyframe_request_cb_t on_keyframe_request;
 } rtc_peer_config_t;
 
 typedef struct rtc_peer_stats {
@@ -140,6 +144,10 @@ typedef struct rtc_peer_stats {
   uint32_t dtls_tx_pkts;
   uint32_t srtp_unprotect_fail;
   uint32_t rtcp_rx_pkts;
+  uint32_t rtcp_rr_rx;
+  uint32_t rtcp_pli_rx;
+  uint32_t rtcp_nack_rx;
+  uint32_t rtcp_nack_retx;
 } rtc_peer_stats_t;
 
 typedef struct rtc_engine_stats {
