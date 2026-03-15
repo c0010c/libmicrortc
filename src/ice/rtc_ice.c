@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <mbedtls/md.h>
+
 #include "platform/rtc_platform.h"
 
 #define RTC_SDP_MAX_LINE 384
@@ -13,12 +15,605 @@
 #define RTC_MEDIA_VIDEO 2u
 #define RTC_MEDIA_OTHER 3u
 
+#define RTC_STUN_TYPE_BINDING_REQUEST 0x0001u
+#define RTC_STUN_TYPE_BINDING_RESPONSE 0x0101u
+#define RTC_STUN_MAGIC_COOKIE 0x2112A442u
+#define RTC_STUN_ATTR_USERNAME 0x0006u
+#define RTC_STUN_ATTR_MESSAGE_INTEGRITY 0x0008u
+#define RTC_STUN_ATTR_PRIORITY 0x0024u
+#define RTC_STUN_ATTR_USE_CANDIDATE 0x0025u
+#define RTC_STUN_ATTR_XOR_MAPPED_ADDRESS 0x0020u
+#define RTC_STUN_ATTR_ICE_CONTROLLED 0x8029u
+#define RTC_STUN_ATTR_FINGERPRINT 0x8028u
+#define RTC_STUN_ATTR_MESSAGE_INTEGRITY_LEN 20u
+#define RTC_STUN_LOCAL_HOST_PRIORITY 2130706431u
+
 typedef struct rtc_h264_entry {
   int16_t pt;
   uint8_t has_fmtp;
   uint8_t packetization_mode_1;
   char fmtp[128];
 } rtc_h264_entry_t;
+
+typedef struct rtc_stun_attrs {
+  const uint8_t *username;
+  uint16_t username_len;
+  const uint8_t *message_integrity;
+  uint16_t message_integrity_len;
+  const uint8_t *fingerprint;
+  uint16_t fingerprint_len;
+  uint16_t message_integrity_offset;
+  uint16_t fingerprint_offset;
+  uint32_t priority;
+  uint8_t has_priority;
+} rtc_stun_attrs_t;
+
+static char rtc_ascii_tolower(char ch);
+static int rtc_ascii_case_eq(const char *lhs, const char *rhs);
+static void rtc_ice_reset_connectivity_state(rtc_ice_ctx_t *ctx);
+
+static void rtc_ice_write_u16_be(uint8_t *dst, uint16_t value) {
+  if (!dst) {
+    return;
+  }
+  dst[0] = (uint8_t)((value >> 8) & 0xFFu);
+  dst[1] = (uint8_t)(value & 0xFFu);
+}
+
+static void rtc_ice_write_u32_be(uint8_t *dst, uint32_t value) {
+  if (!dst) {
+    return;
+  }
+  dst[0] = (uint8_t)((value >> 24) & 0xFFu);
+  dst[1] = (uint8_t)((value >> 16) & 0xFFu);
+  dst[2] = (uint8_t)((value >> 8) & 0xFFu);
+  dst[3] = (uint8_t)(value & 0xFFu);
+}
+
+static uint16_t rtc_ice_read_u16_be(const uint8_t *src) {
+  if (!src) {
+    return 0u;
+  }
+  return (uint16_t)(((uint16_t)src[0] << 8) | (uint16_t)src[1]);
+}
+
+static uint32_t rtc_ice_read_u32_be(const uint8_t *src) {
+  if (!src) {
+    return 0u;
+  }
+  return ((uint32_t)src[0] << 24) | ((uint32_t)src[1] << 16) |
+         ((uint32_t)src[2] << 8) | (uint32_t)src[3];
+}
+
+static uint32_t rtc_ice_crc32_ieee(const uint8_t *buf, uint16_t len) {
+  uint32_t crc = 0xFFFFFFFFu;
+  uint16_t i;
+  uint8_t j;
+
+  if (!buf) {
+    return 0u;
+  }
+
+  for (i = 0u; i < len; ++i) {
+    crc ^= (uint32_t)buf[i];
+    for (j = 0u; j < 8u; ++j) {
+      if ((crc & 1u) != 0u) {
+        crc = (crc >> 1) ^ 0xEDB88320u;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return ~crc;
+}
+
+static int rtc_ice_hmac_sha1(const uint8_t *key, uint16_t key_len, const uint8_t *data,
+                             uint16_t data_len, uint8_t out[20]) {
+  const mbedtls_md_info_t *md_info = NULL;
+  mbedtls_md_context_t md_ctx;
+  int rc;
+
+  if (!key || key_len == 0u || !data || !out) {
+    return 0;
+  }
+
+  md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+  if (!md_info) {
+    return 0;
+  }
+
+  mbedtls_md_init(&md_ctx);
+  rc = mbedtls_md_setup(&md_ctx, md_info, 1);
+  if (rc != 0) {
+    mbedtls_md_free(&md_ctx);
+    return 0;
+  }
+
+  rc = mbedtls_md_hmac_starts(&md_ctx, key, (size_t)key_len);
+  if (rc == 0) {
+    rc = mbedtls_md_hmac_update(&md_ctx, data, (size_t)data_len);
+  }
+  if (rc == 0) {
+    rc = mbedtls_md_hmac_finish(&md_ctx, out);
+  }
+
+  mbedtls_md_free(&md_ctx);
+  return rc == 0;
+}
+
+static int rtc_ice_stun_append_attr(uint8_t *buf, uint16_t cap, uint16_t *io_offset,
+                                    uint16_t attr_type, const uint8_t *value,
+                                    uint16_t value_len) {
+  uint16_t offset;
+  uint16_t padded_len;
+  uint16_t i;
+
+  if (!buf || !io_offset) {
+    return 0;
+  }
+  offset = *io_offset;
+  padded_len = (uint16_t)((value_len + 3u) & 0xFFFCu);
+
+  if ((uint32_t)offset + 4u + padded_len > (uint32_t)cap) {
+    return 0;
+  }
+
+  rtc_ice_write_u16_be(&buf[offset], attr_type);
+  rtc_ice_write_u16_be(&buf[offset + 2u], value_len);
+  offset += 4u;
+
+  if (value_len > 0u && value) {
+    memcpy(&buf[offset], value, value_len);
+  }
+  if (padded_len > value_len) {
+    for (i = value_len; i < padded_len; ++i) {
+      buf[offset + i] = 0u;
+    }
+  }
+  offset = (uint16_t)(offset + padded_len);
+  *io_offset = offset;
+  return 1;
+}
+
+static void rtc_ice_generate_transaction_id(rtc_ice_ctx_t *ctx, uint8_t pair_index,
+                                            uint32_t now_ms, uint16_t retry_count,
+                                            uint8_t out_tid[12]) {
+  uint32_t seed;
+  uint8_t i;
+
+  if (!ctx || !out_tid) {
+    return;
+  }
+  seed = now_ms ^ (ctx->peer_id << 16) ^ ((uint32_t)pair_index << 8) ^ (uint32_t)retry_count;
+  for (i = 0u; i < 12u; ++i) {
+    seed = seed * 1103515245u + 12345u;
+    out_tid[i] = (uint8_t)((seed >> ((i & 3u) * 8u)) & 0xFFu);
+  }
+}
+
+static int rtc_ice_parse_candidate_ipv4(const char *candidate, uint8_t out_ip[4],
+                                        uint16_t *out_port, uint32_t *out_priority) {
+  const char *p;
+  char foundation[64];
+  char transport[8];
+  char ip[64];
+  char typ_key[8];
+  char candidate_type[16];
+  unsigned component = 0u;
+  unsigned priority = 0u;
+  unsigned port = 0u;
+  int parsed = 0;
+
+  if (!candidate || !out_ip || !out_port || !out_priority) {
+    return 0;
+  }
+  p = candidate;
+  if (p[0] == 'a' && p[1] == '=') {
+    p += 2;
+  }
+  if (strncmp(p, "candidate:", 10u) != 0) {
+    return 0;
+  }
+  p += 10u;
+
+  parsed = sscanf(p, "%63s %u %7s %u %63s %u %7s %15s", foundation, &component,
+                  transport, &priority, ip, &port, typ_key, candidate_type);
+  if (parsed != 8) {
+    return 0;
+  }
+  (void)foundation;
+  (void)component;
+  if (!rtc_ascii_case_eq(transport, "udp")) {
+    return 0;
+  }
+  if (!rtc_ascii_case_eq(typ_key, "typ")) {
+    return 0;
+  }
+  if (!rtc_ascii_case_eq(candidate_type, "host") &&
+      !rtc_ascii_case_eq(candidate_type, "prflx")) {
+    return 0;
+  }
+  if (port == 0u || port > 65535u) {
+    return 0;
+  }
+  if (!rtc_platform_parse_ipv4(ip, out_ip)) {
+    return 0;
+  }
+
+  *out_port = (uint16_t)port;
+  *out_priority = priority;
+  return 1;
+}
+
+static int rtc_ice_find_remote_candidate_by_addr(const rtc_ice_ctx_t *ctx,
+                                                 const uint8_t ip[4],
+                                                 uint16_t port) {
+  uint16_t i;
+  if (!ctx || !ip || port == 0u) {
+    return -1;
+  }
+  for (i = 0u; i < ctx->remote_candidate_count; ++i) {
+    const rtc_ice_remote_candidate_t *cand = &ctx->remote_candidate_items[i];
+    if (cand->in_use && cand->port == port && memcmp(cand->ip, ip, 4u) == 0) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+static int rtc_ice_find_pair_for_remote(const rtc_ice_ctx_t *ctx, uint8_t remote_index) {
+  uint16_t i;
+  if (!ctx) {
+    return -1;
+  }
+  for (i = 0u; i < ctx->pair_count; ++i) {
+    if (ctx->pairs[i].in_use && ctx->pairs[i].remote_index == remote_index) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+static int rtc_ice_find_pair_by_transaction(const rtc_ice_ctx_t *ctx,
+                                            const uint8_t transaction_id[12]) {
+  uint16_t i;
+  if (!ctx || !transaction_id) {
+    return -1;
+  }
+  for (i = 0u; i < ctx->pair_count; ++i) {
+    const rtc_ice_candidate_pair_t *pair = &ctx->pairs[i];
+    if (!pair->in_use || !pair->transaction_valid) {
+      continue;
+    }
+    if (memcmp(pair->transaction_id, transaction_id, 12u) == 0) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+static int rtc_ice_queue_stun_out(rtc_ice_ctx_t *ctx, const uint8_t ip[4], uint16_t port,
+                                  const uint8_t *buf, uint16_t len) {
+  rtc_ice_stun_out_t *slot;
+
+  if (!ctx || !ip || !buf || len == 0u || len > RTC_CFG_MTU || port == 0u) {
+    return 0;
+  }
+  if (ctx->stun_out_size >= RTC_CFG_RTCP_FB_QUEUE) {
+    ctx->checks_drop++;
+    return 0;
+  }
+
+  slot = &ctx->stun_out_queue[ctx->stun_out_tail];
+  memset(slot, 0, sizeof(*slot));
+  memcpy(slot->ip, ip, 4u);
+  slot->port = port;
+  slot->len = len;
+  memcpy(slot->data, buf, len);
+
+  ctx->stun_out_tail = (uint16_t)((ctx->stun_out_tail + 1u) % RTC_CFG_RTCP_FB_QUEUE);
+  ctx->stun_out_size++;
+  return 1;
+}
+
+static int rtc_ice_parse_stun_attrs(const uint8_t *buf, uint16_t len,
+                                    rtc_stun_attrs_t *out_attrs) {
+  uint16_t msg_len;
+  uint16_t pos;
+  uint16_t end;
+
+  if (!buf || len < 20u || !out_attrs) {
+    return 0;
+  }
+  memset(out_attrs, 0, sizeof(*out_attrs));
+
+  msg_len = rtc_ice_read_u16_be(&buf[2]);
+  if ((msg_len & 0x0003u) != 0u) {
+    return 0;
+  }
+  if ((uint32_t)msg_len + 20u > (uint32_t)len) {
+    return 0;
+  }
+  end = (uint16_t)(20u + msg_len);
+
+  pos = 20u;
+  while ((uint32_t)pos + 4u <= (uint32_t)end) {
+    uint16_t attr_type = rtc_ice_read_u16_be(&buf[pos]);
+    uint16_t attr_len = rtc_ice_read_u16_be(&buf[pos + 2u]);
+    uint16_t padded_len = (uint16_t)((attr_len + 3u) & 0xFFFCu);
+    const uint8_t *value = &buf[pos + 4u];
+    if ((uint32_t)pos + 4u + padded_len > (uint32_t)end) {
+      return 0;
+    }
+
+    if (attr_type == RTC_STUN_ATTR_USERNAME) {
+      out_attrs->username = value;
+      out_attrs->username_len = attr_len;
+    } else if (attr_type == RTC_STUN_ATTR_PRIORITY && attr_len == 4u) {
+      out_attrs->priority = rtc_ice_read_u32_be(value);
+      out_attrs->has_priority = 1u;
+    } else if (attr_type == RTC_STUN_ATTR_MESSAGE_INTEGRITY &&
+               attr_len == RTC_STUN_ATTR_MESSAGE_INTEGRITY_LEN) {
+      out_attrs->message_integrity = value;
+      out_attrs->message_integrity_len = attr_len;
+      out_attrs->message_integrity_offset = pos;
+    } else if (attr_type == RTC_STUN_ATTR_FINGERPRINT && attr_len == 4u) {
+      out_attrs->fingerprint = value;
+      out_attrs->fingerprint_len = attr_len;
+      out_attrs->fingerprint_offset = pos;
+    }
+
+    pos = (uint16_t)(pos + 4u + padded_len);
+  }
+
+  return pos == end;
+}
+
+static int rtc_ice_stun_verify_fingerprint(const uint8_t *buf, uint16_t len,
+                                           const rtc_stun_attrs_t *attrs) {
+  uint32_t expected;
+  uint32_t actual;
+
+  if (!buf || !attrs || !attrs->fingerprint || attrs->fingerprint_len != 4u) {
+    return 0;
+  }
+  if (attrs->fingerprint_offset < 20u || attrs->fingerprint_offset > len) {
+    return 0;
+  }
+
+  expected = rtc_ice_crc32_ieee(buf, attrs->fingerprint_offset) ^ 0x5354554Eu;
+  actual = rtc_ice_read_u32_be(attrs->fingerprint);
+  return expected == actual;
+}
+
+static int rtc_ice_stun_verify_message_integrity(const uint8_t *buf, uint16_t len,
+                                                 const rtc_stun_attrs_t *attrs,
+                                                 const char *password) {
+  uint8_t digest[20];
+  uint8_t temp[RTC_CFG_MTU];
+  uint16_t sign_len;
+  uint16_t msg_len_for_hmac;
+
+  if (!buf || !attrs || !password || password[0] == '\0') {
+    return 0;
+  }
+  if (!attrs->message_integrity ||
+      attrs->message_integrity_len != RTC_STUN_ATTR_MESSAGE_INTEGRITY_LEN) {
+    return 0;
+  }
+  if (attrs->message_integrity_offset < 20u || attrs->message_integrity_offset > len) {
+    return 0;
+  }
+
+  sign_len = attrs->message_integrity_offset;
+  if (sign_len > len || len > RTC_CFG_MTU) {
+    return 0;
+  }
+  memcpy(temp, buf, sign_len);
+
+  msg_len_for_hmac = (uint16_t)((attrs->message_integrity_offset - 20u) + 24u);
+  rtc_ice_write_u16_be(&temp[2], msg_len_for_hmac);
+  if (!rtc_ice_hmac_sha1((const uint8_t *)password, (uint16_t)strlen(password), temp,
+                         sign_len, digest)) {
+    return 0;
+  }
+  return memcmp(digest, attrs->message_integrity,
+                RTC_STUN_ATTR_MESSAGE_INTEGRITY_LEN) == 0;
+}
+
+static int rtc_ice_stun_username_equals(const rtc_stun_attrs_t *attrs,
+                                        const char *expected) {
+  size_t expected_len;
+  if (!attrs || !attrs->username || !expected) {
+    return 0;
+  }
+  expected_len = strlen(expected);
+  if (expected_len == 0u || expected_len != attrs->username_len) {
+    return 0;
+  }
+  return memcmp(attrs->username, expected, expected_len) == 0;
+}
+
+static int rtc_ice_build_stun_response(rtc_ice_ctx_t *ctx, const uint8_t transaction_id[12],
+                                       const char *username, const uint8_t src_ip[4],
+                                       uint16_t src_port, uint8_t *out_buf,
+                                       uint16_t *out_len) {
+  uint8_t xor_addr[8];
+  uint8_t tie[8];
+  uint16_t offset = 20u;
+  uint16_t msg_len;
+  uint16_t pre_fp_len;
+  uint32_t fp;
+  uint8_t hmac[20];
+
+  if (!ctx || !transaction_id || !username || !src_ip || src_port == 0u ||
+      !out_buf || !out_len) {
+    return 0;
+  }
+  if (strlen(username) >= 256u) {
+    return 0;
+  }
+  memset(out_buf, 0, RTC_CFG_MTU);
+
+  rtc_ice_write_u16_be(&out_buf[0], RTC_STUN_TYPE_BINDING_RESPONSE);
+  rtc_ice_write_u16_be(&out_buf[2], 0u);
+  rtc_ice_write_u32_be(&out_buf[4], RTC_STUN_MAGIC_COOKIE);
+  memcpy(&out_buf[8], transaction_id, 12u);
+
+  memset(xor_addr, 0, sizeof(xor_addr));
+  xor_addr[1] = 0x01u;
+  xor_addr[2] = (uint8_t)(((src_port >> 8) & 0xFFu) ^ 0x21u);
+  xor_addr[3] = (uint8_t)((src_port & 0xFFu) ^ 0x12u);
+  xor_addr[4] = (uint8_t)(src_ip[0] ^ 0x21u);
+  xor_addr[5] = (uint8_t)(src_ip[1] ^ 0x12u);
+  xor_addr[6] = (uint8_t)(src_ip[2] ^ 0xA4u);
+  xor_addr[7] = (uint8_t)(src_ip[3] ^ 0x42u);
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset,
+                                RTC_STUN_ATTR_XOR_MAPPED_ADDRESS, xor_addr,
+                                (uint16_t)sizeof(xor_addr))) {
+    return 0;
+  }
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset, RTC_STUN_ATTR_USERNAME,
+                                (const uint8_t *)username,
+                                (uint16_t)strlen(username))) {
+    return 0;
+  }
+  memset(tie, 0, sizeof(tie));
+  rtc_ice_write_u32_be(&tie[4], ctx->peer_id);
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset,
+                                RTC_STUN_ATTR_ICE_CONTROLLED, tie,
+                                (uint16_t)sizeof(tie))) {
+    return 0;
+  }
+
+  msg_len = (uint16_t)((offset - 20u) + 24u);
+  rtc_ice_write_u16_be(&out_buf[2], msg_len);
+  if (!rtc_ice_hmac_sha1((const uint8_t *)ctx->local_ice_pwd,
+                         (uint16_t)strlen(ctx->local_ice_pwd), out_buf, offset,
+                         hmac)) {
+    return 0;
+  }
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset,
+                                RTC_STUN_ATTR_MESSAGE_INTEGRITY, hmac,
+                                RTC_STUN_ATTR_MESSAGE_INTEGRITY_LEN)) {
+    return 0;
+  }
+
+  msg_len = (uint16_t)((offset - 20u) + 8u);
+  rtc_ice_write_u16_be(&out_buf[2], msg_len);
+  pre_fp_len = offset;
+  fp = rtc_ice_crc32_ieee(out_buf, pre_fp_len) ^ 0x5354554Eu;
+  rtc_ice_write_u32_be(&hmac[0], fp);
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset, RTC_STUN_ATTR_FINGERPRINT,
+                                hmac, 4u)) {
+    return 0;
+  }
+
+  rtc_ice_write_u16_be(&out_buf[2], (uint16_t)(offset - 20u));
+  *out_len = offset;
+  return 1;
+}
+
+static int rtc_ice_build_stun_request(rtc_ice_ctx_t *ctx, rtc_ice_candidate_pair_t *pair,
+                                      uint8_t pair_index, uint32_t now_ms,
+                                      uint8_t *out_buf, uint16_t *out_len) {
+  char username[128];
+  uint16_t offset = 20u;
+  uint16_t msg_len;
+  uint16_t pre_fp_len;
+  uint8_t value4[4];
+  uint8_t hmac[20];
+  uint8_t tie[8];
+  uint32_t fp;
+
+  if (!ctx || !pair || !out_buf || !out_len) {
+    return 0;
+  }
+  if (snprintf(username, sizeof(username), "%s:%s", ctx->remote_ice_ufrag,
+               ctx->local_ice_ufrag) <= 0) {
+    return 0;
+  }
+
+  rtc_ice_generate_transaction_id(ctx, pair_index, now_ms, pair->retry_count,
+                                  pair->transaction_id);
+  pair->transaction_valid = 1u;
+
+  memset(out_buf, 0, RTC_CFG_MTU);
+  rtc_ice_write_u16_be(&out_buf[0], RTC_STUN_TYPE_BINDING_REQUEST);
+  rtc_ice_write_u16_be(&out_buf[2], 0u);
+  rtc_ice_write_u32_be(&out_buf[4], RTC_STUN_MAGIC_COOKIE);
+  memcpy(&out_buf[8], pair->transaction_id, 12u);
+
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset, RTC_STUN_ATTR_USERNAME,
+                                (const uint8_t *)username,
+                                (uint16_t)strlen(username))) {
+    return 0;
+  }
+  rtc_ice_write_u32_be(value4, RTC_STUN_LOCAL_HOST_PRIORITY);
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset, RTC_STUN_ATTR_PRIORITY,
+                                value4, 4u)) {
+    return 0;
+  }
+  memset(tie, 0, sizeof(tie));
+  rtc_ice_write_u32_be(&tie[4], ctx->peer_id);
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset,
+                                RTC_STUN_ATTR_ICE_CONTROLLED, tie,
+                                (uint16_t)sizeof(tie))) {
+    return 0;
+  }
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset,
+                                RTC_STUN_ATTR_USE_CANDIDATE, NULL, 0u)) {
+    return 0;
+  }
+
+  msg_len = (uint16_t)((offset - 20u) + 24u);
+  rtc_ice_write_u16_be(&out_buf[2], msg_len);
+  if (!rtc_ice_hmac_sha1((const uint8_t *)ctx->remote_ice_pwd,
+                         (uint16_t)strlen(ctx->remote_ice_pwd), out_buf, offset,
+                         hmac)) {
+    return 0;
+  }
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset,
+                                RTC_STUN_ATTR_MESSAGE_INTEGRITY, hmac,
+                                RTC_STUN_ATTR_MESSAGE_INTEGRITY_LEN)) {
+    return 0;
+  }
+
+  msg_len = (uint16_t)((offset - 20u) + 8u);
+  rtc_ice_write_u16_be(&out_buf[2], msg_len);
+  pre_fp_len = offset;
+  fp = rtc_ice_crc32_ieee(out_buf, pre_fp_len) ^ 0x5354554Eu;
+  rtc_ice_write_u32_be(&hmac[0], fp);
+  if (!rtc_ice_stun_append_attr(out_buf, RTC_CFG_MTU, &offset, RTC_STUN_ATTR_FINGERPRINT,
+                                hmac, 4u)) {
+    return 0;
+  }
+
+  rtc_ice_write_u16_be(&out_buf[2], (uint16_t)(offset - 20u));
+  *out_len = offset;
+  return 1;
+}
+
+static void rtc_ice_reset_connectivity_state(rtc_ice_ctx_t *ctx) {
+  uint16_t i;
+  if (!ctx) {
+    return;
+  }
+  for (i = 0u; i < ctx->pair_count; ++i) {
+    if (!ctx->pairs[i].in_use) {
+      continue;
+    }
+    ctx->pairs[i].state = RTC_ICE_PAIR_STATE_WAITING;
+    ctx->pairs[i].retry_count = 0u;
+    ctx->pairs[i].last_check_ms = 0u;
+    ctx->pairs[i].transaction_valid = 0u;
+    memset(ctx->pairs[i].transaction_id, 0, sizeof(ctx->pairs[i].transaction_id));
+  }
+  ctx->active_pair_index = -1;
+  ctx->selected_pair_index = -1;
+  ctx->retry_count = 0u;
+  ctx->last_tick_ms = 0u;
+}
 
 static char rtc_ascii_tolower(char ch) {
   if (ch >= 'A' && ch <= 'Z') {
@@ -96,6 +691,10 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   ctx->local_candidate_count = 0u;
   ctx->connect_ticks = 0u;
   ctx->retry_count = 0u;
+  ctx->stun_out_head = 0u;
+  ctx->stun_out_tail = 0u;
+  ctx->stun_out_size = 0u;
+  memset(ctx->stun_out_queue, 0, sizeof(ctx->stun_out_queue));
   memset(ctx->local_sdp, 0, sizeof(ctx->local_sdp));
   memset(ctx->local_candidate, 0, sizeof(ctx->local_candidate));
   memset(ctx->remote_ice_ufrag, 0, sizeof(ctx->remote_ice_ufrag));
@@ -105,6 +704,7 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   memset(ctx->audio_mid, 0, sizeof(ctx->audio_mid));
   memset(ctx->video_mid, 0, sizeof(ctx->video_mid));
   memset(ctx->video_fmtp, 0, sizeof(ctx->video_fmtp));
+  rtc_ice_reset_connectivity_state(ctx);
 }
 
 static void rtc_ice_prepare_local_credentials(rtc_ice_ctx_t *ctx) {
@@ -820,6 +1420,8 @@ void rtc_ice_init(rtc_ice_ctx_t *ctx) {
   ctx->video_h264_pm1_pt = -1;
   ctx->video_selected_pt = -1;
   ctx->video_first_pt = -1;
+  ctx->active_pair_index = -1;
+  ctx->selected_pair_index = -1;
 }
 
 void rtc_ice_set_peer_id(rtc_ice_ctx_t *ctx, uint32_t peer_id) {
@@ -866,8 +1468,15 @@ rtc_result_t rtc_ice_start(rtc_ice_ctx_t *ctx, uint32_t peer_id, uint32_t now_ms
 
   ctx->local_description_emitted = 0u;
   ctx->local_candidate_emitted = 0u;
-  ctx->connect_ticks = 0u;
-  ctx->retry_count = 0u;
+  ctx->stun_out_head = 0u;
+  ctx->stun_out_tail = 0u;
+  ctx->stun_out_size = 0u;
+  memset(ctx->stun_out_queue, 0, sizeof(ctx->stun_out_queue));
+  rtc_ice_reset_connectivity_state(ctx);
+  ctx->checks_sent = 0u;
+  ctx->checks_ok = 0u;
+  ctx->checks_failed = 0u;
+  ctx->checks_drop = 0u;
   ctx->state = RTC_ICE_STATE_GATHERING;
   ctx->last_tick_ms = now_ms;
 
@@ -877,7 +1486,12 @@ rtc_result_t rtc_ice_start(rtc_ice_ctx_t *ctx, uint32_t peer_id, uint32_t now_ms
 rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
                                             const char *type) {
   uint16_t remote_candidate_count_backup = 0u;
+  uint16_t pair_count_backup = 0u;
+  int16_t active_pair_backup = -1;
+  int16_t selected_pair_backup = -1;
   char remote_candidates_backup[RTC_CFG_MAX_REMOTE_CANDIDATES][RTC_CFG_MAX_CANDIDATE_LEN];
+  rtc_ice_remote_candidate_t remote_items_backup[RTC_CFG_MAX_REMOTE_CANDIDATES];
+  rtc_ice_candidate_pair_t pairs_backup[RTC_CFG_MAX_CANDIDATE_PAIRS];
 
   if (!ctx || !sdp || !type) {
     return RTC_ERR_INVALID_ARG;
@@ -889,10 +1503,19 @@ rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
     return RTC_ERR_NOT_SUPPORTED;
   }
   memset(remote_candidates_backup, 0, sizeof(remote_candidates_backup));
+  memset(remote_items_backup, 0, sizeof(remote_items_backup));
+  memset(pairs_backup, 0, sizeof(pairs_backup));
   remote_candidate_count_backup = ctx->remote_candidate_count;
+  pair_count_backup = ctx->pair_count;
+  active_pair_backup = ctx->active_pair_index;
+  selected_pair_backup = ctx->selected_pair_index;
   if (remote_candidate_count_backup > 0u) {
     memcpy(remote_candidates_backup, ctx->remote_candidates,
            sizeof(remote_candidates_backup));
+    memcpy(remote_items_backup, ctx->remote_candidate_items, sizeof(remote_items_backup));
+  }
+  if (pair_count_backup > 0u) {
+    memcpy(pairs_backup, ctx->pairs, sizeof(pairs_backup));
   }
   rtc_ice_reset_offer_fields(ctx);
   if (!rtc_platform_copy_string(ctx->remote_sdp, sizeof(ctx->remote_sdp), sdp)) {
@@ -907,11 +1530,21 @@ rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
     rtc_result_t r = rtc_ice_parse_offer(ctx, sdp);
     if (r != RTC_OK) {
       memset(ctx->remote_candidates, 0, sizeof(ctx->remote_candidates));
+      memset(ctx->remote_candidate_items, 0, sizeof(ctx->remote_candidate_items));
+      memset(ctx->pairs, 0, sizeof(ctx->pairs));
       if (remote_candidate_count_backup > 0u) {
         memcpy(ctx->remote_candidates, remote_candidates_backup,
                sizeof(remote_candidates_backup));
+        memcpy(ctx->remote_candidate_items, remote_items_backup,
+               sizeof(remote_items_backup));
+      }
+      if (pair_count_backup > 0u) {
+        memcpy(ctx->pairs, pairs_backup, sizeof(pairs_backup));
       }
       ctx->remote_candidate_count = remote_candidate_count_backup;
+      ctx->pair_count = pair_count_backup;
+      ctx->active_pair_index = active_pair_backup;
+      ctx->selected_pair_index = selected_pair_backup;
       return r;
     }
     ctx->remote_description_set = 1u;
@@ -919,11 +1552,21 @@ rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
     if (r != RTC_OK) {
       rtc_ice_reset_offer_fields(ctx);
       memset(ctx->remote_candidates, 0, sizeof(ctx->remote_candidates));
+      memset(ctx->remote_candidate_items, 0, sizeof(ctx->remote_candidate_items));
+      memset(ctx->pairs, 0, sizeof(ctx->pairs));
       if (remote_candidate_count_backup > 0u) {
         memcpy(ctx->remote_candidates, remote_candidates_backup,
                sizeof(remote_candidates_backup));
+        memcpy(ctx->remote_candidate_items, remote_items_backup,
+               sizeof(remote_items_backup));
+      }
+      if (pair_count_backup > 0u) {
+        memcpy(ctx->pairs, pairs_backup, sizeof(pairs_backup));
       }
       ctx->remote_candidate_count = remote_candidate_count_backup;
+      ctx->pair_count = pair_count_backup;
+      ctx->active_pair_index = active_pair_backup;
+      ctx->selected_pair_index = selected_pair_backup;
       return r;
     }
   }
@@ -933,8 +1576,16 @@ rtc_result_t rtc_ice_set_remote_description(rtc_ice_ctx_t *ctx, const char *sdp,
 
 rtc_result_t rtc_ice_add_remote_candidate(rtc_ice_ctx_t *ctx, const char *candidate) {
   uint16_t i;
+  int by_addr_idx = -1;
+  uint8_t ip[4];
+  uint16_t port = 0u;
+  uint32_t priority = 0u;
+
   if (!ctx || !candidate) {
     return RTC_ERR_INVALID_ARG;
+  }
+  if (!rtc_ice_parse_candidate_ipv4(candidate, ip, &port, &priority)) {
+    return RTC_ERR_NOT_SUPPORTED;
   }
 
   for (i = 0u; i < ctx->remote_candidate_count; ++i) {
@@ -942,8 +1593,24 @@ rtc_result_t rtc_ice_add_remote_candidate(rtc_ice_ctx_t *ctx, const char *candid
       return RTC_OK;
     }
   }
+  by_addr_idx = rtc_ice_find_remote_candidate_by_addr(ctx, ip, port);
+  if (by_addr_idx >= 0) {
+    rtc_ice_remote_candidate_t *cand = &ctx->remote_candidate_items[by_addr_idx];
+    if (priority > cand->priority) {
+      int pair_idx = rtc_ice_find_pair_for_remote(ctx, (uint8_t)by_addr_idx);
+      cand->priority = priority;
+      if (pair_idx >= 0) {
+        ctx->pairs[pair_idx].priority = priority;
+      }
+    }
+    if (!rtc_platform_copy_string(cand->raw, sizeof(cand->raw), candidate)) {
+      return RTC_ERR_BUFFER_TOO_SMALL;
+    }
+    return RTC_OK;
+  }
 
-  if (ctx->remote_candidate_count >= RTC_CFG_MAX_REMOTE_CANDIDATES) {
+  if (ctx->remote_candidate_count >= RTC_CFG_MAX_REMOTE_CANDIDATES ||
+      ctx->pair_count >= RTC_CFG_MAX_CANDIDATE_PAIRS) {
     return RTC_ERR_RESOURCE_EXHAUSTED;
   }
   if (!rtc_platform_copy_string(
@@ -951,13 +1618,316 @@ rtc_result_t rtc_ice_add_remote_candidate(rtc_ice_ctx_t *ctx, const char *candid
           candidate)) {
     return RTC_ERR_BUFFER_TOO_SMALL;
   }
+
+  {
+    uint16_t idx = ctx->remote_candidate_count;
+    rtc_ice_remote_candidate_t *cand = &ctx->remote_candidate_items[idx];
+    rtc_ice_candidate_pair_t *pair = &ctx->pairs[ctx->pair_count];
+
+    memset(cand, 0, sizeof(*cand));
+    cand->in_use = 1u;
+    memcpy(cand->ip, ip, 4u);
+    cand->port = port;
+    cand->priority = priority;
+    (void)rtc_platform_copy_string(cand->raw, sizeof(cand->raw), candidate);
+
+    memset(pair, 0, sizeof(*pair));
+    pair->in_use = 1u;
+    pair->remote_index = (uint8_t)idx;
+    pair->state = RTC_ICE_PAIR_STATE_WAITING;
+    pair->priority = priority;
+    ctx->pair_count++;
+  }
   ctx->remote_candidate_count++;
+  return RTC_OK;
+}
+
+static int rtc_ice_find_best_waiting_pair(const rtc_ice_ctx_t *ctx) {
+  int best_idx = -1;
+  uint32_t best_priority = 0u;
+  uint16_t i;
+  if (!ctx) {
+    return -1;
+  }
+  for (i = 0u; i < ctx->pair_count; ++i) {
+    const rtc_ice_candidate_pair_t *pair = &ctx->pairs[i];
+    if (!pair->in_use || pair->state != RTC_ICE_PAIR_STATE_WAITING) {
+      continue;
+    }
+    if (best_idx < 0 || pair->priority > best_priority) {
+      best_idx = (int)i;
+      best_priority = pair->priority;
+    }
+  }
+  return best_idx;
+}
+
+static int rtc_ice_all_pairs_failed(const rtc_ice_ctx_t *ctx) {
+  uint16_t i;
+  if (!ctx || ctx->pair_count == 0u) {
+    return 0;
+  }
+  for (i = 0u; i < ctx->pair_count; ++i) {
+    const rtc_ice_candidate_pair_t *pair = &ctx->pairs[i];
+    if (!pair->in_use) {
+      continue;
+    }
+    if (pair->state != RTC_ICE_PAIR_STATE_FAILED) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static void rtc_ice_mark_pair_failed(rtc_ice_ctx_t *ctx, int pair_index) {
+  rtc_ice_candidate_pair_t *pair;
+  if (!ctx || pair_index < 0 || pair_index >= (int)ctx->pair_count) {
+    return;
+  }
+  pair = &ctx->pairs[pair_index];
+  pair->state = RTC_ICE_PAIR_STATE_FAILED;
+  pair->transaction_valid = 0u;
+  memset(pair->transaction_id, 0, sizeof(pair->transaction_id));
+  if (ctx->active_pair_index == pair_index) {
+    ctx->active_pair_index = -1;
+  }
+  ctx->checks_failed++;
+}
+
+static void rtc_ice_mark_pair_succeeded(rtc_ice_ctx_t *ctx, int pair_index) {
+  rtc_ice_candidate_pair_t *pair;
+  if (!ctx || pair_index < 0 || pair_index >= (int)ctx->pair_count) {
+    return;
+  }
+  pair = &ctx->pairs[pair_index];
+  pair->state = RTC_ICE_PAIR_STATE_SUCCEEDED;
+  pair->transaction_valid = 0u;
+  memset(pair->transaction_id, 0, sizeof(pair->transaction_id));
+  ctx->selected_pair_index = pair_index;
+  ctx->active_pair_index = pair_index;
+  ctx->checks_ok++;
+}
+
+static rtc_result_t rtc_ice_add_dynamic_remote_candidate(rtc_ice_ctx_t *ctx,
+                                                          const uint8_t ip[4],
+                                                          uint16_t port,
+                                                          uint32_t priority) {
+  char candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  if (!ctx || !ip || port == 0u) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (priority == 0u) {
+    priority = 1u;
+  }
+  if (snprintf(candidate, sizeof(candidate),
+               "candidate:%u 1 udp %u %u.%u.%u.%u %u typ prflx",
+               (unsigned int)(ctx->peer_id + ctx->remote_candidate_count + 1u), priority,
+               ip[0], ip[1], ip[2], ip[3], port) <= 0) {
+    return RTC_ERR_PROTOCOL;
+  }
+  return rtc_ice_add_remote_candidate(ctx, candidate);
+}
+
+static int rtc_ice_queue_binding_request_for_pair(rtc_ice_ctx_t *ctx, int pair_index,
+                                                   uint32_t now_ms) {
+  rtc_ice_candidate_pair_t *pair;
+  rtc_ice_remote_candidate_t *remote;
+  uint8_t packet[RTC_CFG_MTU];
+  uint16_t packet_len = 0u;
+
+  if (!ctx || pair_index < 0 || pair_index >= (int)ctx->pair_count) {
+    return 0;
+  }
+  pair = &ctx->pairs[pair_index];
+  if (!pair->in_use || pair->remote_index >= ctx->remote_candidate_count) {
+    return 0;
+  }
+  remote = &ctx->remote_candidate_items[pair->remote_index];
+  if (!remote->in_use || remote->port == 0u) {
+    return 0;
+  }
+
+  if (!rtc_ice_build_stun_request(ctx, pair, (uint8_t)pair_index, now_ms, packet,
+                                  &packet_len)) {
+    return 0;
+  }
+  if (!rtc_ice_queue_stun_out(ctx, remote->ip, remote->port, packet, packet_len)) {
+    return 0;
+  }
+
+  pair->retry_count++;
+  pair->last_check_ms = now_ms;
+  ctx->checks_sent++;
+  return 1;
+}
+
+rtc_result_t rtc_ice_handle_incoming_stun(rtc_ice_ctx_t *ctx, const uint8_t src_ip[4],
+                                          uint16_t src_port, const uint8_t *buf,
+                                          uint16_t len, uint32_t now_ms) {
+  uint16_t msg_type;
+  rtc_stun_attrs_t attrs;
+  char expected_username[128];
+  int pair_idx = -1;
+  int remote_idx = -1;
+  int r;
+  (void)now_ms;
+
+  if (!ctx || !src_ip || src_port == 0u || !buf || len < 20u) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (rtc_ice_read_u32_be(&buf[4]) != RTC_STUN_MAGIC_COOKIE) {
+    return RTC_ERR_PROTOCOL;
+  }
+  msg_type = rtc_ice_read_u16_be(&buf[0]);
+  if (msg_type != RTC_STUN_TYPE_BINDING_REQUEST &&
+      msg_type != RTC_STUN_TYPE_BINDING_RESPONSE) {
+    return RTC_ERR_NOT_SUPPORTED;
+  }
+  if (!rtc_ice_parse_stun_attrs(buf, len, &attrs)) {
+    return RTC_ERR_PROTOCOL;
+  }
+  if (!rtc_ice_stun_verify_fingerprint(buf, len, &attrs)) {
+    ctx->checks_failed++;
+    return RTC_ERR_AUTH_FAILED;
+  }
+
+  if (msg_type == RTC_STUN_TYPE_BINDING_REQUEST) {
+    if (snprintf(expected_username, sizeof(expected_username), "%s:%s",
+                 ctx->local_ice_ufrag, ctx->remote_ice_ufrag) <= 0) {
+      return RTC_ERR_PROTOCOL;
+    }
+    if (!rtc_ice_stun_verify_message_integrity(buf, len, &attrs, ctx->local_ice_pwd)) {
+      ctx->checks_failed++;
+      return RTC_ERR_AUTH_FAILED;
+    }
+    if (!rtc_ice_stun_username_equals(&attrs, expected_username)) {
+      ctx->checks_failed++;
+      return RTC_ERR_AUTH_FAILED;
+    }
+
+    remote_idx = rtc_ice_find_remote_candidate_by_addr(ctx, src_ip, src_port);
+    if (remote_idx < 0) {
+      r = rtc_ice_add_dynamic_remote_candidate(ctx, src_ip, src_port,
+                                               attrs.has_priority ? attrs.priority : 1u);
+      if (r != RTC_OK) {
+        ctx->checks_drop++;
+        return r;
+      }
+      remote_idx = rtc_ice_find_remote_candidate_by_addr(ctx, src_ip, src_port);
+    }
+    if (remote_idx >= 0) {
+      pair_idx = rtc_ice_find_pair_for_remote(ctx, (uint8_t)remote_idx);
+      if (pair_idx >= 0) {
+        rtc_ice_mark_pair_succeeded(ctx, pair_idx);
+      }
+    }
+
+    {
+      uint8_t out_buf[RTC_CFG_MTU];
+      uint16_t out_len = 0u;
+      if (!rtc_ice_build_stun_response(ctx, &buf[8], expected_username, src_ip, src_port,
+                                       out_buf, &out_len)) {
+        ctx->checks_failed++;
+        return RTC_ERR_PROTOCOL;
+      }
+      if (!rtc_ice_queue_stun_out(ctx, src_ip, src_port, out_buf, out_len)) {
+        return RTC_ERR_OVERFLOW;
+      }
+    }
+    return RTC_OK;
+  }
+
+  if (snprintf(expected_username, sizeof(expected_username), "%s:%s",
+               ctx->remote_ice_ufrag, ctx->local_ice_ufrag) <= 0) {
+    return RTC_ERR_PROTOCOL;
+  }
+  if (!rtc_ice_stun_verify_message_integrity(buf, len, &attrs, ctx->remote_ice_pwd)) {
+    ctx->checks_failed++;
+    return RTC_ERR_AUTH_FAILED;
+  }
+  if (!rtc_ice_stun_username_equals(&attrs, expected_username)) {
+    ctx->checks_failed++;
+    return RTC_ERR_AUTH_FAILED;
+  }
+
+  pair_idx = rtc_ice_find_pair_by_transaction(ctx, &buf[8]);
+  if (pair_idx < 0) {
+    ctx->checks_failed++;
+    return RTC_ERR_PROTOCOL;
+  }
+  if (ctx->pairs[pair_idx].remote_index >= ctx->remote_candidate_count) {
+    ctx->checks_failed++;
+    return RTC_ERR_PROTOCOL;
+  }
+  if (memcmp(src_ip,
+             ctx->remote_candidate_items[ctx->pairs[pair_idx].remote_index].ip,
+             4u) != 0 ||
+      src_port != ctx->remote_candidate_items[ctx->pairs[pair_idx].remote_index].port) {
+    ctx->checks_failed++;
+    return RTC_ERR_PROTOCOL;
+  }
+
+  rtc_ice_mark_pair_succeeded(ctx, pair_idx);
+  return RTC_OK;
+}
+
+rtc_result_t rtc_ice_dequeue_outgoing_stun(rtc_ice_ctx_t *ctx, uint8_t out_ip[4],
+                                           uint16_t *out_port, uint8_t *out_buf,
+                                           uint16_t *io_len) {
+  rtc_ice_stun_out_t *slot;
+  if (!ctx || !out_ip || !out_port || !out_buf || !io_len) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (ctx->stun_out_size == 0u) {
+    return RTC_ERR_TIMEOUT;
+  }
+
+  slot = &ctx->stun_out_queue[ctx->stun_out_head];
+  if (*io_len < slot->len) {
+    return RTC_ERR_BUFFER_TOO_SMALL;
+  }
+
+  memcpy(out_ip, slot->ip, 4u);
+  *out_port = slot->port;
+  memcpy(out_buf, slot->data, slot->len);
+  *io_len = slot->len;
+
+  memset(slot, 0, sizeof(*slot));
+  ctx->stun_out_head = (uint16_t)((ctx->stun_out_head + 1u) % RTC_CFG_RTCP_FB_QUEUE);
+  ctx->stun_out_size--;
+  return RTC_OK;
+}
+
+rtc_result_t rtc_ice_get_selected_remote(const rtc_ice_ctx_t *ctx, uint8_t out_ip[4],
+                                         uint16_t *out_port) {
+  int idx;
+  const rtc_ice_candidate_pair_t *pair;
+  const rtc_ice_remote_candidate_t *remote;
+  if (!ctx || !out_ip || !out_port) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  idx = ctx->selected_pair_index;
+  if (idx < 0 || idx >= (int)ctx->pair_count) {
+    return RTC_ERR_INVALID_STATE;
+  }
+  pair = &ctx->pairs[idx];
+  if (!pair->in_use || pair->state != RTC_ICE_PAIR_STATE_SUCCEEDED ||
+      pair->remote_index >= ctx->remote_candidate_count) {
+    return RTC_ERR_INVALID_STATE;
+  }
+  remote = &ctx->remote_candidate_items[pair->remote_index];
+  if (!remote->in_use || remote->port == 0u) {
+    return RTC_ERR_INVALID_STATE;
+  }
+  memcpy(out_ip, remote->ip, 4u);
+  *out_port = remote->port;
   return RTC_OK;
 }
 
 void rtc_ice_tick(rtc_ice_ctx_t *ctx, uint32_t now_ms, uint16_t retry_interval_ms,
                   uint16_t max_retries, rtc_ice_event_t *out_event) {
-  uint32_t elapsed = 0;
+  rtc_ice_candidate_pair_t *active = NULL;
+  uint32_t elapsed;
 
   if (!ctx || !out_event) {
     return;
@@ -995,30 +1965,70 @@ void rtc_ice_tick(rtc_ice_ctx_t *ctx, uint32_t now_ms, uint16_t retry_interval_m
     return;
   }
 
-  if (ctx->remote_candidate_count > 0u) {
-    if (ctx->connect_ticks < RTC_CFG_ICE_CONNECT_TICKS) {
-      ctx->connect_ticks++;
-    }
-    if (ctx->connect_ticks >= RTC_CFG_ICE_CONNECT_TICKS) {
-      ctx->state = RTC_ICE_STATE_CONNECTED;
-      out_event->connected = 1u;
-    }
+  if (ctx->selected_pair_index >= 0 &&
+      ctx->selected_pair_index < (int)ctx->pair_count &&
+      ctx->pairs[ctx->selected_pair_index].state == RTC_ICE_PAIR_STATE_SUCCEEDED) {
+    ctx->state = RTC_ICE_STATE_CONNECTED;
+    out_event->connected = 1u;
     return;
   }
 
-  elapsed = now_ms - ctx->last_tick_ms;
-  if (elapsed < retry_interval_ms) {
+  if (ctx->remote_candidate_count == 0u || ctx->pair_count == 0u) {
+    elapsed = now_ms - ctx->last_tick_ms;
+    if (elapsed < retry_interval_ms) {
+      return;
+    }
+    ctx->last_tick_ms = now_ms;
+    if (ctx->retry_count < max_retries) {
+      ctx->retry_count++;
+      out_event->retry_performed = 1u;
+      return;
+    }
+    ctx->state = RTC_ICE_STATE_FAILED;
+    out_event->failed = 1u;
+    out_event->error = RTC_ERR_TIMEOUT;
     return;
   }
 
-  ctx->last_tick_ms = now_ms;
-  if (ctx->retry_count < max_retries) {
-    ctx->retry_count++;
+  if (ctx->active_pair_index < 0 || ctx->active_pair_index >= (int)ctx->pair_count ||
+      !ctx->pairs[ctx->active_pair_index].in_use ||
+      ctx->pairs[ctx->active_pair_index].state != RTC_ICE_PAIR_STATE_INPROGRESS) {
+    int best_waiting = rtc_ice_find_best_waiting_pair(ctx);
+    if (best_waiting >= 0) {
+      ctx->active_pair_index = best_waiting;
+      ctx->pairs[best_waiting].state = RTC_ICE_PAIR_STATE_INPROGRESS;
+      ctx->pairs[best_waiting].retry_count = 0u;
+      ctx->pairs[best_waiting].last_check_ms = 0u;
+      ctx->pairs[best_waiting].transaction_valid = 0u;
+    } else if (rtc_ice_all_pairs_failed(ctx)) {
+      ctx->state = RTC_ICE_STATE_FAILED;
+      out_event->failed = 1u;
+      out_event->error = RTC_ERR_TIMEOUT;
+      return;
+    } else {
+      return;
+    }
+  }
+
+  active = &ctx->pairs[ctx->active_pair_index];
+  if (active->retry_count >= max_retries) {
+    rtc_ice_mark_pair_failed(ctx, ctx->active_pair_index);
     out_event->retry_performed = 1u;
     return;
   }
 
-  ctx->state = RTC_ICE_STATE_FAILED;
-  out_event->failed = 1u;
-  out_event->error = RTC_ERR_TIMEOUT;
+  if (active->last_check_ms != 0u) {
+    elapsed = now_ms - active->last_check_ms;
+    // Keep one full interval for an in-flight transaction before rotating TID.
+    if (elapsed <= retry_interval_ms) {
+      return;
+    }
+  }
+
+  if (rtc_ice_queue_binding_request_for_pair(ctx, ctx->active_pair_index, now_ms)) {
+    out_event->retry_performed = 1u;
+  } else {
+    ctx->checks_drop++;
+    out_event->retry_performed = 1u;
+  }
 }

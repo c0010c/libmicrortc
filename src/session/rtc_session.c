@@ -337,6 +337,104 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
   rtc_update_queue_stats(peer);
 }
 
+static void rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms) {
+  uint16_t sent = 0u;
+  uint16_t received = 0u;
+  uint32_t dropped = 0u;
+  rtc_result_t io_result;
+
+  if (!peer || !peer->in_use) {
+    return;
+  }
+
+  io_result = rtc_transport_pump_io(&peer->transport, 4u, &sent, &received, &dropped);
+  (void)sent;
+  (void)received;
+  if (io_result != RTC_OK) {
+    peer->stats.protocol_error_count++;
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, io_result,
+                 "pump io reported transport error");
+  }
+  if (dropped > 0u) {
+    peer->stats.dropped_packets += dropped;
+  }
+
+  for (;;) {
+    rtc_transport_stun_packet_t stun_pkt;
+    rtc_result_t r = rtc_transport_dequeue_stun(&peer->transport, &stun_pkt);
+    if (r == RTC_ERR_TIMEOUT) {
+      break;
+    }
+    if (r != RTC_OK) {
+      peer->stats.protocol_error_count++;
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
+                   "dequeue stun packet failed");
+      break;
+    }
+    if (stun_pkt.src_addr.family != RTC_PLATFORM_IP_FAMILY_IPV4) {
+      peer->stats.protocol_error_count++;
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, RTC_ERR_NOT_SUPPORTED,
+                   "stun source family not supported");
+      continue;
+    }
+
+    r = rtc_ice_handle_incoming_stun(&peer->ice, stun_pkt.src_addr.addr,
+                                     stun_pkt.src_addr.port, stun_pkt.data,
+                                     stun_pkt.len, now_ms);
+    if (r != RTC_OK) {
+      peer->stats.protocol_error_count++;
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
+                   "stun packet validation/handling failed");
+      continue;
+    }
+    rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_ICE, RTC_OK,
+                 "stun packet handled");
+  }
+
+  for (;;) {
+    uint8_t ip[4];
+    uint16_t port = 0u;
+    uint8_t buf[RTC_CFG_MTU];
+    uint16_t len = (uint16_t)sizeof(buf);
+    uint16_t sent_len = 0u;
+    rtc_platform_net_addr_t dst;
+    rtc_result_t r;
+
+    r = rtc_ice_dequeue_outgoing_stun(&peer->ice, ip, &port, buf, &len);
+    if (r == RTC_ERR_TIMEOUT) {
+      break;
+    }
+    if (r != RTC_OK) {
+      peer->stats.protocol_error_count++;
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
+                   "dequeue stun tx failed");
+      break;
+    }
+
+    memset(&dst, 0, sizeof(dst));
+    dst.family = RTC_PLATFORM_IP_FAMILY_IPV4;
+    dst.port = port;
+    memcpy(dst.addr, ip, 4u);
+
+    r = rtc_transport_send_stun(&peer->transport, &dst, buf, len, &sent_len);
+    if (r == RTC_ERR_TIMEOUT) {
+      rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_ICE, RTC_ERR_TIMEOUT,
+                   "stun send would block");
+      continue;
+    }
+    if (r != RTC_OK || sent_len != len) {
+      peer->stats.protocol_error_count++;
+      rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
+                   "stun send failed");
+      continue;
+    }
+    rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_ICE, RTC_OK,
+                 "stun check sent");
+  }
+
+  rtc_update_queue_stats(peer);
+}
+
 static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
   if (!peer || !peer->in_use) {
     return;
@@ -356,6 +454,7 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
   if (peer->state == RTC_PEER_STATE_ICE_CHECKING) {
     rtc_ice_event_t ice_event;
+    rtc_peer_drive_ice_transport_io(peer, now_ms);
     rtc_ice_tick(&peer->ice, now_ms, peer->config.retry_interval_ms,
                  peer->config.max_retries, &ice_event);
 
@@ -383,6 +482,22 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
     }
 
     if (ice_event.connected) {
+      uint8_t selected_ip[4];
+      uint16_t selected_port = 0u;
+      rtc_result_t sr =
+          rtc_ice_get_selected_remote(&peer->ice, selected_ip, &selected_port);
+      if (sr == RTC_OK) {
+        sr = rtc_transport_set_remote_ipv4(&peer->transport, selected_ip[0],
+                                           selected_ip[1], selected_ip[2],
+                                           selected_ip[3], selected_port);
+        if (sr == RTC_OK) {
+          rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_TRANSPORT, RTC_OK,
+                       "transport remote selected from ice");
+        } else {
+          rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_TRANSPORT, sr,
+                       "transport remote select from ice failed");
+        }
+      }
       if (rtc_dtls_start(&peer->dtls, now_ms) != RTC_OK) {
         peer->stats.dtls_last_error = RTC_ERR_DTLS_HANDSHAKE_FAILED;
         peer->stats.protocol_error_count++;

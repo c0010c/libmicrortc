@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "test_sdp_fixtures.h"
+#include "test_stun_helpers.h"
 
 #define ASSERT_EQ_INT(expected, actual)                                                   \
   do {                                                                                    \
@@ -248,24 +249,100 @@ static void fill_peer_cfg(rtc_peer_config_t *cfg, test_peer_capture_t *cap) {
   cfg->user_data = cap;
 }
 
-static int poll_until_connected(rtc_engine_t *engine, rtc_peer_t *peer) {
+static int test_remote_stun_responder_step(int remote_fd, const char *offer_ufrag,
+                                           const char *offer_pwd,
+                                           const char *local_sdp) {
+  uint8_t req[RTC_CFG_MTU];
+  char local_ufrag[64];
+  char username[160];
+
+  if (remote_fd < 0 || !offer_ufrag || !offer_pwd || !local_sdp || local_sdp[0] == '\0') {
+    return 0;
+  }
+  if (!rtc_test_extract_sdp_attr(local_sdp, "a=ice-ufrag:", local_ufrag,
+                                 (uint16_t)sizeof(local_ufrag))) {
+    return 0;
+  }
+  if (snprintf(username, sizeof(username), "%s:%s", offer_ufrag, local_ufrag) <= 0) {
+    return 0;
+  }
+
+  for (;;) {
+    rtc_platform_net_addr_t src;
+    uint16_t recv_len = 0u;
+    rtc_result_t r = rtc_platform_udp_recvfrom(remote_fd, &src, req, (uint16_t)sizeof(req),
+                                               &recv_len);
+    if (r == RTC_ERR_TIMEOUT) {
+      break;
+    }
+    if (r != RTC_OK) {
+      return 0;
+    }
+    if (!rtc_test_stun_is_binding_request(req, recv_len)) {
+      continue;
+    }
+
+    {
+      uint8_t tid[12];
+      uint8_t rsp[RTC_CFG_MTU];
+      uint16_t rsp_len = (uint16_t)sizeof(rsp);
+      uint16_t sent_len = 0u;
+
+      if (!rtc_test_stun_get_transaction_id(req, recv_len, tid)) {
+        return 0;
+      }
+      if (!rtc_test_stun_build_binding_response(tid, username, offer_pwd, src.addr, src.port,
+                                                rsp, &rsp_len)) {
+        return 0;
+      }
+      if (rtc_platform_udp_sendto(remote_fd, &src, rsp, rsp_len, &sent_len) != RTC_OK ||
+          sent_len != rsp_len) {
+        return 0;
+      }
+    }
+  }
+
+  return 1;
+}
+
+static int poll_until_connected(rtc_engine_t *engine, rtc_peer_t *peer,
+                                test_peer_capture_t *cap) {
   uint32_t now_ms = 0;
   rtc_peer_state_t state;
+  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t remote_port = 0u;
+  char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  char offer_ufrag[64];
+  char offer_pwd[64];
   int i;
 
+  ASSERT_TRUE(cap != NULL);
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-ufrag:",
+                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-pwd:",
+                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
+                                            (uint16_t)sizeof(remote_candidate),
+                                            remote_port, 2130706431u));
+
   ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 40; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap->last_local_sdp);
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_CONNECTED) {
+      rtc_platform_udp_close(&remote_fd);
       return 0;
     }
   }
 
+  rtc_platform_udp_close(&remote_fd);
   printf("peer did not reach connected state\n");
   return 1;
 }
@@ -292,7 +369,7 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
   ASSERT_TRUE(peer != NULL);
 
-  ASSERT_EQ_INT(0, poll_until_connected(engine, peer));
+  ASSERT_EQ_INT(0, poll_until_connected(engine, peer, &cap));
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
   ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
@@ -484,6 +561,11 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   test_log_capture_t logs;
   test_peer_capture_t cap;
   rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t remote_port = 0u;
+  char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  char offer_ufrag[64];
+  char offer_pwd[64];
   uint32_t now_ms = 0;
   int i;
 
@@ -491,6 +573,15 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   memset(&cap, 0, sizeof(cap));
   fill_engine_cfg(&engine_cfg, &logs);
   fill_peer_cfg(&peer_cfg, &cap);
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-ufrag:",
+                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-pwd:",
+                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
+                                            (uint16_t)sizeof(remote_candidate),
+                                            remote_port, 2130706431u));
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
@@ -500,15 +591,17 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   for (i = 0; i < 4; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
   }
   ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
   ASSERT_TRUE(state != RTC_PEER_STATE_FAILED);
 
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
 
   for (i = 0; i < 40; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_CONNECTED) {
       break;
@@ -516,6 +609,7 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   }
   ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
 
+  rtc_platform_udp_close(&remote_fd);
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   return 0;
@@ -529,6 +623,11 @@ static int test_candidate_before_offer_is_preserved(void) {
   test_log_capture_t logs;
   test_peer_capture_t cap;
   rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t remote_port = 0u;
+  char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  char offer_ufrag[64];
+  char offer_pwd[64];
   uint32_t now_ms = 0;
   int i;
 
@@ -536,17 +635,27 @@ static int test_candidate_before_offer_is_preserved(void) {
   memset(&cap, 0, sizeof(cap));
   fill_engine_cfg(&engine_cfg, &logs);
   fill_peer_cfg(&peer_cfg, &cap);
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-ufrag:",
+                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_no_candidate, "a=ice-pwd:",
+                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
+                                            (uint16_t)sizeof(remote_candidate),
+                                            remote_port, 2130706431u));
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
 
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_no_candidate, "offer"));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 40; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_CONNECTED) {
       break;
@@ -554,6 +663,7 @@ static int test_candidate_before_offer_is_preserved(void) {
   }
   ASSERT_EQ_INT(RTC_PEER_STATE_CONNECTED, state);
 
+  rtc_platform_udp_close(&remote_fd);
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   return 0;
@@ -694,7 +804,7 @@ static int test_media_loopback_and_stats(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
-  ASSERT_EQ_INT(0, poll_until_connected(engine, peer));
+  ASSERT_EQ_INT(0, poll_until_connected(engine, peer, &cap));
 
   ASSERT_EQ_INT(RTC_OK,
                 rtc_peer_send_video_h264(peer, video_payload, (uint16_t)sizeof(video_payload),
@@ -747,7 +857,7 @@ static int test_queue_overflow_and_datachannel_stub(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
-  ASSERT_EQ_INT(0, poll_until_connected(engine, peer));
+  ASSERT_EQ_INT(0, poll_until_connected(engine, peer, &cap));
 
   for (i = 0; i < 64; ++i) {
     rtc_result_t r = rtc_peer_send_video_h264(peer, video_payload,
@@ -786,6 +896,11 @@ static int test_dtls_timeout_and_error_observability(void) {
   rtc_peer_stats_t stats;
   test_log_capture_t logs;
   test_peer_capture_t cap;
+  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t remote_port = 0u;
+  char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  char offer_ufrag[64];
+  char offer_pwd[64];
   uint32_t now_ms = 0;
   int i;
 
@@ -794,6 +909,15 @@ static int test_dtls_timeout_and_error_observability(void) {
   memset(&stats, 0, sizeof(stats));
   fill_engine_cfg(&engine_cfg, &logs);
   fill_peer_cfg(&peer_cfg, &cap);
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-ufrag:",
+                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-pwd:",
+                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
+                                            (uint16_t)sizeof(remote_candidate),
+                                            remote_port, 2130706431u));
 
   peer_cfg.dtls_handshake_timeout_ms = 1;
   peer_cfg.dtls_handshake_max_retries = 1;
@@ -801,12 +925,13 @@ static int test_dtls_timeout_and_error_observability(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
-  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, g_test_remote_candidate_host));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
 
   for (i = 0; i < 40; ++i) {
     now_ms += 10;
     ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500));
+    (void)test_remote_stun_responder_step(remote_fd, offer_ufrag, offer_pwd, cap.last_local_sdp);
     ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
     if (state == RTC_PEER_STATE_FAILED) {
       break;
@@ -819,6 +944,7 @@ static int test_dtls_timeout_and_error_observability(void) {
   ASSERT_EQ_INT(RTC_DTLS_STATE_FAILED, stats.dtls_state);
   ASSERT_TRUE(logs.errors >= 1);
 
+  rtc_platform_udp_close(&remote_fd);
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
   ASSERT_EQ_INT(0, assert_log_baseline_minimum(&logs, TEST_LOG_PROFILE_DTLS_FAIL));

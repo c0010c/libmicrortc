@@ -15,6 +15,20 @@ static void rtc_transport_reset_queue(rtc_rtp_packet_t *queue, uint16_t capacity
   *high_watermark = 0u;
 }
 
+static void rtc_transport_reset_stun_queue(rtc_transport_stun_packet_t *queue,
+                                           uint16_t capacity, uint16_t *head,
+                                           uint16_t *tail, uint16_t *size,
+                                           uint16_t *high_watermark) {
+  if (!queue || !head || !tail || !size || !high_watermark) {
+    return;
+  }
+  memset(queue, 0, sizeof(rtc_transport_stun_packet_t) * capacity);
+  *head = 0u;
+  *tail = 0u;
+  *size = 0u;
+  *high_watermark = 0u;
+}
+
 static int rtc_transport_push_rx(rtc_transport_ctx_t *ctx,
                                  const rtc_rtp_packet_t *packet) {
   if (!ctx || !packet) {
@@ -32,6 +46,56 @@ static int rtc_transport_push_rx(rtc_transport_ctx_t *ctx,
   return 1;
 }
 
+static int rtc_transport_push_stun(
+    rtc_transport_ctx_t *ctx, const rtc_platform_net_addr_t *src,
+    const uint8_t *buf, uint16_t len) {
+  rtc_transport_stun_packet_t *slot;
+
+  if (!ctx || !src || !buf || len == 0u || len > RTC_CFG_MTU) {
+    return 0;
+  }
+  if (ctx->stun_rx_size >= RTC_CFG_RTCP_FB_QUEUE) {
+    return 0;
+  }
+
+  slot = &ctx->stun_rx_queue[ctx->stun_rx_tail];
+  memset(slot, 0, sizeof(*slot));
+  slot->src_addr = *src;
+  slot->len = len;
+  memcpy(slot->data, buf, len);
+
+  ctx->stun_rx_tail = (uint16_t)((ctx->stun_rx_tail + 1u) % RTC_CFG_RTCP_FB_QUEUE);
+  ctx->stun_rx_size++;
+  if (ctx->stun_rx_size > ctx->stun_rx_high_watermark) {
+    ctx->stun_rx_high_watermark = ctx->stun_rx_size;
+  }
+  return 1;
+}
+
+static int rtc_transport_is_stun_packet(const uint8_t *buf, uint16_t len) {
+  uint16_t msg_len;
+
+  if (!buf || len < 20u) {
+    return 0;
+  }
+  if ((buf[0] & 0xC0u) != 0u) {
+    return 0;
+  }
+  if (buf[4] != 0x21u || buf[5] != 0x12u || buf[6] != 0xA4u || buf[7] != 0x42u) {
+    return 0;
+  }
+
+  msg_len = (uint16_t)(((uint16_t)buf[2] << 8) | (uint16_t)buf[3]);
+  if ((msg_len & 0x0003u) != 0u) {
+    return 0;
+  }
+  if ((uint32_t)msg_len + 20u > (uint32_t)len) {
+    return 0;
+  }
+
+  return 1;
+}
+
 void rtc_transport_init(rtc_transport_ctx_t *ctx) {
   rtc_result_t r;
 
@@ -45,6 +109,9 @@ void rtc_transport_init(rtc_transport_ctx_t *ctx) {
                             &ctx->tx_tail, &ctx->tx_size, &ctx->tx_high_watermark);
   rtc_transport_reset_queue(ctx->rx_queue, RTC_CFG_RTP_RX_QUEUE, &ctx->rx_head,
                             &ctx->rx_tail, &ctx->rx_size, &ctx->rx_high_watermark);
+  rtc_transport_reset_stun_queue(ctx->stun_rx_queue, RTC_CFG_RTCP_FB_QUEUE,
+                                 &ctx->stun_rx_head, &ctx->stun_rx_tail,
+                                 &ctx->stun_rx_size, &ctx->stun_rx_high_watermark);
 
   r = rtc_platform_udp_create_nonblock(&ctx->udp_socket_fd);
   if (r != RTC_OK) {
@@ -113,6 +180,41 @@ rtc_result_t rtc_transport_enqueue_tx(rtc_transport_ctx_t *ctx,
   return RTC_OK;
 }
 
+rtc_result_t rtc_transport_send_stun(rtc_transport_ctx_t *ctx,
+                                     const rtc_platform_net_addr_t *remote,
+                                     const uint8_t *buf, uint16_t len,
+                                     uint16_t *out_sent_len) {
+  rtc_result_t r;
+  uint16_t sent_len = 0u;
+
+  if (!ctx || !remote || !buf || len == 0u || len > RTC_CFG_MTU || !out_sent_len) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  *out_sent_len = 0u;
+
+  if (ctx->udp_socket_fd < 0) {
+    ctx->io_stun_tx_error_count++;
+    return RTC_ERR_INVALID_STATE;
+  }
+
+  r = rtc_platform_udp_sendto(ctx->udp_socket_fd, remote, buf, len, &sent_len);
+  if (r == RTC_ERR_TIMEOUT) {
+    ctx->io_stun_tx_would_block_count++;
+    return r;
+  }
+  if (r != RTC_OK || sent_len != len) {
+    ctx->io_stun_tx_error_count++;
+    if (r != RTC_OK) {
+      return r;
+    }
+    return RTC_ERR_PROTOCOL;
+  }
+
+  ctx->io_stun_tx_packets++;
+  *out_sent_len = sent_len;
+  return RTC_OK;
+}
+
 rtc_result_t rtc_transport_pump_io(rtc_transport_ctx_t *ctx, uint16_t max_packets,
                                    uint16_t *out_sent_count,
                                    uint16_t *out_recv_count,
@@ -176,11 +278,13 @@ rtc_result_t rtc_transport_pump_io(rtc_transport_ctx_t *ctx, uint16_t max_packet
   if (ctx->udp_socket_fd >= 0) {
     while (recv_from_socket < max_packets) {
       rtc_rtp_packet_t packet;
+      rtc_platform_net_addr_t src_addr;
       rtc_result_t r;
       uint16_t read_len = 0u;
 
       memset(&packet, 0, sizeof(packet));
-      r = rtc_platform_udp_recvfrom(ctx->udp_socket_fd, NULL, packet.wire,
+      memset(&src_addr, 0, sizeof(src_addr));
+      r = rtc_platform_udp_recvfrom(ctx->udp_socket_fd, &src_addr, packet.wire,
                                     (uint16_t)sizeof(packet.wire), &read_len);
       if (r == RTC_ERR_TIMEOUT) {
         ctx->io_rx_would_block_count++;
@@ -192,9 +296,20 @@ rtc_result_t rtc_transport_pump_io(rtc_transport_ctx_t *ctx, uint16_t max_packet
         break;
       }
       recv_from_socket++;
+      if (rtc_transport_is_stun_packet(packet.wire, read_len)) {
+        if (!rtc_transport_push_stun(ctx, &src_addr, packet.wire, read_len)) {
+          dropped++;
+          ctx->io_stun_rx_drop_packets++;
+        } else {
+          received++;
+          ctx->io_stun_rx_packets++;
+        }
+        continue;
+      }
       if (read_len < RTC_CFG_RTP_HEADER_LEN) {
         had_protocol_error = 1u;
         ctx->io_rx_error_count++;
+        ctx->io_stun_rx_error_count++;
         continue;
       }
       packet.wire_len = read_len;
@@ -244,6 +359,21 @@ rtc_result_t rtc_transport_dequeue_rx(rtc_transport_ctx_t *ctx,
   return RTC_OK;
 }
 
+rtc_result_t rtc_transport_dequeue_stun(rtc_transport_ctx_t *ctx,
+                                        rtc_transport_stun_packet_t *out_packet) {
+  if (!ctx || !out_packet) {
+    return RTC_ERR_INVALID_ARG;
+  }
+  if (ctx->stun_rx_size == 0u) {
+    return RTC_ERR_TIMEOUT;
+  }
+
+  *out_packet = ctx->stun_rx_queue[ctx->stun_rx_head];
+  ctx->stun_rx_head = (uint16_t)((ctx->stun_rx_head + 1u) % RTC_CFG_RTCP_FB_QUEUE);
+  ctx->stun_rx_size--;
+  return RTC_OK;
+}
+
 uint16_t rtc_transport_local_port(const rtc_transport_ctx_t *ctx) {
   return ctx ? ctx->local_port : 0u;
 }
@@ -264,6 +394,18 @@ uint16_t rtc_transport_rx_high_watermark(const rtc_transport_ctx_t *ctx) {
   return ctx ? ctx->rx_high_watermark : 0u;
 }
 
+uint16_t rtc_transport_stun_depth(const rtc_transport_ctx_t *ctx) {
+  return ctx ? ctx->stun_rx_size : 0u;
+}
+
+uint16_t rtc_transport_stun_high_watermark(const rtc_transport_ctx_t *ctx) {
+  return ctx ? ctx->stun_rx_high_watermark : 0u;
+}
+
 uint32_t rtc_transport_rx_drop_count(const rtc_transport_ctx_t *ctx) {
   return ctx ? ctx->io_rx_drop_packets : 0u;
+}
+
+uint32_t rtc_transport_stun_drop_count(const rtc_transport_ctx_t *ctx) {
+  return ctx ? ctx->io_stun_rx_drop_packets : 0u;
 }
