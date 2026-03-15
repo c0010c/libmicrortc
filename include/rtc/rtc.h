@@ -131,6 +131,11 @@ typedef struct rtc_peer_stats {
   uint8_t srtp_active;
   int16_t dtls_last_error;
   uint32_t dtls_handshake_elapsed_ms;
+  uint32_t ice_checks_sent;
+  uint32_t ice_checks_ok;
+  uint32_t ice_checks_failed;
+  uint32_t ice_checks_drop;
+  int16_t ice_last_error;
 } rtc_peer_stats_t;
 
 typedef struct rtc_engine_stats {

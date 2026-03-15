@@ -40,6 +40,9 @@ typedef struct test_log_capture {
   uint32_t seen_dtls_handshake;
   uint32_t seen_media_connected;
   uint32_t seen_dtls_failed;
+  uint32_t seen_ice_timeout_failed;
+  uint32_t seen_ice_protocol_failed;
+  uint32_t seen_ice_resource_failed;
   rtc_result_t last_code;
   uint32_t last_peer_id;
   char last_module[24];
@@ -61,6 +64,11 @@ typedef struct test_peer_capture {
   uint8_t last_audio[64];
   uint16_t last_audio_len;
   rtc_audio_codec_t last_audio_codec;
+  uint8_t state_seq_step;
+  uint8_t seen_starting;
+  uint8_t seen_ice_checking;
+  uint8_t seen_dtls_handshake;
+  uint8_t seen_connected;
 } test_peer_capture_t;
 
 typedef enum test_log_profile {
@@ -130,6 +138,19 @@ static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer
     if (test_str_eq(module, "session.peer") && test_str_eq(message, "dtls failed") &&
         code == RTC_ERR_DTLS_HANDSHAKE_FAILED) {
       cap->seen_dtls_failed++;
+    } else if (test_str_eq(module, "session.peer") &&
+               test_str_eq(message, "ice protocol failure") &&
+               code == RTC_ERR_PROTOCOL) {
+      cap->seen_ice_protocol_failed++;
+    } else if (test_str_eq(module, "session.peer") &&
+               test_str_eq(message, "ice resource exhausted") &&
+               code == RTC_ERR_RESOURCE_EXHAUSTED) {
+      cap->seen_ice_resource_failed++;
+    }
+  } else if (level == RTC_LOG_WARN) {
+    if (test_str_eq(module, "session.peer") && test_str_eq(message, "ice timeout") &&
+        code == RTC_ERR_TIMEOUT) {
+      cap->seen_ice_timeout_failed++;
     }
   }
 }
@@ -167,6 +188,27 @@ static void test_state_cb(rtc_peer_t *peer, rtc_peer_state_t old_state,
   cap->state_changes++;
   cap->old_state = old_state;
   cap->new_state = new_state;
+  if (new_state == RTC_PEER_STATE_STARTING) {
+    cap->seen_starting = 1u;
+    if (cap->state_seq_step == 0u) {
+      cap->state_seq_step = 1u;
+    }
+  } else if (new_state == RTC_PEER_STATE_ICE_CHECKING) {
+    cap->seen_ice_checking = 1u;
+    if (cap->state_seq_step == 1u) {
+      cap->state_seq_step = 2u;
+    }
+  } else if (new_state == RTC_PEER_STATE_DTLS_HANDSHAKE) {
+    cap->seen_dtls_handshake = 1u;
+    if (cap->state_seq_step == 2u) {
+      cap->state_seq_step = 3u;
+    }
+  } else if (new_state == RTC_PEER_STATE_CONNECTED) {
+    cap->seen_connected = 1u;
+    if (cap->state_seq_step == 3u) {
+      cap->state_seq_step = 4u;
+    }
+  }
 }
 
 static void test_local_desc_cb(rtc_peer_t *peer, const char *sdp, const char *type,
@@ -305,6 +347,99 @@ static int test_remote_stun_responder_step(int remote_fd, const char *offer_ufra
   return 1;
 }
 
+static int test_extract_local_ice_creds(const char *local_sdp, char *out_local_ufrag,
+                                        uint16_t out_local_ufrag_cap,
+                                        char *out_local_pwd,
+                                        uint16_t out_local_pwd_cap) {
+  if (!local_sdp) {
+    return 0;
+  }
+  if (out_local_ufrag && out_local_ufrag_cap > 0u) {
+    if (!rtc_test_extract_sdp_attr(local_sdp, "a=ice-ufrag:", out_local_ufrag,
+                                   out_local_ufrag_cap)) {
+      return 0;
+    }
+  }
+  if (out_local_pwd && out_local_pwd_cap > 0u) {
+    if (!rtc_test_extract_sdp_attr(local_sdp, "a=ice-pwd:", out_local_pwd,
+                                   out_local_pwd_cap)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int test_capture_binding_request_source(int remote_fd,
+                                               rtc_platform_net_addr_t *out_src) {
+  uint8_t req[RTC_CFG_MTU];
+  for (;;) {
+    rtc_platform_net_addr_t src;
+    uint16_t recv_len = 0u;
+    rtc_result_t r = rtc_platform_udp_recvfrom(remote_fd, &src, req,
+                                               (uint16_t)sizeof(req), &recv_len);
+    if (r == RTC_ERR_TIMEOUT) {
+      return 0;
+    }
+    if (r != RTC_OK) {
+      return 0;
+    }
+    if (!rtc_test_stun_is_binding_request(req, recv_len)) {
+      continue;
+    }
+    if (out_src) {
+      *out_src = src;
+    }
+    return 1;
+  }
+}
+
+static int test_send_binding_response_from_remote(int remote_fd,
+                                                  const rtc_platform_net_addr_t *dst,
+                                                  const char *username,
+                                                  const char *password,
+                                                  const uint8_t tid[12]) {
+  uint8_t rsp[RTC_CFG_MTU];
+  uint16_t rsp_len = (uint16_t)sizeof(rsp);
+  uint16_t sent_len = 0u;
+
+  if (remote_fd < 0 || !dst || !username || !password || !tid) {
+    return 0;
+  }
+  if (!rtc_test_stun_build_binding_response(tid, username, password, dst->addr, dst->port,
+                                            rsp, &rsp_len)) {
+    return 0;
+  }
+  if (rtc_platform_udp_sendto(remote_fd, dst, rsp, rsp_len, &sent_len) != RTC_OK ||
+      sent_len != rsp_len) {
+    return 0;
+  }
+  return 1;
+}
+
+static int test_send_binding_request_from_remote(int remote_fd,
+                                                 const rtc_platform_net_addr_t *dst,
+                                                 const char *username,
+                                                 const char *password,
+                                                 uint32_t priority,
+                                                 const uint8_t tid[12]) {
+  uint8_t req[RTC_CFG_MTU];
+  uint16_t req_len = (uint16_t)sizeof(req);
+  uint16_t sent_len = 0u;
+
+  if (remote_fd < 0 || !dst || !username || !password || !tid) {
+    return 0;
+  }
+  if (!rtc_test_stun_build_binding_request(tid, username, password, priority, req,
+                                           &req_len)) {
+    return 0;
+  }
+  if (rtc_platform_udp_sendto(remote_fd, dst, req, req_len, &sent_len) != RTC_OK ||
+      sent_len != req_len) {
+    return 0;
+  }
+  return 1;
+}
+
 static int poll_until_connected(rtc_engine_t *engine, rtc_peer_t *peer,
                                 test_peer_capture_t *cap) {
   uint32_t now_ms = 0;
@@ -377,6 +512,9 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &peer_stats));
   ASSERT_TRUE(peer_stats.local_candidate_count >= 1);
   ASSERT_TRUE(peer_stats.remote_candidate_count >= 1);
+  ASSERT_TRUE(peer_stats.ice_checks_sent >= 1u);
+  ASSERT_TRUE(peer_stats.ice_checks_ok >= 1u);
+  ASSERT_EQ_INT(RTC_OK, peer_stats.ice_last_error);
   ASSERT_EQ_INT(RTC_DTLS_STATE_CONNECTED, peer_stats.dtls_state);
   ASSERT_TRUE(peer_stats.srtp_active == 1);
   ASSERT_TRUE(peer_stats.dtls_handshake_elapsed_ms > 0);
@@ -386,6 +524,11 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_TRUE(cap.local_description_count >= 1);
   ASSERT_TRUE(cap.local_candidate_count >= 1);
   ASSERT_TRUE(cap.state_changes >= 1);
+  ASSERT_TRUE(cap.seen_starting == 1u);
+  ASSERT_TRUE(cap.seen_ice_checking == 1u);
+  ASSERT_TRUE(cap.seen_dtls_handshake == 1u);
+  ASSERT_TRUE(cap.seen_connected == 1u);
+  ASSERT_TRUE(cap.state_seq_step >= 4u);
   ASSERT_TRUE(test_str_eq(cap.last_local_type, "answer"));
   ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=ice-lite"));
   ASSERT_TRUE(test_str_contains(cap.last_local_sdp, "a=setup:passive"));
@@ -750,6 +893,237 @@ static int test_start_before_offer_waits_and_then_emits_answer(void) {
   return 0;
 }
 
+static int test_ice_timeout_error_observability(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_peer_stats_t stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&stats, 0, sizeof(stats));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+  peer_cfg.max_retries = 2u;
+  peer_cfg.retry_interval_ms = 10u;
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_no_candidate, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 40; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_FAILED) {
+      break;
+    }
+  }
+
+  ASSERT_EQ_INT(RTC_PEER_STATE_FAILED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_EQ_INT(RTC_ERR_TIMEOUT, stats.ice_last_error);
+  ASSERT_TRUE(logs.seen_ice_timeout_failed >= 1u);
+
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_ice_protocol_error_observability(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_peer_stats_t stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  int remote_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t remote_port = 0u;
+  char remote_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  char offer_ufrag[64];
+  char offer_pwd[64];
+  char local_ufrag[64];
+  char username[160];
+  rtc_platform_net_addr_t dst;
+  uint8_t bad_tid[12];
+  int have_local_ufrag = 0;
+  int injected = 0;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&stats, 0, sizeof(stats));
+  memset(bad_tid, 0xAA, sizeof(bad_tid));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+  peer_cfg.max_retries = 20u;
+  peer_cfg.retry_interval_ms = 10u;
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-ufrag:",
+                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-pwd:",
+                                        offer_pwd, (uint16_t)sizeof(offer_pwd)));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&remote_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(remote_fd, 0u, &remote_port));
+  ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
+                                            (uint16_t)sizeof(remote_candidate),
+                                            remote_port, 2130707000u));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, remote_candidate));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 80; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    if (!have_local_ufrag && cap.local_description_count > 0u) {
+      ASSERT_TRUE(test_extract_local_ice_creds(cap.last_local_sdp, local_ufrag,
+                                               (uint16_t)sizeof(local_ufrag), NULL,
+                                               0u));
+      have_local_ufrag = 1;
+    }
+    if (!injected && have_local_ufrag &&
+        test_capture_binding_request_source(remote_fd, &dst)) {
+      ASSERT_TRUE(snprintf(username, sizeof(username), "%s:%s", offer_ufrag,
+                           local_ufrag) > 0);
+      ASSERT_TRUE(test_send_binding_response_from_remote(remote_fd, &dst, username,
+                                                         offer_pwd, bad_tid));
+      injected = 1;
+    }
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_FAILED) {
+      break;
+    }
+  }
+
+  ASSERT_TRUE(injected == 1);
+  ASSERT_EQ_INT(RTC_PEER_STATE_FAILED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_EQ_INT(RTC_ERR_PROTOCOL, stats.ice_last_error);
+  ASSERT_TRUE(logs.seen_ice_protocol_failed >= 1u);
+
+  rtc_platform_udp_close(&remote_fd);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
+static int test_ice_resource_exhausted_error_observability(void) {
+  rtc_engine_t *engine = NULL;
+  rtc_peer_t *peer = NULL;
+  rtc_engine_config_t engine_cfg;
+  rtc_peer_config_t peer_cfg;
+  rtc_peer_state_t state = RTC_PEER_STATE_NEW;
+  rtc_peer_stats_t stats;
+  test_log_capture_t logs;
+  test_peer_capture_t cap;
+  int known_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t known_port = 0u;
+  int overflow_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint16_t overflow_port = 0u;
+  char known_candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+  char offer_ufrag[64];
+  char local_ufrag[64];
+  char local_pwd[64];
+  char username[160];
+  rtc_platform_net_addr_t dst;
+  uint8_t req_tid[12];
+  int exhausted = 0;
+  int have_local_creds = 0;
+  int injected = 0;
+  uint32_t now_ms = 0;
+  int i;
+
+  memset(&logs, 0, sizeof(logs));
+  memset(&cap, 0, sizeof(cap));
+  memset(&stats, 0, sizeof(stats));
+  memset(req_tid, 0x11, sizeof(req_tid));
+  fill_engine_cfg(&engine_cfg, &logs);
+  fill_peer_cfg(&peer_cfg, &cap);
+  peer_cfg.max_retries = 30u;
+  peer_cfg.retry_interval_ms = 10u;
+  ASSERT_TRUE(rtc_test_extract_sdp_attr(g_test_chrome_offer_h264_g711, "a=ice-ufrag:",
+                                        offer_ufrag, (uint16_t)sizeof(offer_ufrag)));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&known_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(known_fd, 0u, &known_port));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&overflow_fd));
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_bind(overflow_fd, 0u, &overflow_port));
+  ASSERT_TRUE(rtc_test_build_host_candidate(known_candidate,
+                                            (uint16_t)sizeof(known_candidate),
+                                            known_port, 2130707000u));
+
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(peer, g_test_chrome_offer_h264_g711, "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_add_remote_candidate(peer, known_candidate));
+
+  for (i = 0; i < 64; ++i) {
+    char candidate[RTC_CFG_MAX_CANDIDATE_LEN];
+    uint16_t port = (uint16_t)(41000u + (uint16_t)i);
+    rtc_result_t r;
+    if (port == overflow_port || port == known_port) {
+      continue;
+    }
+    ASSERT_TRUE(rtc_test_build_host_candidate(candidate, (uint16_t)sizeof(candidate), port,
+                                              (uint32_t)(2130706000u + (uint32_t)i)));
+    r = rtc_peer_add_remote_candidate(peer, candidate);
+    if (r == RTC_ERR_RESOURCE_EXHAUSTED) {
+      exhausted = 1;
+      break;
+    }
+    ASSERT_EQ_INT(RTC_OK, r);
+  }
+  ASSERT_TRUE(exhausted == 1);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_start(peer));
+
+  for (i = 0; i < 80; ++i) {
+    now_ms += 10u;
+    ASSERT_EQ_INT(RTC_OK, rtc_engine_poll(engine, now_ms, 500u));
+    if (!have_local_creds && cap.local_description_count > 0u) {
+      ASSERT_TRUE(test_extract_local_ice_creds(cap.last_local_sdp, local_ufrag,
+                                               (uint16_t)sizeof(local_ufrag),
+                                               local_pwd,
+                                               (uint16_t)sizeof(local_pwd)));
+      have_local_creds = 1;
+    }
+    if (!injected && have_local_creds &&
+        test_capture_binding_request_source(known_fd, &dst)) {
+      ASSERT_TRUE(snprintf(username, sizeof(username), "%s:%s", local_ufrag,
+                           offer_ufrag) > 0);
+      ASSERT_TRUE(test_send_binding_request_from_remote(
+          overflow_fd, &dst, username, local_pwd, 2122260223u, req_tid));
+      injected = 1;
+    }
+    ASSERT_EQ_INT(RTC_OK, rtc_peer_get_state(peer, &state));
+    if (state == RTC_PEER_STATE_FAILED) {
+      break;
+    }
+  }
+
+  ASSERT_TRUE(injected == 1);
+  ASSERT_EQ_INT(RTC_PEER_STATE_FAILED, state);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
+  ASSERT_EQ_INT(RTC_ERR_RESOURCE_EXHAUSTED, stats.ice_last_error);
+  ASSERT_TRUE(logs.seen_ice_resource_failed >= 1u);
+
+  rtc_platform_udp_close(&known_fd);
+  rtc_platform_udp_close(&overflow_fd);
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
+  ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
+  return 0;
+}
+
 static int test_resource_exhaustion(void) {
   rtc_engine_t *engine = NULL;
   rtc_peer_t *peers[RTC_CFG_MAX_PEERS + 1];
@@ -964,6 +1338,9 @@ int main(void) {
   failures += test_candidate_before_offer_is_preserved();
   failures += test_h264_packetization_mode_requires_exact_one();
   failures += test_start_before_offer_waits_and_then_emits_answer();
+  failures += test_ice_timeout_error_observability();
+  failures += test_ice_protocol_error_observability();
+  failures += test_ice_resource_exhausted_error_observability();
   failures += test_resource_exhaustion();
   failures += test_media_loopback_and_stats();
   failures += test_queue_overflow_and_datachannel_stub();

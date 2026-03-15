@@ -109,6 +109,18 @@ static void rtc_update_queue_stats(rtc_peer_t *peer) {
       rtc_transport_rx_high_watermark(&peer->transport);
 }
 
+static void rtc_update_ice_stats(rtc_peer_t *peer) {
+  if (!peer) {
+    return;
+  }
+  peer->stats.local_candidate_count = peer->ice.local_candidate_count;
+  peer->stats.remote_candidate_count = peer->ice.remote_candidate_count;
+  peer->stats.ice_checks_sent = peer->ice.checks_sent;
+  peer->stats.ice_checks_ok = peer->ice.checks_ok;
+  peer->stats.ice_checks_failed = peer->ice.checks_failed;
+  peer->stats.ice_checks_drop = peer->ice.checks_drop;
+}
+
 static void rtc_update_security_stats(rtc_peer_t *peer, uint32_t now_ms) {
   if (!peer) {
     return;
@@ -196,6 +208,29 @@ static int rtc_parse_candidate_host_ipv4(const char *candidate, uint8_t out_ip[4
 
   *out_port = (uint16_t)port;
   return 1;
+}
+
+static int rtc_peer_addr_is_known_remote_candidate(const rtc_peer_t *peer,
+                                                    const uint8_t ip[4],
+                                                    uint16_t port) {
+  uint16_t i;
+  if (!peer || !ip || port == 0u) {
+    return 0;
+  }
+  for (i = 0u; i < peer->ice.remote_candidate_count; ++i) {
+    const rtc_ice_remote_candidate_t *cand = &peer->ice.remote_candidate_items[i];
+    if (!cand->in_use || cand->port != port) {
+      continue;
+    }
+    if (memcmp(cand->ip, ip, 4u) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int rtc_is_resource_error(rtc_result_t r) {
+  return r == RTC_ERR_RESOURCE_EXHAUSTED || r == RTC_ERR_OVERFLOW;
 }
 
 static void rtc_peer_set_state(rtc_peer_t *peer, rtc_peer_state_t next,
@@ -337,15 +372,17 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
   rtc_update_queue_stats(peer);
 }
 
-static void rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms) {
+static int rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms,
+                                           rtc_result_t *out_fatal_error) {
   uint16_t sent = 0u;
   uint16_t received = 0u;
   uint32_t dropped = 0u;
   rtc_result_t io_result;
 
-  if (!peer || !peer->in_use) {
-    return;
+  if (!peer || !peer->in_use || !out_fatal_error) {
+    return 0;
   }
+  *out_fatal_error = RTC_OK;
 
   io_result = rtc_transport_pump_io(&peer->transport, 4u, &sent, &received, &dropped);
   (void)sent;
@@ -385,6 +422,16 @@ static void rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms) {
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
                    "stun packet validation/handling failed");
+      if (rtc_is_resource_error(r)) {
+        *out_fatal_error = RTC_ERR_RESOURCE_EXHAUSTED;
+        return 1;
+      }
+      if ((r == RTC_ERR_PROTOCOL || r == RTC_ERR_AUTH_FAILED) &&
+          rtc_peer_addr_is_known_remote_candidate(
+              peer, stun_pkt.src_addr.addr, stun_pkt.src_addr.port)) {
+        *out_fatal_error = RTC_ERR_PROTOCOL;
+        return 1;
+      }
       continue;
     }
     rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_ICE, RTC_OK,
@@ -408,7 +455,12 @@ static void rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms) {
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
                    "dequeue stun tx failed");
-      break;
+      if (rtc_is_resource_error(r)) {
+        *out_fatal_error = RTC_ERR_RESOURCE_EXHAUSTED;
+      } else {
+        *out_fatal_error = RTC_ERR_PROTOCOL;
+      }
+      return 1;
     }
 
     memset(&dst, 0, sizeof(dst));
@@ -426,13 +478,21 @@ static void rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms) {
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
                    "stun send failed");
-      continue;
+      if (r == RTC_OK) {
+        *out_fatal_error = RTC_ERR_PROTOCOL;
+      } else if (rtc_is_resource_error(r)) {
+        *out_fatal_error = RTC_ERR_RESOURCE_EXHAUSTED;
+      } else {
+        *out_fatal_error = RTC_ERR_PROTOCOL;
+      }
+      return 1;
     }
     rtc_log_peer(peer, RTC_LOG_DEBUG, RTC_MODULE_ICE, RTC_OK,
                  "stun check sent");
   }
 
   rtc_update_queue_stats(peer);
+  return 0;
 }
 
 static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
@@ -454,12 +514,24 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
   if (peer->state == RTC_PEER_STATE_ICE_CHECKING) {
     rtc_ice_event_t ice_event;
-    rtc_peer_drive_ice_transport_io(peer, now_ms);
+    rtc_result_t fatal_ice_error = RTC_OK;
+    if (rtc_peer_drive_ice_transport_io(peer, now_ms, &fatal_ice_error)) {
+      rtc_update_ice_stats(peer);
+      peer->stats.ice_last_error = (int16_t)fatal_ice_error;
+      peer->stats.protocol_error_count++;
+      if (fatal_ice_error == RTC_ERR_RESOURCE_EXHAUSTED) {
+        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED, RTC_ERR_RESOURCE_EXHAUSTED,
+                           "ice resource exhausted", RTC_LOG_ERROR);
+      } else {
+        rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED, RTC_ERR_PROTOCOL,
+                           "ice protocol failure", RTC_LOG_ERROR);
+      }
+      return;
+    }
+
     rtc_ice_tick(&peer->ice, now_ms, peer->config.retry_interval_ms,
                  peer->config.max_retries, &ice_event);
-
-    peer->stats.local_candidate_count = peer->ice.local_candidate_count;
-    peer->stats.remote_candidate_count = peer->ice.remote_candidate_count;
+    rtc_update_ice_stats(peer);
 
     if (ice_event.emit_local_description && peer->config.on_local_description) {
       peer->config.on_local_description(
@@ -513,6 +585,7 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
     if (ice_event.failed) {
       peer->stats.timeout_count++;
+      peer->stats.ice_last_error = (int16_t)ice_event.error;
       rtc_peer_set_state(peer, RTC_PEER_STATE_FAILED, ice_event.error,
                          "ice timeout", RTC_LOG_WARN);
       return;
@@ -573,6 +646,7 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
 
   if (peer->state == RTC_PEER_STATE_CONNECTED) {
     rtc_peer_dispatch_incoming(peer, 4u);
+    rtc_update_ice_stats(peer);
     rtc_update_security_stats(peer, now_ms);
   }
 }
@@ -867,6 +941,11 @@ rtc_result_t rtc_session_peer_start(rtc_peer_t *peer) {
   rtc_srtp_deinit(&peer->srtp);
   rtc_srtp_init(&peer->srtp);
   peer->stats.dtls_last_error = RTC_OK;
+  peer->stats.ice_last_error = RTC_OK;
+  peer->stats.ice_checks_sent = 0u;
+  peer->stats.ice_checks_ok = 0u;
+  peer->stats.ice_checks_failed = 0u;
+  peer->stats.ice_checks_drop = 0u;
 
   rtc_peer_set_state(peer, RTC_PEER_STATE_STARTING, RTC_OK, "peer start",
                      RTC_LOG_INFO);
