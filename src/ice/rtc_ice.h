@@ -81,6 +81,10 @@ typedef struct rtc_ice_ctx {
   int16_t video_h264_pm1_pt;
   int16_t video_selected_pt;
   int16_t video_first_pt;
+  uint8_t audio_ssrc_present;
+  uint8_t video_ssrc_present;
+  uint32_t audio_remote_ssrc;
+  uint32_t video_remote_ssrc;
   uint32_t peer_id;
   uint16_t local_candidate_count;
   uint16_t remote_candidate_count;

@@ -687,6 +687,10 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   ctx->video_h264_pm1_pt = -1;
   ctx->video_selected_pt = -1;
   ctx->video_first_pt = -1;
+  ctx->audio_ssrc_present = 0u;
+  ctx->video_ssrc_present = 0u;
+  ctx->audio_remote_ssrc = 0u;
+  ctx->video_remote_ssrc = 0u;
 
   ctx->local_candidate_count = 0u;
   ctx->connect_ticks = 0u;
@@ -780,6 +784,23 @@ static int rtc_ice_parse_int16(const char *text, int16_t *out_value) {
     return 0;
   }
   *out_value = (int16_t)value;
+  return 1;
+}
+
+static int rtc_ice_parse_ssrc_value(const char *text, uint32_t *out_ssrc) {
+  unsigned long value;
+  char *end_ptr = NULL;
+  if (!text || !out_ssrc) {
+    return 0;
+  }
+  value = strtoul(text, &end_ptr, 10);
+  if (end_ptr == text || value > 0xFFFFFFFFUL) {
+    return 0;
+  }
+  while (*end_ptr == ' ' || *end_ptr == '\t') {
+    end_ptr++;
+  }
+  *out_ssrc = (uint32_t)value;
   return 1;
 }
 
@@ -1291,6 +1312,18 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
         if (r != RTC_OK) {
           return r;
         }
+      } else if (strncmp(attr, "ssrc:", 5u) == 0) {
+        uint32_t ssrc = 0u;
+        if (!rtc_ice_parse_ssrc_value(attr + 5u, &ssrc)) {
+          return RTC_ERR_PROTOCOL;
+        }
+        if (current_media == RTC_MEDIA_AUDIO && !ctx->audio_ssrc_present) {
+          ctx->audio_remote_ssrc = ssrc;
+          ctx->audio_ssrc_present = 1u;
+        } else if (current_media == RTC_MEDIA_VIDEO && !ctx->video_ssrc_present) {
+          ctx->video_remote_ssrc = ssrc;
+          ctx->video_ssrc_present = 1u;
+        }
       } else if (strncmp(attr, "mid:", 4u) == 0) {
         if (current_media == RTC_MEDIA_AUDIO) {
           if (!rtc_ice_set_string(ctx->audio_mid, sizeof(ctx->audio_mid), attr + 4u)) {
@@ -1403,6 +1436,12 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
   if (!ctx->audio_accepted && !ctx->video_accepted) {
     return RTC_ERR_NOT_SUPPORTED;
   }
+  if (ctx->audio_accepted && !ctx->audio_ssrc_present) {
+    return RTC_ERR_PROTOCOL;
+  }
+  if (ctx->video_accepted && !ctx->video_ssrc_present) {
+    return RTC_ERR_PROTOCOL;
+  }
   return RTC_OK;
 }
 
@@ -1420,6 +1459,10 @@ void rtc_ice_init(rtc_ice_ctx_t *ctx) {
   ctx->video_h264_pm1_pt = -1;
   ctx->video_selected_pt = -1;
   ctx->video_first_pt = -1;
+  ctx->audio_ssrc_present = 0u;
+  ctx->video_ssrc_present = 0u;
+  ctx->audio_remote_ssrc = 0u;
+  ctx->video_remote_ssrc = 0u;
   ctx->active_pair_index = -1;
   ctx->selected_pair_index = -1;
 }

@@ -30,6 +30,7 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_g711 =
     "a=rtpmap:111 opus/48000/2\r\n"
     "a=rtpmap:8 PCMA/8000\r\n"
     "a=rtpmap:0 PCMU/8000\r\n"
+    "a=ssrc:3001001 cname:audio-track\r\n"
     "a=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n"
     "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\n"
     "c=IN IP4 0.0.0.0\r\n"
@@ -38,6 +39,7 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_g711 =
     "a=rtpmap:96 H264/90000\r\n"
     "a=fmtp:96 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
     "a=rtpmap:97 VP8/90000\r\n"
+    "a=ssrc:3002001 cname:video-track\r\n"
     "a=candidate:2 1 udp 2130706431 127.0.0.1 5000 typ host\r\n";
 
 static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_opus_only =
@@ -57,6 +59,7 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_opus_only =
     "a=mid:0\r\n"
     "a=rtcp-mux\r\n"
     "a=rtpmap:111 opus/48000/2\r\n"
+    "a=ssrc:3001002 cname:audio-track\r\n"
     "a=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n"
     "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
     "c=IN IP4 0.0.0.0\r\n"
@@ -64,6 +67,7 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_opus_only =
     "a=rtcp-mux\r\n"
     "a=rtpmap:96 H264/90000\r\n"
     "a=fmtp:96 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
+    "a=ssrc:3002002 cname:video-track\r\n"
     "a=candidate:2 1 udp 2130706431 127.0.0.1 5000 typ host\r\n";
 
 static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_pm10_then_pm1 =
@@ -83,6 +87,7 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_pm10_then_pm1 =
     "a=mid:0\r\n"
     "a=rtcp-mux\r\n"
     "a=rtpmap:8 PCMA/8000\r\n"
+    "a=ssrc:3001003 cname:audio-track\r\n"
     "a=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n"
     "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\n"
     "c=IN IP4 0.0.0.0\r\n"
@@ -92,6 +97,7 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_pm10_then_pm1 =
     "a=fmtp:96 packetization-mode=10;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
     "a=rtpmap:97 H264/90000\r\n"
     "a=fmtp:97 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
+    "a=ssrc:3002003 cname:video-track\r\n"
     "a=candidate:2 1 udp 2130706431 127.0.0.1 5000 typ host\r\n";
 
 static const char *RTC_TEST_UNUSED g_test_chrome_offer_unsupported =
@@ -136,12 +142,68 @@ static const char *RTC_TEST_UNUSED g_test_chrome_offer_no_candidate =
     "a=mid:0\r\n"
     "a=rtcp-mux\r\n"
     "a=rtpmap:8 PCMA/8000\r\n"
+    "a=ssrc:3001004 cname:audio-track\r\n"
     "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
     "c=IN IP4 0.0.0.0\r\n"
     "a=mid:1\r\n"
     "a=rtcp-mux\r\n"
     "a=rtpmap:96 H264/90000\r\n"
-    "a=fmtp:96 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n";
+    "a=fmtp:96 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
+    "a=ssrc:3002004 cname:video-track\r\n";
+
+static const char *RTC_TEST_UNUSED g_test_chrome_offer_h264_g711_dynamic_pt =
+    "v=0\r\n"
+    "o=- 897654321234567890 2 IN IP4 127.0.0.1\r\n"
+    "s=-\r\n"
+    "t=0 0\r\n"
+    "a=group:BUNDLE 0 1\r\n"
+    "a=msid-semantic: WMS *\r\n"
+    "a=ice-ufrag:uf1234\r\n"
+    "a=ice-pwd:pw12345678901234567890\r\n"
+    "a=fingerprint:sha-256 "
+    "11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00\r\n"
+    "a=setup:actpass\r\n"
+    "m=audio 9 UDP/TLS/RTP/SAVPF 118\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=mid:0\r\n"
+    "a=rtcp-mux\r\n"
+    "a=rtpmap:118 PCMA/8000\r\n"
+    "a=ssrc:3001010 cname:audio-track\r\n"
+    "a=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n"
+    "m=video 9 UDP/TLS/RTP/SAVPF 102\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=mid:1\r\n"
+    "a=rtcp-mux\r\n"
+    "a=rtpmap:102 H264/90000\r\n"
+    "a=fmtp:102 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
+    "a=ssrc:3002010 cname:video-track\r\n"
+    "a=candidate:2 1 udp 2130706431 127.0.0.1 5000 typ host\r\n";
+
+static const char *RTC_TEST_UNUSED g_test_chrome_offer_missing_ssrc =
+    "v=0\r\n"
+    "o=- 897654321234567890 2 IN IP4 127.0.0.1\r\n"
+    "s=-\r\n"
+    "t=0 0\r\n"
+    "a=group:BUNDLE 0 1\r\n"
+    "a=msid-semantic: WMS *\r\n"
+    "a=ice-ufrag:uf1234\r\n"
+    "a=ice-pwd:pw12345678901234567890\r\n"
+    "a=fingerprint:sha-256 "
+    "11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00\r\n"
+    "a=setup:actpass\r\n"
+    "m=audio 9 UDP/TLS/RTP/SAVPF 8\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=mid:0\r\n"
+    "a=rtcp-mux\r\n"
+    "a=rtpmap:8 PCMA/8000\r\n"
+    "a=candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host\r\n"
+    "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=mid:1\r\n"
+    "a=rtcp-mux\r\n"
+    "a=rtpmap:96 H264/90000\r\n"
+    "a=fmtp:96 packetization-mode=1;profile-level-id=42e01f;level-asymmetry-allowed=1\r\n"
+    "a=candidate:2 1 udp 2130706431 127.0.0.1 5000 typ host\r\n";
 
 static const char *RTC_TEST_UNUSED g_test_chrome_offer_missing_ice_pwd =
     "v=0\r\n"

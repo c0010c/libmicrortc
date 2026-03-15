@@ -137,6 +137,34 @@ static void rtc_update_security_stats(rtc_peer_t *peer, uint32_t now_ms) {
   peer->stats.dtls_tx_pkts = rtc_transport_dtls_tx_count(&peer->transport);
 }
 
+typedef struct rtc_video_send_ctx {
+  rtc_peer_t *peer;
+} rtc_video_send_ctx_t;
+
+static rtc_result_t rtc_session_video_tx_packet_cb(rtc_rtp_packet_t *packet,
+                                                   void *user_data) {
+  rtc_video_send_ctx_t *ctx = (rtc_video_send_ctx_t *)user_data;
+  rtc_result_t r;
+  if (!ctx || !ctx->peer || !packet) {
+    return RTC_ERR_INVALID_ARG;
+  }
+
+  r = rtc_srtp_protect(&ctx->peer->srtp, packet);
+  if (r != RTC_OK) {
+    ctx->peer->stats.protocol_error_count++;
+    return r;
+  }
+
+  r = rtc_transport_enqueue_tx(&ctx->peer->transport, packet);
+  if (r != RTC_OK) {
+    ctx->peer->stats.dropped_packets++;
+    rtc_log_peer(ctx->peer, RTC_LOG_WARN, RTC_MODULE_RTP, r, "tx queue full");
+    rtc_update_queue_stats(ctx->peer);
+    return r;
+  }
+  return RTC_OK;
+}
+
 static int rtc_is_rtcp_packet(const rtc_rtp_packet_t *packet) {
   if (!packet || packet->wire_len < 2u) {
     return 0;
@@ -379,7 +407,29 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
       continue;
     }
 
-    r = rtc_rtp_decode(&packet, &frame);
+    {
+      uint32_t chain_break_before = peer->rtp.rx_h264_chain_breaks;
+      uint32_t reassembly_overflow_before =
+          peer->rtp.rx_h264_reassembly_overflows;
+      uint32_t ssrc_mismatch_before = peer->rtp.rx_ssrc_mismatch_drops;
+
+      r = rtc_rtp_decode(&peer->rtp, &packet, &frame);
+      if (peer->rtp.rx_h264_chain_breaks > chain_break_before) {
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_TIMEOUT,
+                     "h264 fu chain interrupted");
+      }
+      if (peer->rtp.rx_h264_reassembly_overflows > reassembly_overflow_before) {
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_OVERFLOW,
+                     "h264 reassembly overflow");
+      }
+      if (peer->rtp.rx_ssrc_mismatch_drops > ssrc_mismatch_before) {
+        rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_PROTOCOL,
+                     "rtp ssrc mismatch drop");
+      }
+    }
+    if (r == RTC_ERR_TIMEOUT) {
+      continue;
+    }
     if (r != RTC_OK) {
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_RTP, r, "rtp decode failed");
@@ -389,13 +439,18 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
     if (frame.kind == RTC_PACKET_KIND_VIDEO) {
       peer->stats.rx_video_frames++;
       if (peer->config.on_video_frame) {
-        peer->config.on_video_frame(peer, frame.payload, frame.payload_len,
+        peer->config.on_video_frame(peer,
+                                    frame.payload_ptr ? frame.payload_ptr
+                                                      : frame.payload,
+                                    frame.payload_len,
                                     frame.timestamp, peer->config.user_data);
       }
     } else if (frame.kind == RTC_PACKET_KIND_AUDIO) {
       peer->stats.rx_audio_frames++;
       if (peer->config.on_audio_frame) {
-        peer->config.on_audio_frame(peer, frame.audio_codec, frame.payload,
+        peer->config.on_audio_frame(peer, frame.audio_codec,
+                                    frame.payload_ptr ? frame.payload_ptr
+                                                      : frame.payload,
                                     frame.payload_len, frame.timestamp,
                                     peer->config.user_data);
       }
@@ -1199,6 +1254,30 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
     return vr;
   }
 
+  rtc_rtp_set_payload_types(&peer->rtp, peer->ice.video_selected_pt,
+                            peer->ice.audio_pcma_pt, peer->ice.audio_pcmu_pt);
+  rtc_rtp_set_expected_remote_ssrc(&peer->rtp, peer->ice.video_accepted,
+                                   peer->ice.video_remote_ssrc,
+                                   peer->ice.audio_accepted,
+                                   peer->ice.audio_remote_ssrc);
+  {
+    char msg[160];
+    (void)snprintf(msg, sizeof(msg),
+                   "negotiated pt mapping video=%d pcma=%d pcmu=%d",
+                   (int)peer->ice.video_selected_pt,
+                   (int)peer->ice.audio_pcma_pt,
+                   (int)peer->ice.audio_pcmu_pt);
+    rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_RTP, RTC_OK, msg);
+  }
+  {
+    char msg[160];
+    (void)snprintf(msg, sizeof(msg),
+                   "remote ssrc mapping video=%u audio=%u",
+                   (unsigned)peer->ice.video_remote_ssrc,
+                   (unsigned)peer->ice.audio_remote_ssrc);
+    rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_RTP, RTC_OK, msg);
+  }
+
   for (i = 0u; i < peer->ice.remote_candidate_count; ++i) {
     if (!rtc_parse_candidate_host_ipv4(peer->ice.remote_candidates[i], ip, &port)) {
       continue;
@@ -1282,7 +1361,10 @@ rtc_result_t rtc_session_peer_send_video_h264(rtc_peer_t *peer,
                                                uint16_t payload_len,
                                                uint32_t timestamp90k,
                                                uint8_t marker) {
-  rtc_rtp_packet_t packet;
+  rtc_video_send_ctx_t send_ctx;
+  uint16_t packet_count = 0u;
+  uint16_t tx_depth;
+  uint16_t tx_available;
   rtc_result_t vr;
 
   vr = rtc_validate_live_peer(peer, NULL, NULL);
@@ -1296,23 +1378,31 @@ rtc_result_t rtc_session_peer_send_video_h264(rtc_peer_t *peer,
     return RTC_ERR_INVALID_STATE;
   }
 
-  vr = rtc_rtp_encode_video_h264(&peer->rtp, payload, payload_len, timestamp90k,
-                                 marker, &packet);
+  vr = rtc_rtp_count_video_h264_packets(payload, payload_len, &packet_count);
   if (vr != RTC_OK) {
     return vr;
   }
 
-  vr = rtc_srtp_protect(&peer->srtp, &packet);
-  if (vr != RTC_OK) {
-    peer->stats.protocol_error_count++;
-    return vr;
+  tx_depth = rtc_transport_tx_depth(&peer->transport);
+  if (tx_depth >= RTC_CFG_RTP_RX_QUEUE) {
+    tx_available = 0u;
+  } else {
+    tx_available = (uint16_t)(RTC_CFG_RTP_RX_QUEUE - tx_depth);
   }
-
-  vr = rtc_transport_enqueue_tx(&peer->transport, &packet);
-  if (vr != RTC_OK) {
+  if (packet_count > tx_available) {
     peer->stats.dropped_packets++;
-    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, vr, "tx queue full");
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_OVERFLOW,
+                 "h264 tx fragment capacity insufficient");
     rtc_update_queue_stats(peer);
+    return RTC_ERR_OVERFLOW;
+  }
+
+  memset(&send_ctx, 0, sizeof(send_ctx));
+  send_ctx.peer = peer;
+  vr = rtc_rtp_packetize_video_h264(&peer->rtp, payload, payload_len, timestamp90k,
+                                    marker, rtc_session_video_tx_packet_cb,
+                                    &send_ctx, &packet_count);
+  if (vr != RTC_OK) {
     return vr;
   }
 
