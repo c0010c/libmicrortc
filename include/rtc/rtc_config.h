@@ -98,8 +98,36 @@
 #error "RTC_CFG_RTX_CACHE must be >= 1"
 #endif
 
+#if RTC_CFG_RTP_RX_QUEUE == 0
+#error "RTC_CFG_RTP_RX_QUEUE must be >= 1"
+#endif
+
+#if RTC_CFG_RTCP_FB_QUEUE == 0
+#error "RTC_CFG_RTCP_FB_QUEUE must be >= 1"
+#endif
+
+#if RTC_CFG_DTLS_MAILBOX_CAP == 0
+#error "RTC_CFG_DTLS_MAILBOX_CAP must be >= 1"
+#endif
+
+#if RTC_CFG_MAX_REMOTE_CANDIDATES == 0
+#error "RTC_CFG_MAX_REMOTE_CANDIDATES must be >= 1"
+#endif
+
 #if RTC_CFG_MAX_CANDIDATE_PAIRS < RTC_CFG_MAX_LOCAL_CANDIDATES
 #error "RTC_CFG_MAX_CANDIDATE_PAIRS should be >= RTC_CFG_MAX_LOCAL_CANDIDATES"
+#endif
+
+#if RTC_CFG_MAX_CANDIDATE_PAIRS < RTC_CFG_MAX_REMOTE_CANDIDATES
+#error "RTC_CFG_MAX_CANDIDATE_PAIRS should be >= RTC_CFG_MAX_REMOTE_CANDIDATES"
+#endif
+
+#if RTC_CFG_MTU <= RTC_CFG_RTP_HEADER_LEN
+#error "RTC_CFG_MTU must be larger than RTC_CFG_RTP_HEADER_LEN"
+#endif
+
+#if RTC_CFG_DTLS_MAX_DATAGRAM < RTC_CFG_MTU
+#error "RTC_CFG_DTLS_MAX_DATAGRAM should be >= RTC_CFG_MTU"
 #endif
 
 #endif  // RTC_CONFIG_H_

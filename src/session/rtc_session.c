@@ -84,20 +84,100 @@ static int rtc_find_peer(const rtc_peer_t *peer, rtc_engine_t **out_engine,
 static void rtc_log_engine(const rtc_engine_t *engine, rtc_log_level_t level,
                            const char *module, uint32_t peer_id, rtc_result_t code,
                            const char *message) {
+  char formatted[224];
+  const char *final_message = message;
+
   if (!engine) {
     return;
   }
-  rtc_platform_log(&engine->log_sink, level, module, peer_id, code, message);
+  if (level <= RTC_LOG_WARN && message && strncmp(message, "evt=", 4u) != 0) {
+    (void)snprintf(formatted, sizeof(formatted), "evt=legacy state=engine msg=%s",
+                   message);
+    final_message = formatted;
+  }
+  rtc_platform_log(&engine->log_sink, level, module, peer_id, code,
+                   final_message);
+}
+
+static const char *rtc_peer_state_to_text(rtc_peer_state_t state) {
+  switch (state) {
+    case RTC_PEER_STATE_NEW:
+      return "new";
+    case RTC_PEER_STATE_STARTING:
+      return "starting";
+    case RTC_PEER_STATE_ICE_CHECKING:
+      return "ice_checking";
+    case RTC_PEER_STATE_DTLS_HANDSHAKE:
+      return "dtls_handshake";
+    case RTC_PEER_STATE_CONNECTED:
+      return "connected";
+    case RTC_PEER_STATE_STOPPED:
+      return "stopped";
+    case RTC_PEER_STATE_FAILED:
+      return "failed";
+    default:
+      return "unknown";
+  }
+}
+
+static void rtc_format_event_message(char *dst, size_t cap, const char *event,
+                                     const char *state, const char *details) {
+  if (!dst || cap == 0u || !event || !state) {
+    return;
+  }
+  if (details && details[0] != '\0') {
+    (void)snprintf(dst, cap, "evt=%s state=%s %s", event, state, details);
+  } else {
+    (void)snprintf(dst, cap, "evt=%s state=%s", event, state);
+  }
 }
 
 static void rtc_log_peer(const rtc_peer_t *peer, rtc_log_level_t level,
                          const char *module, rtc_result_t code,
                          const char *message) {
+  char formatted[240];
+  const char *final_message = message;
+
   if (!peer || !peer->engine) {
     return;
   }
+  if (level <= RTC_LOG_WARN && message && strncmp(message, "evt=", 4u) != 0) {
+    (void)snprintf(formatted, sizeof(formatted), "evt=legacy state=%s msg=%s",
+                   rtc_peer_state_to_text(peer->state), message);
+    final_message = formatted;
+  }
   rtc_platform_log(&peer->engine->log_sink, level, module, peer->peer_id, code,
-                   message);
+                   final_message);
+}
+
+static void rtc_log_engine_event(const rtc_engine_t *engine, rtc_log_level_t level,
+                                 const char *module, rtc_result_t code,
+                                 const char *event, const char *details) {
+  char message[224];
+  if (!engine || !event) {
+    return;
+  }
+  rtc_format_event_message(message, sizeof(message), event, "engine", details);
+  rtc_log_engine(engine, level, module, 0u, code, message);
+}
+
+static void rtc_log_peer_event(const rtc_peer_t *peer, rtc_log_level_t level,
+                               const char *module, rtc_result_t code,
+                               const char *event, const char *details) {
+  char message[240];
+  if (!peer || !event) {
+    return;
+  }
+  rtc_format_event_message(message, sizeof(message), event,
+                           rtc_peer_state_to_text(peer->state), details);
+  rtc_log_peer(peer, level, module, code, message);
+}
+
+static void rtc_stats_record_overflow(rtc_peer_t *peer) {
+  if (!peer) {
+    return;
+  }
+  peer->stats.queue_overflow_count++;
 }
 
 static void rtc_update_queue_stats(rtc_peer_t *peer) {
@@ -110,6 +190,22 @@ static void rtc_update_queue_stats(rtc_peer_t *peer) {
   peer->stats.rtp_rx_queue_depth = rtc_transport_rx_depth(&peer->transport);
   peer->stats.rtp_rx_queue_high_watermark =
       rtc_transport_rx_high_watermark(&peer->transport);
+  peer->stats.stun_rx_queue_depth = rtc_transport_stun_depth(&peer->transport);
+  peer->stats.stun_rx_queue_high_watermark =
+      rtc_transport_stun_high_watermark(&peer->transport);
+  peer->stats.dtls_rx_queue_depth = rtc_transport_dtls_depth(&peer->transport);
+  peer->stats.dtls_rx_queue_high_watermark =
+      rtc_transport_dtls_high_watermark(&peer->transport);
+  peer->stats.ice_stun_tx_queue_depth = rtc_ice_stun_out_depth(&peer->ice);
+  peer->stats.ice_stun_tx_queue_high_watermark =
+      rtc_ice_stun_out_high_watermark(&peer->ice);
+  peer->stats.transport_rx_drop_pkts = rtc_transport_rx_drop_count(&peer->transport);
+  peer->stats.transport_stun_drop_pkts =
+      rtc_transport_stun_drop_count(&peer->transport);
+  peer->stats.transport_dtls_drop_pkts =
+      rtc_transport_dtls_drop_count(&peer->transport);
+  peer->stats.transport_io_error_count =
+      rtc_transport_io_error_count(&peer->transport);
 }
 
 static void rtc_update_ice_stats(rtc_peer_t *peer) {
@@ -166,6 +262,9 @@ static rtc_result_t rtc_session_video_tx_packet_cb(rtc_rtp_packet_t *packet,
   r = rtc_transport_enqueue_tx(&ctx->peer->transport, packet);
   if (r != RTC_OK) {
     ctx->peer->stats.dropped_packets++;
+    if (r == RTC_ERR_OVERFLOW) {
+      rtc_stats_record_overflow(ctx->peer);
+    }
     rtc_log_peer(ctx->peer, RTC_LOG_WARN, RTC_MODULE_RTP, r, "tx queue full");
     rtc_update_queue_stats(ctx->peer);
     return r;
@@ -294,6 +393,9 @@ static void rtc_peer_retransmit_nack_seq(rtc_peer_t *peer, uint8_t pt, uint8_t f
   if (r != RTC_OK) {
     uint32_t queue_full_count;
     peer->stats.dropped_packets++;
+    if (r == RTC_ERR_OVERFLOW) {
+      rtc_stats_record_overflow(peer);
+    }
     queue_full_count = ++peer->rtcp_nack_queue_full_count;
     if (rtc_should_log_rate_limited(queue_full_count)) {
       rtc_log_rtcp_event(peer, RTC_LOG_WARN, r, pt, fmt, media_ssrc, seq,
@@ -362,6 +464,7 @@ static void rtc_peer_handle_rtcp_packet(rtc_peer_t *peer,
       }
       if (event.nack_truncated) {
         peer->stats.dropped_packets++;
+        rtc_stats_record_overflow(peer);
         rtc_log_rtcp_event(peer, RTC_LOG_WARN, RTC_ERR_OVERFLOW, event.pt,
                            event.fmt, event.media_ssrc, 0u,
                            "nack list truncated by local bound");
@@ -481,10 +584,45 @@ static int rtc_is_resource_error(rtc_result_t r) {
   return r == RTC_ERR_RESOURCE_EXHAUSTED || r == RTC_ERR_OVERFLOW;
 }
 
+static const char *rtc_state_reason_to_event(const char *reason) {
+  if (!reason) {
+    return NULL;
+  }
+  if (strcmp(reason, "peer start") == 0) {
+    return "peer_start";
+  }
+  if (strcmp(reason, "ice checking") == 0) {
+    return "ice_checking";
+  }
+  if (strcmp(reason, "dtls handshake") == 0) {
+    return "dtls_handshake";
+  }
+  if (strcmp(reason, "media connected") == 0) {
+    return "media_connected";
+  }
+  if (strcmp(reason, "dtls failed") == 0) {
+    return "dtls_failed";
+  }
+  if (strcmp(reason, "ice timeout") == 0) {
+    return "ice_timeout";
+  }
+  if (strcmp(reason, "ice protocol failure") == 0) {
+    return "ice_protocol_failure";
+  }
+  if (strcmp(reason, "ice resource exhausted") == 0) {
+    return "ice_resource_exhausted";
+  }
+  if (strcmp(reason, "peer stop") == 0) {
+    return "peer_stop";
+  }
+  return NULL;
+}
+
 static void rtc_peer_set_state(rtc_peer_t *peer, rtc_peer_state_t next,
                                rtc_result_t code, const char *reason,
                                rtc_log_level_t level) {
   rtc_peer_state_t old_state;
+  const char *event;
   if (!peer) {
     return;
   }
@@ -493,7 +631,12 @@ static void rtc_peer_set_state(rtc_peer_t *peer, rtc_peer_state_t next,
     return;
   }
   peer->state = next;
-  rtc_log_peer(peer, level, RTC_MODULE_PEER, code, reason);
+  event = rtc_state_reason_to_event(reason);
+  if (event) {
+    rtc_log_peer_event(peer, level, RTC_MODULE_PEER, code, event, NULL);
+  } else {
+    rtc_log_peer(peer, level, RTC_MODULE_PEER, code, reason);
+  }
   if (peer->config.on_state_change) {
     peer->config.on_state_change(peer, old_state, next, peer->config.user_data);
   }
@@ -568,6 +711,7 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
     peer->stats.dropped_packets += dropped;
   }
   if (rx_dropped > 0u) {
+    rtc_stats_record_overflow(peer);
     rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_OVERFLOW,
                  "rx queue full, drop packet");
   }
@@ -615,6 +759,7 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
                      "h264 fu chain interrupted");
       }
       if (peer->rtp.rx_h264_reassembly_overflows > reassembly_overflow_before) {
+        rtc_stats_record_overflow(peer);
         rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_OVERFLOW,
                      "h264 reassembly overflow");
       }
@@ -627,6 +772,9 @@ static void rtc_peer_dispatch_incoming(rtc_peer_t *peer, uint16_t max_packets) {
       continue;
     }
     if (r != RTC_OK) {
+      if (r == RTC_ERR_OVERFLOW) {
+        rtc_stats_record_overflow(peer);
+      }
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_ERROR, RTC_MODULE_RTP, r, "rtp decode failed");
       continue;
@@ -703,6 +851,9 @@ static int rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms,
                                      stun_pkt.src_addr.port, stun_pkt.data,
                                      stun_pkt.len, now_ms);
     if (r != RTC_OK) {
+      if (r == RTC_ERR_OVERFLOW) {
+        rtc_stats_record_overflow(peer);
+      }
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
                    "stun packet validation/handling failed");
@@ -736,6 +887,9 @@ static int rtc_peer_drive_ice_transport_io(rtc_peer_t *peer, uint32_t now_ms,
       break;
     }
     if (r != RTC_OK) {
+      if (r == RTC_ERR_OVERFLOW) {
+        rtc_stats_record_overflow(peer);
+      }
       peer->stats.protocol_error_count++;
       rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_ICE, r,
                    "dequeue stun tx failed");
@@ -938,6 +1092,7 @@ static void rtc_peer_poll_state_machine(rtc_peer_t *peer, uint32_t now_ms) {
       }
       r = rtc_dtls_feed_incoming(&peer->dtls, dtls_pkt.data, dtls_pkt.len);
       if (r == RTC_ERR_OVERFLOW) {
+        rtc_stats_record_overflow(peer);
         peer->stats.protocol_error_count++;
         rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_DTLS, r,
                      "dtls inbox full, drop packet");
@@ -1111,8 +1266,8 @@ rtc_result_t rtc_session_engine_create(const rtc_engine_config_t *config,
   }
 
   *out_engine = engine;
-  rtc_log_engine(engine, RTC_LOG_INFO, RTC_MODULE_ENGINE, 0, RTC_OK,
-                 "engine created");
+  rtc_log_engine_event(engine, RTC_LOG_INFO, RTC_MODULE_ENGINE, RTC_OK,
+                       "engine_created", NULL);
   return RTC_OK;
 }
 
@@ -1136,8 +1291,8 @@ rtc_result_t rtc_session_engine_destroy(rtc_engine_t *engine) {
     }
   }
 
-  rtc_log_engine(engine, RTC_LOG_INFO, RTC_MODULE_ENGINE, 0, RTC_OK,
-                 "engine destroyed");
+  rtc_log_engine_event(engine, RTC_LOG_INFO, RTC_MODULE_ENGINE, RTC_OK,
+                       "engine_destroyed", NULL);
   memset(&g_engine_pool[engine_idx], 0, sizeof(g_engine_pool[engine_idx]));
   return RTC_OK;
 }
@@ -1298,7 +1453,8 @@ rtc_result_t rtc_session_peer_create(rtc_engine_t *engine,
   }
 
   *out_peer = peer;
-  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_PEER, RTC_OK, "peer created");
+  rtc_log_peer_event(peer, RTC_LOG_INFO, RTC_MODULE_PEER, RTC_OK,
+                     "peer_created", NULL);
   return RTC_OK;
 }
 
@@ -1319,7 +1475,8 @@ rtc_result_t rtc_session_peer_destroy(rtc_peer_t *peer) {
     return RTC_OK;
   }
 
-  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_PEER, RTC_OK, "peer destroyed");
+  rtc_log_peer_event(peer, RTC_LOG_INFO, RTC_MODULE_PEER, RTC_OK,
+                     "peer_destroyed", NULL);
   rtc_transport_deinit(&peer->transport);
   rtc_srtp_deinit(&peer->srtp);
   rtc_dtls_deinit(&peer->dtls);
@@ -1425,6 +1582,40 @@ rtc_result_t rtc_session_peer_get_stats(const rtc_peer_t *peer,
     return RTC_ERR_INVALID_STATE;
   }
   *out_stats = peer->stats;
+  out_stats->rtp_tx_queue_depth = rtc_transport_tx_depth(&peer->transport);
+  out_stats->rtp_tx_queue_high_watermark =
+      rtc_transport_tx_high_watermark(&peer->transport);
+  out_stats->rtp_rx_queue_depth = rtc_transport_rx_depth(&peer->transport);
+  out_stats->rtp_rx_queue_high_watermark =
+      rtc_transport_rx_high_watermark(&peer->transport);
+  out_stats->stun_rx_queue_depth = rtc_transport_stun_depth(&peer->transport);
+  out_stats->stun_rx_queue_high_watermark =
+      rtc_transport_stun_high_watermark(&peer->transport);
+  out_stats->dtls_rx_queue_depth = rtc_transport_dtls_depth(&peer->transport);
+  out_stats->dtls_rx_queue_high_watermark =
+      rtc_transport_dtls_high_watermark(&peer->transport);
+  out_stats->ice_stun_tx_queue_depth = rtc_ice_stun_out_depth(&peer->ice);
+  out_stats->ice_stun_tx_queue_high_watermark =
+      rtc_ice_stun_out_high_watermark(&peer->ice);
+  out_stats->transport_rx_drop_pkts =
+      rtc_transport_rx_drop_count(&peer->transport);
+  out_stats->transport_stun_drop_pkts =
+      rtc_transport_stun_drop_count(&peer->transport);
+  out_stats->transport_dtls_drop_pkts =
+      rtc_transport_dtls_drop_count(&peer->transport);
+  out_stats->transport_io_error_count =
+      rtc_transport_io_error_count(&peer->transport);
+  out_stats->local_candidate_count = peer->ice.local_candidate_count;
+  out_stats->remote_candidate_count = peer->ice.remote_candidate_count;
+  out_stats->ice_checks_sent = peer->ice.checks_sent;
+  out_stats->ice_checks_ok = peer->ice.checks_ok;
+  out_stats->ice_checks_failed = peer->ice.checks_failed;
+  out_stats->ice_checks_drop = peer->ice.checks_drop;
+  out_stats->dtls_state = (uint8_t)peer->dtls.state;
+  out_stats->srtp_active =
+      (uint8_t)(peer->srtp.state == RTC_SRTP_STATE_ACTIVE ? 1u : 0u);
+  out_stats->dtls_rx_pkts = rtc_transport_dtls_rx_count(&peer->transport);
+  out_stats->dtls_tx_pkts = rtc_transport_dtls_tx_count(&peer->transport);
   return RTC_OK;
 }
 
@@ -1512,8 +1703,8 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
                "remote offer parsed");
   rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
                "answer generated");
-  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
-               "remote description set");
+  rtc_log_peer_event(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
+                     "remote_description_set", NULL);
   return RTC_OK;
 }
 
@@ -1553,8 +1744,8 @@ rtc_result_t rtc_session_peer_add_remote_candidate(rtc_peer_t *peer,
                "transport remote updated");
 
   peer->stats.remote_candidate_count = peer->ice.remote_candidate_count;
-  rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
-               "remote candidate added");
+  rtc_log_peer_event(peer, RTC_LOG_INFO, RTC_MODULE_ICE, RTC_OK,
+                     "remote_candidate_added", NULL);
   return RTC_OK;
 }
 
@@ -1593,6 +1784,7 @@ rtc_result_t rtc_session_peer_send_video_h264(rtc_peer_t *peer,
   }
   if (packet_count > tx_available) {
     peer->stats.dropped_packets++;
+    rtc_stats_record_overflow(peer);
     rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_ERR_OVERFLOW,
                  "h264 tx fragment capacity insufficient");
     rtc_update_queue_stats(peer);
@@ -1605,6 +1797,9 @@ rtc_result_t rtc_session_peer_send_video_h264(rtc_peer_t *peer,
                                     marker, rtc_session_video_tx_packet_cb,
                                     &send_ctx, &packet_count);
   if (vr != RTC_OK) {
+    if (vr == RTC_ERR_OVERFLOW) {
+      rtc_stats_record_overflow(peer);
+    }
     return vr;
   }
 
@@ -1647,6 +1842,9 @@ rtc_result_t rtc_session_peer_send_audio_g711(rtc_peer_t *peer,
   vr = rtc_transport_enqueue_tx(&peer->transport, &packet);
   if (vr != RTC_OK) {
     peer->stats.dropped_packets++;
+    if (vr == RTC_ERR_OVERFLOW) {
+      rtc_stats_record_overflow(peer);
+    }
     rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, vr, "tx queue full");
     rtc_update_queue_stats(peer);
     return vr;

@@ -82,6 +82,34 @@ static void build_test_dtls_packet(uint8_t *buf, uint16_t *out_len, uint8_t mark
   *out_len = 20u;
 }
 
+static void build_test_stun_packet(uint8_t *buf, uint16_t *out_len, uint8_t marker) {
+  if (!buf || !out_len) {
+    return;
+  }
+  memset(buf, 0, 20u);
+  buf[0] = 0x00u;
+  buf[1] = 0x01u;
+  buf[2] = 0x00u;
+  buf[3] = 0x00u;
+  buf[4] = 0x21u;
+  buf[5] = 0x12u;
+  buf[6] = 0xA4u;
+  buf[7] = 0x42u;
+  buf[8] = marker;
+  buf[9] = marker;
+  buf[10] = marker;
+  buf[11] = marker;
+  buf[12] = marker;
+  buf[13] = marker;
+  buf[14] = marker;
+  buf[15] = marker;
+  buf[16] = marker;
+  buf[17] = marker;
+  buf[18] = marker;
+  buf[19] = marker;
+  *out_len = 20u;
+}
+
 static int test_udp_loopback_io(void) {
   rtc_transport_ctx_t ctx;
   rtc_rtp_packet_t packet;
@@ -354,8 +382,90 @@ static int test_dtls_queue_overflow_is_bounded(void) {
     ASSERT_TRUE(dropped > 0u);
   }
   ASSERT_TRUE(rtc_transport_dtls_drop_count(&ctx) > drop_before);
+  ASSERT_TRUE(rtc_transport_dtls_depth(&ctx) <= RTC_CFG_DTLS_MAILBOX_CAP);
+  ASSERT_TRUE(rtc_transport_dtls_high_watermark(&ctx) <= RTC_CFG_DTLS_MAILBOX_CAP);
 
   rtc_platform_udp_close(&sender_fd);
+  rtc_transport_deinit(&ctx);
+  return 0;
+}
+
+static int test_stun_queue_overflow_is_bounded(void) {
+  rtc_transport_ctx_t ctx;
+  rtc_platform_net_addr_t dst;
+  int sender_fd = RTC_PLATFORM_INVALID_SOCKET;
+  uint8_t stun[RTC_CFG_MTU];
+  uint16_t stun_len = 0u;
+  rtc_transport_stun_packet_t out_stun;
+  uint32_t drop_before;
+  uint16_t i;
+
+  memset(&ctx, 0, sizeof(ctx));
+  memset(&dst, 0, sizeof(dst));
+  memset(&out_stun, 0, sizeof(out_stun));
+  rtc_transport_init(&ctx);
+  rtc_transport_set_loopback_mirror(&ctx, 0u);
+
+  ASSERT_TRUE(rtc_transport_local_port(&ctx) > 0u);
+  ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_create_nonblock(&sender_fd));
+
+  dst.family = RTC_PLATFORM_IP_FAMILY_IPV4;
+  dst.port = rtc_transport_local_port(&ctx);
+  dst.addr[0] = 127u;
+  dst.addr[1] = 0u;
+  dst.addr[2] = 0u;
+  dst.addr[3] = 1u;
+  drop_before = rtc_transport_stun_drop_count(&ctx);
+
+  for (i = 0u; i < (uint16_t)(RTC_CFG_RTCP_FB_QUEUE + 6u); ++i) {
+    uint16_t sent_len = 0u;
+    build_test_stun_packet(stun, &stun_len, (uint8_t)i);
+    ASSERT_EQ_INT(RTC_OK, rtc_platform_udp_sendto(sender_fd, &dst, stun, stun_len, &sent_len));
+    ASSERT_EQ_INT(stun_len, sent_len);
+  }
+
+  {
+    uint16_t sent = 0u;
+    uint16_t recv = 0u;
+    uint32_t dropped = 0u;
+    ASSERT_EQ_INT(RTC_OK,
+                  rtc_transport_pump_io(&ctx, (uint16_t)(RTC_CFG_RTCP_FB_QUEUE + 8u),
+                                        &sent, &recv, &dropped));
+    ASSERT_TRUE(dropped > 0u);
+  }
+
+  ASSERT_TRUE(rtc_transport_stun_drop_count(&ctx) > drop_before);
+  ASSERT_TRUE(rtc_transport_stun_depth(&ctx) <= RTC_CFG_RTCP_FB_QUEUE);
+  ASSERT_TRUE(rtc_transport_stun_high_watermark(&ctx) <= RTC_CFG_RTCP_FB_QUEUE);
+  ASSERT_EQ_INT(RTC_OK, rtc_transport_dequeue_stun(&ctx, &out_stun));
+  ASSERT_EQ_INT(stun_len, out_stun.len);
+
+  rtc_platform_udp_close(&sender_fd);
+  rtc_transport_deinit(&ctx);
+  return 0;
+}
+
+static int test_transport_io_error_aggregate_counter(void) {
+  rtc_transport_ctx_t ctx;
+  rtc_rtp_packet_t packet;
+  uint32_t io_errors_before;
+  uint16_t sent = 0u;
+  uint16_t recv = 0u;
+  uint32_t dropped = 0u;
+
+  memset(&ctx, 0, sizeof(ctx));
+  memset(&packet, 0, sizeof(packet));
+  rtc_transport_init(&ctx);
+  rtc_transport_set_loopback_mirror(&ctx, 0u);
+
+  build_test_packet(&packet, 999u, 0x7Fu);
+  io_errors_before = rtc_transport_io_error_count(&ctx);
+  ASSERT_EQ_INT(RTC_OK, rtc_transport_enqueue_tx(&ctx, &packet));
+  ASSERT_EQ_INT(RTC_ERR_INVALID_STATE,
+                rtc_transport_pump_io(&ctx, 1u, &sent, &recv, &dropped));
+  ASSERT_TRUE(dropped >= 1u);
+  ASSERT_TRUE(rtc_transport_io_error_count(&ctx) > io_errors_before);
+
   rtc_transport_deinit(&ctx);
   return 0;
 }
@@ -369,6 +479,8 @@ int main(void) {
   failures += test_recv_budget_consumes_invalid_packets();
   failures += test_dtls_demux_to_dtls_queue();
   failures += test_dtls_queue_overflow_is_bounded();
+  failures += test_stun_queue_overflow_is_bounded();
+  failures += test_transport_io_error_aggregate_counter();
 
   if (failures != 0) {
     printf("transport test failures: %d\n", failures);

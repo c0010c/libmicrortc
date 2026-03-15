@@ -110,6 +110,7 @@ uint16_t rtc_transport_dtls_high_watermark(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_rx_drop_count(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_stun_drop_count(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_dtls_drop_count(const rtc_transport_ctx_t *ctx);
+uint32_t rtc_transport_io_error_count(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_dtls_rx_count(const rtc_transport_ctx_t *ctx);
 uint32_t rtc_transport_dtls_tx_count(const rtc_transport_ctx_t *ctx);
 

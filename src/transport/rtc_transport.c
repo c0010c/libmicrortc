@@ -544,6 +544,21 @@ uint32_t rtc_transport_dtls_drop_count(const rtc_transport_ctx_t *ctx) {
   return ctx ? ctx->io_dtls_rx_drop_packets : 0u;
 }
 
+uint32_t rtc_transport_io_error_count(const rtc_transport_ctx_t *ctx) {
+  uint32_t total;
+  if (!ctx) {
+    return 0u;
+  }
+  total = 0u;
+  total += ctx->io_tx_error_count;
+  total += ctx->io_rx_error_count;
+  total += ctx->io_stun_rx_error_count;
+  total += ctx->io_stun_tx_error_count;
+  total += ctx->io_dtls_rx_error_count;
+  total += ctx->io_dtls_tx_error_count;
+  return total;
+}
+
 uint32_t rtc_transport_dtls_rx_count(const rtc_transport_ctx_t *ctx) {
   return ctx ? ctx->io_dtls_rx_packets : 0u;
 }

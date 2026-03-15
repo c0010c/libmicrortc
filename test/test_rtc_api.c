@@ -100,6 +100,17 @@ static int test_str_contains(const char *text, const char *needle) {
   return strstr(text, needle) != NULL;
 }
 
+static int test_log_event_matches(const char *message, const char *evt) {
+  char expected[64];
+  if (!message || !evt) {
+    return 0;
+  }
+  if (snprintf(expected, sizeof(expected), "evt=%s", evt) <= 0) {
+    return 0;
+  }
+  return test_str_contains(message, expected) && test_str_contains(message, "state=");
+}
+
 static void test_write_u16be(uint8_t *dst, uint16_t value) {
   if (!dst) {
     return;
@@ -158,40 +169,51 @@ static void test_log_cb(rtc_log_level_t level, const char *module, uint32_t peer
   }
 
   if (level == RTC_LOG_INFO) {
-    if (test_str_eq(module, "session.engine") && test_str_eq(message, "engine created")) {
+    if (test_str_eq(module, "session.engine") &&
+        test_log_event_matches(message, "engine_created")) {
       cap->seen_engine_created++;
-    } else if (test_str_eq(module, "session.engine") && test_str_eq(message, "engine destroyed")) {
+    } else if (test_str_eq(module, "session.engine") &&
+               test_log_event_matches(message, "engine_destroyed")) {
       cap->seen_engine_destroyed++;
-    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "peer created")) {
+    } else if (test_str_eq(module, "session.peer") &&
+               test_log_event_matches(message, "peer_created")) {
       cap->seen_peer_created++;
-    } else if (test_str_eq(module, "ice") && test_str_eq(message, "remote description set")) {
+    } else if (test_str_eq(module, "ice") &&
+               test_log_event_matches(message, "remote_description_set")) {
       cap->seen_remote_description_set++;
-    } else if (test_str_eq(module, "ice") && test_str_eq(message, "remote candidate added")) {
+    } else if (test_str_eq(module, "ice") &&
+               test_log_event_matches(message, "remote_candidate_added")) {
       cap->seen_remote_candidate_added++;
-    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "peer start")) {
+    } else if (test_str_eq(module, "session.peer") &&
+               test_log_event_matches(message, "peer_start")) {
       cap->seen_peer_start++;
-    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "ice checking")) {
+    } else if (test_str_eq(module, "session.peer") &&
+               test_log_event_matches(message, "ice_checking")) {
       cap->seen_ice_checking++;
-    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "dtls handshake")) {
+    } else if (test_str_eq(module, "session.peer") &&
+               test_log_event_matches(message, "dtls_handshake")) {
       cap->seen_dtls_handshake++;
-    } else if (test_str_eq(module, "session.peer") && test_str_eq(message, "media connected")) {
+    } else if (test_str_eq(module, "session.peer") &&
+               test_log_event_matches(message, "media_connected")) {
       cap->seen_media_connected++;
     }
   } else if (level == RTC_LOG_ERROR) {
-    if (test_str_eq(module, "session.peer") && test_str_eq(message, "dtls failed") &&
+    if (test_str_eq(module, "session.peer") &&
+        test_log_event_matches(message, "dtls_failed") &&
         code == RTC_ERR_DTLS_HANDSHAKE_FAILED) {
       cap->seen_dtls_failed++;
     } else if (test_str_eq(module, "session.peer") &&
-               test_str_eq(message, "ice protocol failure") &&
+               test_log_event_matches(message, "ice_protocol_failure") &&
                code == RTC_ERR_PROTOCOL) {
       cap->seen_ice_protocol_failed++;
     } else if (test_str_eq(module, "session.peer") &&
-               test_str_eq(message, "ice resource exhausted") &&
+               test_log_event_matches(message, "ice_resource_exhausted") &&
                code == RTC_ERR_RESOURCE_EXHAUSTED) {
       cap->seen_ice_resource_failed++;
     }
   } else if (level == RTC_LOG_WARN) {
-    if (test_str_eq(module, "session.peer") && test_str_eq(message, "ice timeout") &&
+    if (test_str_eq(module, "session.peer") &&
+        test_log_event_matches(message, "ice_timeout") &&
         code == RTC_ERR_TIMEOUT) {
       cap->seen_ice_timeout_failed++;
     }
@@ -1196,6 +1218,12 @@ static int test_lifecycle_and_connection(void) {
   ASSERT_TRUE(peer_stats.dtls_handshake_elapsed_ms > 0);
   ASSERT_TRUE(peer_stats.dtls_rx_pkts > 0u);
   ASSERT_TRUE(peer_stats.dtls_tx_pkts > 0u);
+  ASSERT_TRUE(peer_stats.stun_rx_queue_depth <= RTC_CFG_RTCP_FB_QUEUE);
+  ASSERT_TRUE(peer_stats.stun_rx_queue_high_watermark <= RTC_CFG_RTCP_FB_QUEUE);
+  ASSERT_TRUE(peer_stats.dtls_rx_queue_depth <= RTC_CFG_DTLS_MAILBOX_CAP);
+  ASSERT_TRUE(peer_stats.dtls_rx_queue_high_watermark <= RTC_CFG_DTLS_MAILBOX_CAP);
+  ASSERT_TRUE(peer_stats.ice_stun_tx_queue_depth <= RTC_CFG_RTCP_FB_QUEUE);
+  ASSERT_TRUE(peer_stats.ice_stun_tx_queue_high_watermark <= RTC_CFG_RTCP_FB_QUEUE);
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_get_stats(engine, &engine_stats));
   ASSERT_TRUE(engine_stats.poll_count >= 1);
@@ -2283,6 +2311,7 @@ static int test_queue_overflow_and_datachannel_stub(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_get_stats(peer, &stats));
   ASSERT_TRUE(stats.dropped_packets >= 1);
+  ASSERT_TRUE(stats.queue_overflow_count >= 1u);
 
   ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED, rtc_peer_datachannel_open(peer, "dc", NULL));
   ASSERT_EQ_INT(RTC_ERR_NOT_SUPPORTED,

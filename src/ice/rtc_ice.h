@@ -106,6 +106,7 @@ typedef struct rtc_ice_ctx {
   uint16_t stun_out_head;
   uint16_t stun_out_tail;
   uint16_t stun_out_size;
+  uint16_t stun_out_high_watermark;
   char local_sdp[RTC_CFG_MAX_SDP_LEN];
   char local_ice_ufrag[32];
   char local_ice_pwd[64];
@@ -144,5 +145,7 @@ rtc_result_t rtc_ice_dequeue_outgoing_stun(rtc_ice_ctx_t *ctx, uint8_t out_ip[4]
                                            uint16_t *io_len);
 rtc_result_t rtc_ice_get_selected_remote(const rtc_ice_ctx_t *ctx, uint8_t out_ip[4],
                                          uint16_t *out_port);
+uint16_t rtc_ice_stun_out_depth(const rtc_ice_ctx_t *ctx);
+uint16_t rtc_ice_stun_out_high_watermark(const rtc_ice_ctx_t *ctx);
 
 #endif  // RTC_ICE_H_

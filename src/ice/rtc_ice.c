@@ -313,6 +313,9 @@ static int rtc_ice_queue_stun_out(rtc_ice_ctx_t *ctx, const uint8_t ip[4], uint1
 
   ctx->stun_out_tail = (uint16_t)((ctx->stun_out_tail + 1u) % RTC_CFG_RTCP_FB_QUEUE);
   ctx->stun_out_size++;
+  if (ctx->stun_out_size > ctx->stun_out_high_watermark) {
+    ctx->stun_out_high_watermark = ctx->stun_out_size;
+  }
   return 1;
 }
 
@@ -698,6 +701,7 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   ctx->stun_out_head = 0u;
   ctx->stun_out_tail = 0u;
   ctx->stun_out_size = 0u;
+  ctx->stun_out_high_watermark = 0u;
   memset(ctx->stun_out_queue, 0, sizeof(ctx->stun_out_queue));
   memset(ctx->local_sdp, 0, sizeof(ctx->local_sdp));
   memset(ctx->local_candidate, 0, sizeof(ctx->local_candidate));
@@ -1514,6 +1518,7 @@ rtc_result_t rtc_ice_start(rtc_ice_ctx_t *ctx, uint32_t peer_id, uint32_t now_ms
   ctx->stun_out_head = 0u;
   ctx->stun_out_tail = 0u;
   ctx->stun_out_size = 0u;
+  ctx->stun_out_high_watermark = 0u;
   memset(ctx->stun_out_queue, 0, sizeof(ctx->stun_out_queue));
   rtc_ice_reset_connectivity_state(ctx);
   ctx->checks_sent = 0u;
@@ -1965,6 +1970,14 @@ rtc_result_t rtc_ice_get_selected_remote(const rtc_ice_ctx_t *ctx, uint8_t out_i
   memcpy(out_ip, remote->ip, 4u);
   *out_port = remote->port;
   return RTC_OK;
+}
+
+uint16_t rtc_ice_stun_out_depth(const rtc_ice_ctx_t *ctx) {
+  return ctx ? ctx->stun_out_size : 0u;
+}
+
+uint16_t rtc_ice_stun_out_high_watermark(const rtc_ice_ctx_t *ctx) {
+  return ctx ? ctx->stun_out_high_watermark : 0u;
 }
 
 void rtc_ice_tick(rtc_ice_ctx_t *ctx, uint32_t now_ms, uint16_t retry_interval_ms,

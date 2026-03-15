@@ -61,6 +61,17 @@ static int str_contains(const char *text, const char *needle) {
   return strstr(text, needle) != NULL;
 }
 
+static int interop_log_event_matches(const char *message, const char *evt) {
+  char expected[64];
+  if (!message || !evt) {
+    return 0;
+  }
+  if (snprintf(expected, sizeof(expected), "evt=%s", evt) <= 0) {
+    return 0;
+  }
+  return str_contains(message, expected) && str_contains(message, "state=");
+}
+
 static void interop_log_cb(rtc_log_level_t level, const char *module, uint32_t peer_id,
                            rtc_result_t code, const char *message, void *user_data) {
   interop_log_capture_t *cap = (interop_log_capture_t *)user_data;
@@ -72,24 +83,31 @@ static void interop_log_cb(rtc_log_level_t level, const char *module, uint32_t p
 
   if (level == RTC_LOG_INFO) {
     cap->infos++;
-    if (str_eq(module, "session.engine") && str_eq(message, "engine created")) {
+    if (str_eq(module, "session.engine") &&
+        interop_log_event_matches(message, "engine_created")) {
       cap->seen_engine_created++;
-    } else if (str_eq(module, "session.peer") && str_eq(message, "peer created")) {
+    } else if (str_eq(module, "session.peer") &&
+               interop_log_event_matches(message, "peer_created")) {
       cap->seen_peer_created++;
-    } else if (str_eq(module, "session.peer") && str_eq(message, "peer start")) {
+    } else if (str_eq(module, "session.peer") &&
+               interop_log_event_matches(message, "peer_start")) {
       cap->seen_peer_start++;
-    } else if (str_eq(module, "session.peer") && str_eq(message, "ice checking")) {
+    } else if (str_eq(module, "session.peer") &&
+               interop_log_event_matches(message, "ice_checking")) {
       cap->seen_ice_checking++;
-    } else if (str_eq(module, "session.peer") && str_eq(message, "dtls handshake")) {
+    } else if (str_eq(module, "session.peer") &&
+               interop_log_event_matches(message, "dtls_handshake")) {
       cap->seen_dtls_handshake++;
-    } else if (str_eq(module, "session.peer") && str_eq(message, "media connected")) {
+    } else if (str_eq(module, "session.peer") &&
+               interop_log_event_matches(message, "media_connected")) {
       cap->seen_media_connected++;
     }
   } else if (level == RTC_LOG_WARN) {
     cap->warns++;
   } else if (level == RTC_LOG_ERROR) {
     cap->errors++;
-    if (str_eq(module, "session.peer") && str_eq(message, "dtls failed") &&
+    if (str_eq(module, "session.peer") &&
+        interop_log_event_matches(message, "dtls_failed") &&
         code == RTC_ERR_DTLS_HANDSHAKE_FAILED) {
       cap->seen_dtls_failed++;
     }

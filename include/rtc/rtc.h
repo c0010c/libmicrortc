@@ -148,6 +148,17 @@ typedef struct rtc_peer_stats {
   uint32_t rtcp_pli_rx;
   uint32_t rtcp_nack_rx;
   uint32_t rtcp_nack_retx;
+  uint16_t stun_rx_queue_depth;
+  uint16_t stun_rx_queue_high_watermark;
+  uint16_t dtls_rx_queue_depth;
+  uint16_t dtls_rx_queue_high_watermark;
+  uint16_t ice_stun_tx_queue_depth;
+  uint16_t ice_stun_tx_queue_high_watermark;
+  uint32_t transport_rx_drop_pkts;
+  uint32_t transport_stun_drop_pkts;
+  uint32_t transport_dtls_drop_pkts;
+  uint32_t transport_io_error_count;
+  uint32_t queue_overflow_count;
 } rtc_peer_stats_t;
 
 typedef struct rtc_engine_stats {
