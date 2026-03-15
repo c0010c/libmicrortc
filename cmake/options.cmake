@@ -1,0 +1,7 @@
+option(WEBRTC_ENABLE_AUDIO "Enable audio transport path" ON)
+option(WEBRTC_ENABLE_VIDEO "Enable video transport path" ON)
+option(WEBRTC_ENABLE_DATA_CHANNEL "Enable SCTP/DataChannel transport path" ON)
+option(WEBRTC_ENABLE_TURN "Enable TURN support" OFF)
+option(WEBRTC_USE_MBEDTLS "Use MbedTLS as DTLS/TLS backend" ON)
+option(WEBRTC_PORT_POSIX "Enable POSIX/Linux port implementation" ON)
+option(WEBRTC_PORT_RTOS "Enable RTOS port implementation" OFF)
