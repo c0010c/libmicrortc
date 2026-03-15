@@ -10,10 +10,54 @@ extern "C" {
 typedef int32_t webrtc_status_t;
 
 #define WEBRTC_STATUS_OK ((webrtc_status_t) 0)
-#define WEBRTC_STATUS_INVALID_ARG ((webrtc_status_t) -1)
-#define WEBRTC_STATUS_NO_MEMORY ((webrtc_status_t) -2)
-#define WEBRTC_STATUS_INVALID_STATE ((webrtc_status_t) -3)
-#define WEBRTC_STATUS_NOT_IMPLEMENTED ((webrtc_status_t) -4)
+
+/* General status codes */
+#define WEBRTC_STATUS_GENERAL_BASE ((webrtc_status_t) 0x55000000)
+#define WEBRTC_STATUS_INVALID_ARG ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000001))
+#define WEBRTC_STATUS_NO_MEMORY ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000002))
+#define WEBRTC_STATUS_INVALID_STATE ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000003))
+#define WEBRTC_STATUS_NOT_IMPLEMENTED ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000004))
+#define WEBRTC_STATUS_NOT_SUPPORTED ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000005))
+#define WEBRTC_STATUS_GENERAL_PAL_INCOMPLETE ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000006))
+#define WEBRTC_STATUS_QUEUE_FULL ((webrtc_status_t) (WEBRTC_STATUS_GENERAL_BASE + 0x00000007))
+
+/* Configuration status codes */
+#define WEBRTC_STATUS_CONFIG_BASE ((webrtc_status_t) 0x56000000)
+#define WEBRTC_STATUS_CONFIG_INVALID ((webrtc_status_t) (WEBRTC_STATUS_CONFIG_BASE + 0x00000001))
+#define WEBRTC_STATUS_CONFIG_OUT_OF_RANGE ((webrtc_status_t) (WEBRTC_STATUS_CONFIG_BASE + 0x00000002))
+#define WEBRTC_STATUS_CONFIG_CONFLICT ((webrtc_status_t) (WEBRTC_STATUS_CONFIG_BASE + 0x00000003))
+#define WEBRTC_STATUS_CONFIG_CAPACITY_EXCEEDED ((webrtc_status_t) (WEBRTC_STATUS_CONFIG_BASE + 0x00000004))
+
+/* SDP status codes */
+#define WEBRTC_STATUS_SDP_BASE ((webrtc_status_t) 0x57000000)
+#define WEBRTC_STATUS_SDP_INVALID ((webrtc_status_t) (WEBRTC_STATUS_SDP_BASE + 0x00000001))
+#define WEBRTC_STATUS_SDP_INCOMPLETE ((webrtc_status_t) (WEBRTC_STATUS_SDP_BASE + 0x00000002))
+
+/* ICE status codes */
+#define WEBRTC_STATUS_ICE_BASE ((webrtc_status_t) 0x58000000)
+#define WEBRTC_STATUS_ICE_INVALID_CANDIDATE ((webrtc_status_t) (WEBRTC_STATUS_ICE_BASE + 0x00000001))
+#define WEBRTC_STATUS_ICE_NO_CANDIDATE_AVAILABLE ((webrtc_status_t) (WEBRTC_STATUS_ICE_BASE + 0x00000002))
+
+/* DTLS status codes */
+#define WEBRTC_STATUS_DTLS_BASE ((webrtc_status_t) 0x59000000)
+#define WEBRTC_STATUS_DTLS_HANDSHAKE_FAILED ((webrtc_status_t) (WEBRTC_STATUS_DTLS_BASE + 0x00000001))
+#define WEBRTC_STATUS_DTLS_CERT_INVALID ((webrtc_status_t) (WEBRTC_STATUS_DTLS_BASE + 0x00000002))
+
+/* SRTP status codes */
+#define WEBRTC_STATUS_SRTP_BASE ((webrtc_status_t) 0x5A000000)
+#define WEBRTC_STATUS_SRTP_NOT_READY ((webrtc_status_t) (WEBRTC_STATUS_SRTP_BASE + 0x00000001))
+#define WEBRTC_STATUS_SRTP_PROTECT_FAILED ((webrtc_status_t) (WEBRTC_STATUS_SRTP_BASE + 0x00000002))
+#define WEBRTC_STATUS_SRTP_UNPROTECT_FAILED ((webrtc_status_t) (WEBRTC_STATUS_SRTP_BASE + 0x00000003))
+
+/* RTP status codes */
+#define WEBRTC_STATUS_RTP_BASE ((webrtc_status_t) 0x5B000000)
+#define WEBRTC_STATUS_RTP_PACKET_TOO_SMALL ((webrtc_status_t) (WEBRTC_STATUS_RTP_BASE + 0x00000001))
+#define WEBRTC_STATUS_RTP_INVALID_PACKET ((webrtc_status_t) (WEBRTC_STATUS_RTP_BASE + 0x00000002))
+
+/* SCTP/DataChannel status codes */
+#define WEBRTC_STATUS_SCTP_BASE ((webrtc_status_t) 0x5C000000)
+#define WEBRTC_STATUS_SCTP_SETUP_FAILED ((webrtc_status_t) (WEBRTC_STATUS_SCTP_BASE + 0x00000001))
+#define WEBRTC_STATUS_SCTP_INVALID_DCEP ((webrtc_status_t) (WEBRTC_STATUS_SCTP_BASE + 0x00000002))
 
 #ifdef __cplusplus
 }

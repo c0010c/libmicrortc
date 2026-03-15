@@ -27,6 +27,14 @@
 - `WEBRTC_PORT_POSIX=ON`
 - `WEBRTC_PORT_RTOS=OFF`
 
+## 生命周期与所有权
+- `webrtc_init(config, pal, out_instance)` / `webrtc_deinit(instance)` 成对使用。
+- `webrtc_peer_connection_create(instance, out_pc)` / `webrtc_peer_connection_free(pc)` 成对使用。
+- `webrtc_pump_step(instance, now_ms, budget)` 由外部事件循环驱动；`budget=0` 时为 no-op 并返回 `WEBRTC_STATUS_OK`。
+- `webrtc_init` 要求调用者显式传入 `webrtc_config_t` 与 `webrtc_pal_vtable_t`，库会复制配置和 PAL 回调，不持有调用者传入对象的所有权。
+- 实例内部事件队列是固定容量（`event_queue_capacity`）；队列满时返回 `WEBRTC_STATUS_QUEUE_FULL` 进行背压。
+- 资源释放原则保持“谁创建，谁释放”。
+
 ## 最小构建入口
 使用最小构建脚本执行“配置 -> 编译 -> 测试”闭环：
 
