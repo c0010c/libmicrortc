@@ -157,6 +157,13 @@ add_executable(rtc_signal_cli
 target_include_directories(rtc_signal_cli PRIVATE include)
 target_link_libraries(rtc_signal_cli PRIVATE rtc_c)
 
+add_executable(rtc_signal_b64_cli
+    tools/rtc_signal_b64_cli.c
+)
+
+target_include_directories(rtc_signal_b64_cli PRIVATE include)
+target_link_libraries(rtc_signal_b64_cli PRIVATE rtc_c)
+
 add_test(NAME rtc_signal_cli_smoke
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rtc_signal_cli.sh
             $<TARGET_FILE:rtc_signal_cli>)
@@ -164,6 +171,10 @@ add_test(NAME rtc_signal_cli_smoke
 add_test(NAME rtc_signal_cli_long_offer
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rtc_signal_cli_long_offer.sh
             $<TARGET_FILE:rtc_signal_cli>)
+
+add_test(NAME rtc_signal_b64_cli_smoke
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rtc_signal_b64_cli.sh
+            $<TARGET_FILE:rtc_signal_b64_cli>)
 
 add_test(NAME step12_matrix_auto
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/run_step12_matrix.sh

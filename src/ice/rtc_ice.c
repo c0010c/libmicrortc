@@ -14,6 +14,10 @@
 #define RTC_MEDIA_AUDIO 1u
 #define RTC_MEDIA_VIDEO 2u
 #define RTC_MEDIA_OTHER 3u
+#define RTC_OFFER_DIR_SENDRECV 0u
+#define RTC_OFFER_DIR_SENDONLY 1u
+#define RTC_OFFER_DIR_RECVONLY 2u
+#define RTC_OFFER_DIR_INACTIVE 3u
 
 #define RTC_STUN_TYPE_BINDING_REQUEST 0x0001u
 #define RTC_STUN_TYPE_BINDING_RESPONSE 0x0101u
@@ -663,6 +667,20 @@ static int rtc_ice_set_string(char *dst, uint16_t cap, const char *src) {
   return rtc_platform_copy_string(dst, cap, src);
 }
 
+static const char *rtc_ice_answer_direction_from_offer(uint8_t offer_direction) {
+  switch (offer_direction) {
+    case RTC_OFFER_DIR_SENDONLY:
+      return "a=recvonly";
+    case RTC_OFFER_DIR_RECVONLY:
+      return "a=sendonly";
+    case RTC_OFFER_DIR_INACTIVE:
+      return "a=inactive";
+    case RTC_OFFER_DIR_SENDRECV:
+    default:
+      return "a=sendrecv";
+  }
+}
+
 static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
   if (!ctx) {
     return;
@@ -676,6 +694,8 @@ static void rtc_ice_reset_offer_fields(rtc_ice_ctx_t *ctx) {
 
   ctx->audio_offer_present = 0u;
   ctx->video_offer_present = 0u;
+  ctx->audio_offer_direction = RTC_OFFER_DIR_SENDRECV;
+  ctx->video_offer_direction = RTC_OFFER_DIR_SENDRECV;
   ctx->audio_accepted = 0u;
   ctx->video_accepted = 0u;
   ctx->audio_rtcp_mux = 0u;
@@ -1080,6 +1100,7 @@ static rtc_result_t rtc_ice_build_answer(rtc_ice_ctx_t *ctx) {
     const char *mid = NULL;
 
     if (media_kind == RTC_MEDIA_AUDIO) {
+      const char *dir_line = rtc_ice_answer_direction_from_offer(ctx->audio_offer_direction);
       accepted = ctx->audio_accepted;
       selected_pt = ctx->audio_selected_pt;
       fallback_pt = ctx->audio_first_pt;
@@ -1136,6 +1157,11 @@ static rtc_result_t rtc_ice_build_answer(rtc_ice_ctx_t *ctx) {
         if (r != RTC_OK) {
           return r;
         }
+        r = rtc_ice_sdp_append(ctx->local_sdp, sizeof(ctx->local_sdp), &sdp_len,
+                               "%s", dir_line);
+        if (r != RTC_OK) {
+          return r;
+        }
         if (!candidate_written) {
           r = rtc_ice_sdp_append(ctx->local_sdp, sizeof(ctx->local_sdp), &sdp_len,
                                  "a=%s", ctx->local_candidate);
@@ -1152,6 +1178,7 @@ static rtc_result_t rtc_ice_build_answer(rtc_ice_ctx_t *ctx) {
         }
       }
     } else if (media_kind == RTC_MEDIA_VIDEO) {
+      const char *dir_line = rtc_ice_answer_direction_from_offer(ctx->video_offer_direction);
       accepted = ctx->video_accepted;
       selected_pt = ctx->video_selected_pt;
       fallback_pt = ctx->video_first_pt;
@@ -1209,6 +1236,11 @@ static rtc_result_t rtc_ice_build_answer(rtc_ice_ctx_t *ctx) {
           if (r != RTC_OK) {
             return r;
           }
+        }
+        r = rtc_ice_sdp_append(ctx->local_sdp, sizeof(ctx->local_sdp), &sdp_len,
+                               "%s", dir_line);
+        if (r != RTC_OK) {
+          return r;
         }
         if (!candidate_written) {
           r = rtc_ice_sdp_append(ctx->local_sdp, sizeof(ctx->local_sdp), &sdp_len,
@@ -1270,6 +1302,7 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
       if (strncmp(line + 2, "audio ", 6u) == 0) {
         current_media = RTC_MEDIA_AUDIO;
         ctx->audio_offer_present = 1u;
+        ctx->audio_offer_direction = RTC_OFFER_DIR_SENDRECV;
         rtc_ice_add_media_order(ctx, RTC_MEDIA_AUDIO);
         (void)rtc_ice_parse_m_first_pt(line + 2, &ctx->audio_first_pt);
         if (ctx->audio_mid[0] == '\0') {
@@ -1278,6 +1311,7 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
       } else if (strncmp(line + 2, "video ", 6u) == 0) {
         current_media = RTC_MEDIA_VIDEO;
         ctx->video_offer_present = 1u;
+        ctx->video_offer_direction = RTC_OFFER_DIR_SENDRECV;
         rtc_ice_add_media_order(ctx, RTC_MEDIA_VIDEO);
         (void)rtc_ice_parse_m_first_pt(line + 2, &ctx->video_first_pt);
         if (ctx->video_mid[0] == '\0') {
@@ -1386,6 +1420,30 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
               entry->packetization_mode_1 = 1u;
             }
           }
+        }
+      } else if (rtc_ascii_case_eq(attr, "sendrecv")) {
+        if (current_media == RTC_MEDIA_AUDIO) {
+          ctx->audio_offer_direction = RTC_OFFER_DIR_SENDRECV;
+        } else if (current_media == RTC_MEDIA_VIDEO) {
+          ctx->video_offer_direction = RTC_OFFER_DIR_SENDRECV;
+        }
+      } else if (rtc_ascii_case_eq(attr, "sendonly")) {
+        if (current_media == RTC_MEDIA_AUDIO) {
+          ctx->audio_offer_direction = RTC_OFFER_DIR_SENDONLY;
+        } else if (current_media == RTC_MEDIA_VIDEO) {
+          ctx->video_offer_direction = RTC_OFFER_DIR_SENDONLY;
+        }
+      } else if (rtc_ascii_case_eq(attr, "recvonly")) {
+        if (current_media == RTC_MEDIA_AUDIO) {
+          ctx->audio_offer_direction = RTC_OFFER_DIR_RECVONLY;
+        } else if (current_media == RTC_MEDIA_VIDEO) {
+          ctx->video_offer_direction = RTC_OFFER_DIR_RECVONLY;
+        }
+      } else if (rtc_ascii_case_eq(attr, "inactive")) {
+        if (current_media == RTC_MEDIA_AUDIO) {
+          ctx->audio_offer_direction = RTC_OFFER_DIR_INACTIVE;
+        } else if (current_media == RTC_MEDIA_VIDEO) {
+          ctx->video_offer_direction = RTC_OFFER_DIR_INACTIVE;
         }
       }
     }
@@ -1879,17 +1937,20 @@ rtc_result_t rtc_ice_handle_incoming_stun(rtc_ice_ctx_t *ctx, const uint8_t src_
     return RTC_OK;
   }
 
-  if (snprintf(expected_username, sizeof(expected_username), "%s:%s",
-               ctx->remote_ice_ufrag, ctx->local_ice_ufrag) <= 0) {
-    return RTC_ERR_PROTOCOL;
-  }
   if (!rtc_ice_stun_verify_message_integrity(buf, len, &attrs, ctx->remote_ice_pwd)) {
     ctx->checks_failed++;
     return RTC_ERR_AUTH_FAILED;
   }
-  if (!rtc_ice_stun_username_equals(&attrs, expected_username)) {
-    ctx->checks_failed++;
-    return RTC_ERR_AUTH_FAILED;
+  /* Binding responses from browsers commonly omit USERNAME; verify only if present. */
+  if (attrs.username && attrs.username_len > 0u) {
+    if (snprintf(expected_username, sizeof(expected_username), "%s:%s",
+                 ctx->remote_ice_ufrag, ctx->local_ice_ufrag) <= 0) {
+      return RTC_ERR_PROTOCOL;
+    }
+    if (!rtc_ice_stun_username_equals(&attrs, expected_username)) {
+      ctx->checks_failed++;
+      return RTC_ERR_AUTH_FAILED;
+    }
   }
 
   pair_idx = rtc_ice_find_pair_by_transaction(ctx, &buf[8]);

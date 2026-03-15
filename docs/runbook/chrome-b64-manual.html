@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTC Base64 Manual Helper</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top right, #1e293b 0%, var(--bg) 45%);
+      color: var(--text);
+      font: 14px/1.45 "SFMono-Regular", Consolas, Menlo, monospace;
+    }
+    .wrap {
+      max-width: 1000px;
+      margin: 20px auto;
+      padding: 0 12px 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+    .tip {
+      color: var(--muted);
+      margin: 0 0 14px;
+    }
+    .row {
+      margin-bottom: 12px;
+      background: color-mix(in srgb, var(--panel) 85%, black 15%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .row h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    button {
+      border: 1px solid #475569;
+      background: #1f2937;
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+    }
+    button:hover {
+      border-color: #64748b;
+    }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
+      font: inherit;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .status {
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #0b1220;
+    }
+    .video-wrap {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #000;
+    }
+    video {
+      width: 100%;
+      height: 320px;
+      background: #000;
+    }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Chrome Manual Base64 Offer/Answer Helper</h1>
+    <p class="tip">
+      Flow: Create Offer (base64) -> paste into <code>rtc_signal_b64_cli</code> stdin -> paste CLI answer base64 back -> Apply Answer.
+    </p>
+
+    <div class="row">
+      <h2>1) Offer (base64)</h2>
+      <div class="btns">
+        <button id="btn-create">Create Offer (recvonly audio+video)</button>
+        <button id="btn-copy-offer">Copy Offer Base64</button>
+      </div>
+      <textarea id="offer-b64" spellcheck="false" placeholder="Offer SDP base64"></textarea>
+    </div>
+
+    <div class="row">
+      <h2>2) Answer (base64)</h2>
+      <div class="btns">
+        <button id="btn-apply-answer">Apply Answer Base64</button>
+      </div>
+      <textarea id="answer-b64" spellcheck="false" placeholder="Paste answer SDP base64 from rtc_signal_b64_cli"></textarea>
+    </div>
+
+    <div class="row">
+      <h2>3) Remote Stream (Device -> Browser)</h2>
+      <div class="video-wrap">
+        <video id="remote-video" autoplay playsinline controls></video>
+      </div>
+    </div>
+
+    <div class="row">
+      <h2>4) Status</h2>
+      <div id="status" class="status"></div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    let pc = null;
+    let remoteStream = null;
+
+    const offerEl = document.getElementById("offer-b64");
+    const answerEl = document.getElementById("answer-b64");
+    const statusEl = document.getElementById("status");
+    const remoteVideo = document.getElementById("remote-video");
+
+    function log(msg, level) {
+      const cls = level || "ok";
+      statusEl.innerHTML += `<div class="${cls}">${msg}</div>`;
+    }
+
+    function clearLog() {
+      statusEl.innerHTML = "";
+    }
+
+    function b64Encode(str) {
+      return btoa(str);
+    }
+
+    function b64Decode(str) {
+      return atob(str);
+    }
+
+    function sanitizeB64(text) {
+      return (text || "").replace(/\s+/g, "").trim();
+    }
+
+    function waitIceGatheringComplete(peer, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        if (!peer) {
+          reject(new Error("peer is null"));
+          return;
+        }
+        if (peer.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+
+        const timer = setTimeout(() => {
+          peer.removeEventListener("icegatheringstatechange", onStateChange);
+          reject(new Error("ice gathering timeout"));
+        }, timeoutMs);
+
+        function onStateChange() {
+          if (peer.iceGatheringState === "complete") {
+            clearTimeout(timer);
+            peer.removeEventListener("icegatheringstatechange", onStateChange);
+            resolve();
+          }
+        }
+
+        peer.addEventListener("icegatheringstatechange", onStateChange);
+      });
+    }
+
+    function resetPc() {
+      if (pc) {
+        try {
+          pc.ontrack = null;
+          pc.onconnectionstatechange = null;
+          pc.close();
+        } catch (_) {
+          // Ignore close errors.
+        }
+      }
+
+      remoteStream = new MediaStream();
+      remoteVideo.srcObject = remoteStream;
+      pc = new RTCPeerConnection({
+        bundlePolicy: "max-bundle",
+        iceServers: []
+      });
+
+      pc.addTransceiver("audio", { direction: "recvonly" });
+      pc.addTransceiver("video", { direction: "recvonly" });
+
+      pc.ontrack = (event) => {
+        event.streams[0].getTracks().forEach((track) => remoteStream.addTrack(track));
+      };
+      pc.onconnectionstatechange = () => {
+        log(`pc.connectionState=${pc.connectionState}`,
+          pc.connectionState === "failed" ? "err" : "ok");
+      };
+    }
+
+    async function createOfferB64() {
+      clearLog();
+      resetPc();
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitIceGatheringComplete(pc, 8000);
+
+      const localSdp = (pc.localDescription && pc.localDescription.sdp) || "";
+      if (!localSdp) {
+        throw new Error("empty localDescription.sdp");
+      }
+
+      offerEl.value = b64Encode(localSdp);
+      log("Offer base64 is ready. Paste it to rtc_signal_b64_cli stdin.", "ok");
+    }
+
+    async function applyAnswerB64() {
+      if (!pc) {
+        log("PeerConnection not created. Click Create Offer first.", "err");
+        return;
+      }
+
+      const answerB64 = sanitizeB64(answerEl.value);
+      if (!answerB64) {
+        log("Answer base64 is empty.", "err");
+        return;
+      }
+
+      try {
+        const sdp = b64Decode(answerB64);
+        await pc.setRemoteDescription({ type: "answer", sdp });
+        log("Answer applied.", "ok");
+      } catch (err) {
+        log(`Apply answer failed: ${String(err)}`, "err");
+      }
+    }
+
+    document.getElementById("btn-create").addEventListener("click", () => {
+      createOfferB64().catch((err) => log(`Create offer failed: ${String(err)}`, "err"));
+    });
+
+    document.getElementById("btn-copy-offer").addEventListener("click", async () => {
+      const text = sanitizeB64(offerEl.value);
+      if (!text) {
+        log("Offer base64 is empty.", "warn");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        log("Offer base64 copied.", "ok");
+      } catch (err) {
+        log(`Copy failed: ${String(err)}`, "err");
+      }
+    });
+
+    document.getElementById("btn-apply-answer").addEventListener("click", () => {
+      applyAnswerB64().catch((err) => log(`Apply answer failed: ${String(err)}`, "err"));
+    });
+  </script>
+</body>
+</html>

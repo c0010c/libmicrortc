@@ -67,6 +67,8 @@ typedef struct rtc_ice_ctx {
   uint8_t media_order[2];
   uint8_t audio_offer_present;
   uint8_t video_offer_present;
+  uint8_t audio_offer_direction;
+  uint8_t video_offer_direction;
   uint8_t audio_accepted;
   uint8_t video_accepted;
   uint8_t audio_rtcp_mux;
