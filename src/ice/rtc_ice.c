@@ -746,11 +746,11 @@ static void rtc_ice_add_media_order(rtc_ice_ctx_t *ctx, uint8_t media_kind) {
   }
 }
 
-static rtc_result_t rtc_ice_sdp_append(char *dst, uint16_t cap, uint16_t *io_len,
+static rtc_result_t rtc_ice_sdp_append(char *dst, size_t cap, size_t *io_len,
                                        const char *fmt, ...) {
   va_list ap;
   int n;
-  uint16_t offset;
+  size_t offset;
 
   if (!dst || !io_len || !fmt) {
     return RTC_ERR_INVALID_ARG;
@@ -761,13 +761,13 @@ static rtc_result_t rtc_ice_sdp_append(char *dst, uint16_t cap, uint16_t *io_len
   }
 
   va_start(ap, fmt);
-  n = vsnprintf(dst + offset, (size_t)(cap - offset), fmt, ap);
+  n = vsnprintf(dst + offset, cap - offset, fmt, ap);
   va_end(ap);
-  if (n < 0 || n >= (int)(cap - offset)) {
+  if (n < 0 || (size_t)n >= (cap - offset)) {
     return RTC_ERR_BUFFER_TOO_SMALL;
   }
-  offset = (uint16_t)(offset + (uint16_t)n);
-  if ((uint16_t)(offset + 2u) >= cap) {
+  offset += (size_t)n;
+  if ((offset + 2u) >= cap) {
     return RTC_ERR_BUFFER_TOO_SMALL;
   }
   dst[offset++] = '\r';
@@ -981,7 +981,7 @@ static int rtc_ice_fmtp_packetization_mode_is_1(const char *params) {
 }
 
 static rtc_result_t rtc_ice_build_answer(rtc_ice_ctx_t *ctx) {
-  uint16_t sdp_len = 0u;
+  size_t sdp_len = 0u;
   uint8_t i;
   uint8_t candidate_written = 0u;
   char bundle[48];
@@ -1361,10 +1361,9 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
         } else if (current_media == RTC_MEDIA_VIDEO) {
           if (clock_rate == 90000 && rtc_ascii_case_eq(codec, "H264")) {
             int idx = rtc_ice_ensure_h264_entry(h264_entries, &h264_count, pt);
-            if (idx < 0) {
-              return RTC_ERR_PROTOCOL;
+            if (idx >= 0) {
+              ctx->video_h264_found = 1u;
             }
-            ctx->video_h264_found = 1u;
           }
         }
       } else if (strncmp(attr, "fmtp:", 5u) == 0) {
@@ -1439,12 +1438,6 @@ static rtc_result_t rtc_ice_parse_offer(rtc_ice_ctx_t *ctx, const char *sdp) {
 
   if (!ctx->audio_accepted && !ctx->video_accepted) {
     return RTC_ERR_NOT_SUPPORTED;
-  }
-  if (ctx->audio_accepted && !ctx->audio_ssrc_present) {
-    return RTC_ERR_PROTOCOL;
-  }
-  if (ctx->video_accepted && !ctx->video_ssrc_present) {
-    return RTC_ERR_PROTOCOL;
   }
   return RTC_OK;
 }

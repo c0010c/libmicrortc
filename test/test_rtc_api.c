@@ -618,7 +618,7 @@ static int test_remote_dtls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
 static int test_replace_offer_fingerprint(const char *offer_sdp,
                                           const char *fingerprint,
                                           char *out_offer,
-                                          uint16_t out_offer_cap) {
+                                          size_t out_offer_cap) {
   const char *needle = "a=fingerprint:sha-256 ";
   const char *line_start = NULL;
   const char *line_end = NULL;
@@ -1128,7 +1128,7 @@ static int poll_until_connected_with_remote(rtc_engine_t *engine, rtc_peer_t *pe
   ASSERT_TRUE(test_replace_offer_fingerprint(offer_template,
                                              k_test_dtls_local_fingerprint,
                                              offer_sdp,
-                                             (uint16_t)sizeof(offer_sdp)));
+                                             sizeof(offer_sdp)));
   ASSERT_TRUE(test_remote_dtls_peer_init(remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
@@ -1402,7 +1402,7 @@ static int test_missing_required_attr_fails(void) {
   return 0;
 }
 
-static int test_missing_required_ssrc_fails(void) {
+static int test_missing_ssrc_is_accepted(void) {
   rtc_engine_t *engine = NULL;
   rtc_peer_t *peer = NULL;
   rtc_engine_config_t engine_cfg;
@@ -1417,9 +1417,8 @@ static int test_missing_required_ssrc_fails(void) {
 
   ASSERT_EQ_INT(RTC_OK, rtc_engine_create(&engine_cfg, &engine));
   ASSERT_EQ_INT(RTC_OK, rtc_peer_create(engine, &peer_cfg, &peer));
-  ASSERT_EQ_INT(RTC_ERR_PROTOCOL,
-                rtc_peer_set_remote_description(peer, g_test_chrome_offer_missing_ssrc,
-                                                "offer"));
+  ASSERT_EQ_INT(RTC_OK, rtc_peer_set_remote_description(
+                            peer, g_test_chrome_offer_missing_ssrc, "offer"));
 
   ASSERT_EQ_INT(RTC_OK, rtc_peer_destroy(peer));
   ASSERT_EQ_INT(RTC_OK, rtc_engine_destroy(engine));
@@ -1447,7 +1446,7 @@ static int test_offer_without_candidate_then_add_candidate(void) {
   ASSERT_TRUE(test_replace_offer_fingerprint(g_test_chrome_offer_no_candidate,
                                              k_test_dtls_local_fingerprint,
                                              offer_sdp,
-                                             (uint16_t)sizeof(offer_sdp)));
+                                             sizeof(offer_sdp)));
   ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
@@ -1506,7 +1505,7 @@ static int test_candidate_before_offer_is_preserved(void) {
   ASSERT_TRUE(test_replace_offer_fingerprint(g_test_chrome_offer_no_candidate,
                                              k_test_dtls_local_fingerprint,
                                              offer_sdp,
-                                             (uint16_t)sizeof(offer_sdp)));
+                                             sizeof(offer_sdp)));
   ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
@@ -2348,7 +2347,7 @@ static int test_dtls_fingerprint_mismatch_observability(void) {
   ASSERT_TRUE(test_replace_offer_fingerprint(
       g_test_chrome_offer_h264_g711,
       "AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA",
-      offer_sdp, (uint16_t)sizeof(offer_sdp)));
+      offer_sdp, sizeof(offer_sdp)));
   ASSERT_TRUE(test_remote_dtls_peer_init(&remote_peer, offer_sdp));
   ASSERT_TRUE(rtc_test_build_host_candidate(remote_candidate,
                                             (uint16_t)sizeof(remote_candidate),
@@ -2456,7 +2455,7 @@ int main(void) {
   failures += test_partial_accept_rejects_unsupported_audio();
   failures += test_reject_all_unsupported_codecs();
   failures += test_missing_required_attr_fails();
-  failures += test_missing_required_ssrc_fails();
+  failures += test_missing_ssrc_is_accepted();
   failures += test_offer_without_candidate_then_add_candidate();
   failures += test_candidate_before_offer_is_preserved();
   failures += test_h264_packetization_mode_requires_exact_one();

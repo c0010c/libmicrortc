@@ -40,7 +40,7 @@
 #endif
 
 #ifndef RTC_CFG_MAX_SDP_LEN
-#define RTC_CFG_MAX_SDP_LEN 2048u
+#define RTC_CFG_MAX_SDP_LEN 65535u
 #endif
 
 #ifndef RTC_CFG_MAX_CANDIDATE_LEN

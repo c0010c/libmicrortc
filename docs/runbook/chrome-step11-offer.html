@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTC Step11 Chrome Helper</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --line: #334155;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top right, #1e293b 0%, var(--bg) 45%);
+      color: var(--text);
+      font: 14px/1.45 "SFMono-Regular", Consolas, Menlo, monospace;
+    }
+
+    .wrap {
+      max-width: 1000px;
+      margin: 20px auto;
+      padding: 0 12px 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .tip {
+      color: var(--muted);
+      margin: 0 0 14px;
+    }
+
+    .row {
+      margin-bottom: 12px;
+      background: color-mix(in srgb, var(--panel) 85%, black 15%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .row h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    button {
+      border: 1px solid #475569;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button:hover {
+      border-color: #64748b;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      resize: vertical;
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
+      font: inherit;
+    }
+
+    .status {
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0b1220;
+      white-space: pre-wrap;
+      min-height: 36px;
+    }
+
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Step11 Chrome Offer/Answer Helper</h1>
+    <p class="tip">
+      Flow: create offer in Chrome -> paste to CLI -> paste answer back -> exchange candidate.
+      This page is for manual signaling with <code>rtc_signal_cli</code>.
+    </p>
+
+    <div class="row">
+      <h2>1) Create Offer</h2>
+      <div class="btns">
+        <button id="btn-create">Create Offer</button>
+        <button id="btn-copy-offer">Copy Offer SDP</button>
+      </div>
+      <textarea id="offer" spellcheck="false" placeholder="Offer SDP will be generated here."></textarea>
+    </div>
+
+    <div class="row">
+      <h2>2) Paste Answer From CLI</h2>
+      <div class="btns">
+        <button id="btn-apply-answer">Apply Answer SDP</button>
+      </div>
+      <textarea id="answer" spellcheck="false" placeholder="Paste the answer SDP only (without EVENT lines)."></textarea>
+    </div>
+
+    <div class="row">
+      <h2>3) Candidate Exchange</h2>
+      <div class="btns">
+        <button id="btn-copy-local-cand">Copy Local IPv4 Host Candidates</button>
+        <button id="btn-add-remote-cand">Add Remote Candidate To Chrome</button>
+      </div>
+      <textarea id="local-candidates" spellcheck="false" placeholder="Local host IPv4 candidates gathered by Chrome."></textarea>
+      <textarea id="remote-candidate" spellcheck="false" placeholder="Paste one candidate from CLI EVENT LOCAL_CANDIDATE ... or raw candidate line."></textarea>
+    </div>
+
+    <div class="row">
+      <h2>4) Status / Logs</h2>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    let pc = null;
+    let localHostIpv4Candidates = [];
+
+    const offerEl = document.getElementById("offer");
+    const answerEl = document.getElementById("answer");
+    const localCandidatesEl = document.getElementById("local-candidates");
+    const remoteCandidateEl = document.getElementById("remote-candidate");
+    const statusEl = document.getElementById("status");
+
+    function log(message, level) {
+      const cls = level || "ok";
+      statusEl.innerHTML += `<div class="${cls}">${message}</div>`;
+    }
+
+    function clearLog() {
+      statusEl.innerHTML = "";
+    }
+
+    function isHostIpv4Candidate(candidateLine) {
+      if (!candidateLine) {
+        return false;
+      }
+      if (!/\styp\s+host(\s|$)/i.test(candidateLine)) {
+        return false;
+      }
+      return /\s(\d{1,3}(?:\.\d{1,3}){3})\s\d+\s/.test(candidateLine);
+    }
+
+    function sanitizeSdpBlock(input) {
+      if (!input) {
+        return "";
+      }
+      return input.replace(/\r/g, "").trim();
+    }
+
+    function stripCliPrefixCandidate(input) {
+      const text = (input || "").trim();
+      const marker = "EVENT LOCAL_CANDIDATE ";
+      if (text.startsWith(marker)) {
+        return text.slice(marker.length).trim();
+      }
+      return text;
+    }
+
+    function waitIceGatheringComplete(peer, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        if (!peer) {
+          reject(new Error("peer is null"));
+          return;
+        }
+        if (peer.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+
+        const timer = setTimeout(() => {
+          peer.removeEventListener("icegatheringstatechange", onStateChange);
+          reject(new Error("ice gathering timeout"));
+        }, timeoutMs);
+
+        function onStateChange() {
+          if (peer.iceGatheringState === "complete") {
+            clearTimeout(timer);
+            peer.removeEventListener("icegatheringstatechange", onStateChange);
+            resolve();
+          }
+        }
+
+        peer.addEventListener("icegatheringstatechange", onStateChange);
+      });
+    }
+
+    async function createOffer() {
+      clearLog();
+      localHostIpv4Candidates = [];
+      localCandidatesEl.value = "";
+
+      if (pc) {
+        try {
+          pc.onicecandidate = null;
+          pc.onconnectionstatechange = null;
+          pc.close();
+        } catch (_) {
+          // Ignore close error.
+        }
+      }
+
+      pc = new RTCPeerConnection({
+        bundlePolicy: "max-bundle",
+        iceServers: []
+      });
+
+      pc.addTransceiver("audio", { direction: "recvonly" });
+      pc.addTransceiver("video", { direction: "recvonly" });
+
+      pc.onicecandidate = (event) => {
+        if (!event.candidate) {
+          localCandidatesEl.value = localHostIpv4Candidates.join("\n");
+          if (localHostIpv4Candidates.length === 0) {
+            log("ICE gathering complete but no IPv4 host candidate found. Disable mDNS hide-local-ip in Chrome.", "warn");
+          } else {
+            log(`ICE gathering complete: ${localHostIpv4Candidates.length} IPv4 host candidate(s).`, "ok");
+          }
+          return;
+        }
+
+        const line = event.candidate.candidate || "";
+        if (isHostIpv4Candidate(line)) {
+          localHostIpv4Candidates.push(line);
+          localCandidatesEl.value = localHostIpv4Candidates.join("\n");
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        log(`connectionState=${pc.connectionState}`, "ok");
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitIceGatheringComplete(pc, 10000);
+
+      if (!pc.localDescription || !pc.localDescription.sdp) {
+        throw new Error("localDescription is empty after gathering complete");
+      }
+      offerEl.value = sanitizeSdpBlock(pc.localDescription.sdp);
+      log("Offer created with gathered candidates. Copy SDP to CLI with set-offer-begin/set-offer-end.", "ok");
+    }
+
+    async function applyAnswer() {
+      if (!pc) {
+        log("PeerConnection not created. Click Create Offer first.", "err");
+        return;
+      }
+
+      const sdp = sanitizeSdpBlock(answerEl.value);
+      if (!sdp) {
+        log("Answer SDP is empty.", "err");
+        return;
+      }
+
+      try {
+        await pc.setRemoteDescription({ type: "answer", sdp });
+        log("Answer applied to Chrome.", "ok");
+      } catch (err) {
+        log(`setRemoteDescription failed: ${String(err)}`, "err");
+      }
+    }
+
+    async function addRemoteCandidateToChrome() {
+      if (!pc) {
+        log("PeerConnection not created. Click Create Offer first.", "err");
+        return;
+      }
+
+      const raw = remoteCandidateEl.value.trim();
+      const candidate = stripCliPrefixCandidate(raw);
+      if (!candidate) {
+        log("Remote candidate is empty.", "err");
+        return;
+      }
+
+      try {
+        let okCount = 0;
+        try {
+          await pc.addIceCandidate({ candidate, sdpMid: "0" });
+          okCount++;
+        } catch (_) {
+          // Try next mid.
+        }
+        try {
+          await pc.addIceCandidate({ candidate, sdpMid: "1" });
+          okCount++;
+        } catch (_) {
+          // Ignore, we only need one valid mid.
+        }
+
+        if (okCount > 0) {
+          log(`Remote candidate added to Chrome (accepted on ${okCount} mid).`, "ok");
+        } else {
+          log("addIceCandidate failed on both mid=0 and mid=1.", "err");
+        }
+      } catch (err) {
+        log(`addIceCandidate failed: ${String(err)}`, "err");
+      }
+    }
+
+    document.getElementById("btn-create").addEventListener("click", () => {
+      createOffer().catch((err) => log(`createOffer failed: ${String(err)}`, "err"));
+    });
+
+    document.getElementById("btn-copy-offer").addEventListener("click", async () => {
+      const text = sanitizeSdpBlock(offerEl.value);
+      if (!text) {
+        log("Offer SDP is empty.", "warn");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        log("Offer SDP copied.", "ok");
+      } catch (_) {
+        log("Clipboard write failed. Copy manually.", "warn");
+      }
+    });
+
+    document.getElementById("btn-apply-answer").addEventListener("click", () => {
+      applyAnswer().catch((err) => log(`applyAnswer failed: ${String(err)}`, "err"));
+    });
+
+    document.getElementById("btn-copy-local-cand").addEventListener("click", async () => {
+      const text = localCandidatesEl.value.trim();
+      if (!text) {
+        log("No local IPv4 host candidate to copy.", "warn");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        log("Local candidate list copied.", "ok");
+      } catch (_) {
+        log("Clipboard write failed. Copy manually.", "warn");
+      }
+    });
+
+    document.getElementById("btn-add-remote-cand").addEventListener("click", () => {
+      addRemoteCandidateToChrome().catch((err) =>
+        log(`addRemoteCandidate failed: ${String(err)}`, "err"));
+    });
+  </script>
+</body>
+</html>

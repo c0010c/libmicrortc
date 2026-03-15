@@ -52,7 +52,7 @@ void rtc_platform_log(const rtc_log_sink_t *sink, rtc_log_level_t level, const c
           peer_id, code, message ? message : "");
 }
 
-int rtc_platform_copy_string(char *dst, uint16_t dst_size, const char *src) {
+int rtc_platform_copy_string(char *dst, size_t dst_size, const char *src) {
   size_t src_len;
   if (!dst || !src || dst_size == 0u) {
     return 0;

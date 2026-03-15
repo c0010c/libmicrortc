@@ -149,3 +149,18 @@ endif()
 target_link_libraries(rtc_srtp_test PRIVATE rtc_c)
 
 add_test(NAME rtc_srtp_test COMMAND rtc_srtp_test)
+
+add_executable(rtc_signal_cli
+    tools/rtc_signal_cli.c
+)
+
+target_include_directories(rtc_signal_cli PRIVATE include)
+target_link_libraries(rtc_signal_cli PRIVATE rtc_c)
+
+add_test(NAME rtc_signal_cli_smoke
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rtc_signal_cli.sh
+            $<TARGET_FILE:rtc_signal_cli>)
+
+add_test(NAME rtc_signal_cli_long_offer
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/test_rtc_signal_cli_long_offer.sh
+            $<TARGET_FILE:rtc_signal_cli>)

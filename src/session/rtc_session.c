@@ -1623,6 +1623,8 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
                                                       const char *sdp,
                                                       const char *type) {
   rtc_result_t vr;
+  uint8_t expect_video_ssrc = 0u;
+  uint8_t expect_audio_ssrc = 0u;
   uint8_t applied_transport_remote = 0u;
   uint16_t i;
   uint8_t ip[4];
@@ -1649,9 +1651,13 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
 
   rtc_rtp_set_payload_types(&peer->rtp, peer->ice.video_selected_pt,
                             peer->ice.audio_pcma_pt, peer->ice.audio_pcmu_pt);
-  rtc_rtp_set_expected_remote_ssrc(&peer->rtp, peer->ice.video_accepted,
+  expect_video_ssrc = (uint8_t)(peer->ice.video_accepted &&
+                                peer->ice.video_ssrc_present);
+  expect_audio_ssrc = (uint8_t)(peer->ice.audio_accepted &&
+                                peer->ice.audio_ssrc_present);
+  rtc_rtp_set_expected_remote_ssrc(&peer->rtp, expect_video_ssrc,
                                    peer->ice.video_remote_ssrc,
-                                   peer->ice.audio_accepted,
+                                   expect_audio_ssrc,
                                    peer->ice.audio_remote_ssrc);
   {
     char msg[160];
@@ -1665,10 +1671,20 @@ rtc_result_t rtc_session_peer_set_remote_description(rtc_peer_t *peer,
   {
     char msg[160];
     (void)snprintf(msg, sizeof(msg),
-                   "remote ssrc mapping video=%u audio=%u",
+                   "remote ssrc mapping video=%u (expect=%u) audio=%u (expect=%u)",
                    (unsigned)peer->ice.video_remote_ssrc,
-                   (unsigned)peer->ice.audio_remote_ssrc);
+                   (unsigned)expect_video_ssrc,
+                   (unsigned)peer->ice.audio_remote_ssrc,
+                   (unsigned)expect_audio_ssrc);
     rtc_log_peer(peer, RTC_LOG_INFO, RTC_MODULE_RTP, RTC_OK, msg);
+  }
+  if (peer->ice.video_accepted && !peer->ice.video_ssrc_present) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_OK,
+                 "remote video ssrc missing; strict ssrc filter disabled");
+  }
+  if (peer->ice.audio_accepted && !peer->ice.audio_ssrc_present) {
+    rtc_log_peer(peer, RTC_LOG_WARN, RTC_MODULE_RTP, RTC_OK,
+                 "remote audio ssrc missing; strict ssrc filter disabled");
   }
 
   for (i = 0u; i < peer->ice.remote_candidate_count; ++i) {

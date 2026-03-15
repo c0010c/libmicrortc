@@ -28,7 +28,7 @@ typedef struct rtc_log_sink {
 void rtc_platform_log(const rtc_log_sink_t *sink, rtc_log_level_t level, const char *module,
                       uint32_t peer_id, rtc_result_t code, const char *message);
 
-int rtc_platform_copy_string(char *dst, uint16_t dst_size, const char *src);
+int rtc_platform_copy_string(char *dst, size_t dst_size, const char *src);
 void rtc_platform_zero(void *ptr, size_t size);
 
 rtc_result_t rtc_platform_udp_create_nonblock(int *out_socket_fd);
