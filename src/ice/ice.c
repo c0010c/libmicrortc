@@ -7,6 +7,7 @@
 #include "observability/counters.h"
 #include "observability/observer.h"
 #include "observability/trace.h"
+#include "security/security.h"
 #include "stun/stun.h"
 
 #define RTC_ICE_CANDIDATE_STRING_BYTES 256u
@@ -543,11 +544,18 @@ static rtc_status_t rtc_ice_start_next_pair(rtc_peer_connection_t *pc)
 
 static void rtc_ice_select_pair(rtc_peer_connection_t *pc, size_t pair_id)
 {
+    rtc_status_t security_status;
+
     pc->candidate_pairs[pair_id].selected = 1;
     pc->candidate_pairs[pair_id].state = RTC_ICE_PAIR_SELECTED;
     pc->counters.ice.selected_pairs++;
     rtc_ice_trace_selected_pair(pc, pair_id);
     rtc_ice_emit_state(pc, RTC_ICE_CONNECTED);
+    security_status = rtc_security_on_ice_connected(pc);
+    if (security_status != RTC_STATUS_OK) {
+        rtc_observer_emit_error(&pc->observer, security_status, "security",
+                                "on_ice_connected", 0);
+    }
 }
 
 rtc_status_t rtc_ice_start_connectivity_checks(rtc_peer_connection_t *pc)

@@ -261,11 +261,12 @@ static int test_receive_demux_and_errors(void)
                                                          sizeof(dtls)));
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
-    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
                     rtc_peer_connection_receive_datagram(pc, dtls,
                                                          sizeof(dtls)));
-    RTC_TEST_ASSERT(strcmp(state.last_trace, RTC_TRACE_NET_DEMUX) == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace, RTC_TRACE_DTLS_HANDSHAKE) == 0);
     RTC_TEST_ASSERT(strcmp(state.last_protocol, "dtls") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_reason, "ice_not_connected") == 0);
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_receive_datagram(pc, rtp, sizeof(rtp)));
     RTC_TEST_EQ_INT(RTC_STATUS_OK,

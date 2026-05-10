@@ -9,6 +9,7 @@
 #include "rtc/trace.h"
 
 #include "observability/counters.h"
+#include "security/security.h"
 
 #include <string.h>
 
