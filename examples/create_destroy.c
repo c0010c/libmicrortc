@@ -52,6 +52,7 @@ int main(void)
     rtc_capacity_diagnostics_t diag;
     rtc_peer_connection_t *pc;
 
+    memset(&config, 0, sizeof(config));
     config.arena.data = arena;
     config.arena.size = sizeof(arena);
     config.limits.sdp.max_description_bytes = 1024;

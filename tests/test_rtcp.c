@@ -21,6 +21,7 @@ typedef struct rtcp_test_state_t {
     rtc_status_t srtcp_protect_status;
     rtc_status_t srtcp_unprotect_status;
     rtc_media_feedback_t last_feedback;
+    rtc_executor_kind_t feedback_executor_kind;
     uint8_t datagrams[4][256];
     size_t datagram_lens[4];
 } rtcp_test_state_t;
@@ -28,9 +29,13 @@ typedef struct rtcp_test_state_t {
 static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
                               void *task_user_data)
 {
-    (void)user_data;
+    rtc_executor_kind_t previous = rtc_executor_current_kind();
+    rtc_executor_kind_t kind = (rtc_executor_kind_t)(uintptr_t)user_data;
+
     if (task != 0) {
+        rtc_executor_set_current_for_test(kind);
         task(task_user_data);
+        rtc_executor_set_current_for_test(previous);
     }
     return RTC_STATUS_OK;
 }
@@ -57,13 +62,13 @@ static rtc_status_t test_cancel_timer(void *user_data, uint64_t timer_id)
     return RTC_STATUS_OK;
 }
 
-static rtc_executor_vtable_t test_executor(void *user_data)
+static rtc_executor_vtable_t test_executor(rtc_executor_kind_t kind)
 {
     rtc_executor_vtable_t executor;
     executor.post = test_post;
     executor.schedule_timer = test_schedule_timer;
     executor.cancel_timer = test_cancel_timer;
-    executor.user_data = user_data;
+    executor.user_data = (void *)(uintptr_t)kind;
     return executor;
 }
 
@@ -92,6 +97,7 @@ static void on_media_feedback(void *user_data,
     if (feedback != 0) {
         state->last_feedback = *feedback;
     }
+    state->feedback_executor_kind = rtc_executor_current_kind();
 }
 
 static void on_trace(void *user_data, const char *event,
@@ -265,9 +271,9 @@ static rtc_peer_connection_config_t test_config(
     config.local_host_ip = "192.0.2.10";
     config.local_host_ip_len = strlen(config.local_host_ip);
     config.local_host_port = 5000;
-    config.executors.signaling = test_executor(state);
-    config.executors.media = test_executor(state);
-    config.executors.network = test_executor(state);
+    config.executors.signaling = test_executor(RTC_EXECUTOR_SIGNALING);
+    config.executors.media = test_executor(RTC_EXECUTOR_MEDIA);
+    config.executors.network = test_executor(RTC_EXECUTOR_NETWORK);
     config.observer.on_datagram = on_datagram;
     config.observer.on_media_feedback = on_media_feedback;
     config.observer.on_trace = on_trace;
@@ -582,6 +588,7 @@ static int test_rtcp_receive_pli_reports_media_feedback(void)
     RTC_TEST_EQ_INT(RTC_MEDIA_FEEDBACK_PLI, state.last_feedback.type);
     RTC_TEST_EQ_INT(RTC_MEDIA_KIND_VIDEO_H264, state.last_feedback.kind);
     RTC_TEST_EQ_INT(0, state.last_feedback.retransmit_performed);
+    RTC_TEST_EQ_INT(RTC_EXECUTOR_MEDIA, state.feedback_executor_kind);
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
@@ -685,6 +692,7 @@ static int test_rtcp_receive_nack_reports_nack_no_retransmit_feedback(void)
     RTC_TEST_EQ_INT(301, (int)state.last_feedback.lost_sequence_numbers[1]);
     RTC_TEST_EQ_INT(303, (int)state.last_feedback.lost_sequence_numbers[2]);
     RTC_TEST_EQ_INT(0, state.last_feedback.retransmit_performed);
+    RTC_TEST_EQ_INT(RTC_EXECUTOR_MEDIA, state.feedback_executor_kind);
     RTC_TEST_ASSERT(state.last_trace_reason != 0);
     RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "nack_no_retransmit") ==
                     0);

@@ -476,6 +476,54 @@ static int test_h264_receive_stap_a_two_nalus_outputs_access_unit(void)
     return 0;
 }
 
+static int test_h264_receive_single_nalu_after_interrupted_fu_a_resets_au(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet1[32];
+    uint8_t packet2[32];
+    uint8_t fua_start[] = {0x7c, 0x85, 0x11, 0x22};
+    uint8_t single_nalu[] = {0x65, 0xaa, 0xbb};
+    rtp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    write_rtp_packet(packet1, 103u, 0x70, 450000, fua_start,
+                     sizeof(fua_start));
+    write_rtp_packet(packet2, 0x80u | 103u, 0x71, 453000, single_nalu,
+                     sizeof(single_nalu));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_receive_datagram(
+                        pc, packet1, 12 + sizeof(fua_start) + 4));
+    RTC_TEST_EQ_INT(0, state.typed_frame_count);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_receive_datagram(
+                        pc, packet2, 12 + sizeof(single_nalu) + 4));
+    RTC_TEST_EQ_INT(1, state.typed_frame_count);
+    RTC_TEST_EQ_INT((int)sizeof(single_nalu),
+                    (int)state.last_typed_frame.data_len);
+    RTC_TEST_ASSERT(memcmp(state.last_typed_frame.data, single_nalu,
+                           sizeof(single_nalu)) == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.media.h264_reassembly_drops);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 static int test_h264_receive_sequence_gap_drops_access_unit(void)
 {
     unsigned char arena[32768];
@@ -668,8 +716,10 @@ static int test_h264_single_nalu_outputs_marker_packet(void)
     rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_send_media_frame(pc, &frame));
-    RTC_TEST_EQ_INT(1, state.srtp_protect_rtp_calls);
-    RTC_TEST_EQ_INT(1, state.datagram_count);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_send_media_frame(pc, &frame));
+    RTC_TEST_EQ_INT(2, state.srtp_protect_rtp_calls);
+    RTC_TEST_EQ_INT(2, state.datagram_count);
     RTC_TEST_EQ_INT(103, state.datagrams[0][1] & 0x7F);
     RTC_TEST_ASSERT((state.datagrams[0][1] & 0x80u) != 0); /* marker */
     RTC_TEST_ASSERT(memcmp(state.datagrams[0] + 12, expected_nalu,
@@ -807,6 +857,8 @@ int rtc_test_rtp(void)
     RTC_TEST_EQ_INT(0, test_h264_receive_single_nalu_outputs_access_unit());
     RTC_TEST_EQ_INT(0, test_h264_receive_fu_a_reassembles_access_unit());
     RTC_TEST_EQ_INT(0, test_h264_receive_stap_a_two_nalus_outputs_access_unit());
+    RTC_TEST_EQ_INT(
+        0, test_h264_receive_single_nalu_after_interrupted_fu_a_resets_au());
     RTC_TEST_EQ_INT(0, test_h264_receive_sequence_gap_drops_access_unit());
     RTC_TEST_EQ_INT(0, test_h264_receive_reassembly_capacity_counts_drop());
     RTC_TEST_EQ_INT(0, test_opus_send_outputs_protected_rtp_datagram());

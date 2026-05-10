@@ -460,9 +460,13 @@ rtc_status_t rtc_rtp_depacketize_h264(
 
     nalu_type = (uint8_t)(payload[0] & 0x1fu);
     if (nalu_type >= 1u && nalu_type <= 23u) {
-        if (!*inout_active) {
-            *inout_reassembly_len = 0;
+        if (*inout_active) {
+            *inout_active = 0;
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_interrupted_au";
+            }
         }
+        *inout_reassembly_len = 0;
         status = rtc_h264_append_reassembly(
             reassembly_buffer, max_reassembly_bytes, inout_reassembly_len,
             payload, payload_len, out_drop_reason);
@@ -480,9 +484,13 @@ rtc_status_t rtc_rtp_depacketize_h264(
     }
 
     if (nalu_type == 24u) { /* STAP-A */
-        if (!*inout_active) {
-            *inout_reassembly_len = 0;
+        if (*inout_active) {
+            *inout_active = 0;
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_interrupted_au";
+            }
         }
+        *inout_reassembly_len = 0;
         status = rtc_h264_depacketize_stap_a(
             payload, payload_len, reassembly_buffer, max_reassembly_bytes,
             inout_reassembly_len, out_drop_reason);

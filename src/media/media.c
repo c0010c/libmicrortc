@@ -341,6 +341,30 @@ static rtc_status_t rtc_media_dispatch_received_slot(
     return slot->dispatch_status;
 }
 
+static void rtc_media_rtcp_receive_task(void *user_data)
+{
+    rtc_media_queue_slot_t *slot = (rtc_media_queue_slot_t *)user_data;
+    rtc_peer_connection_t *pc = slot->pc;
+
+    slot->dispatch_status =
+        rtc_rtcp_parse_compound(pc, slot->payload, slot->payload_len);
+    rtc_media_release_slot(slot);
+}
+
+static rtc_status_t rtc_media_dispatch_rtcp_slot(rtc_peer_connection_t *pc,
+                                                 rtc_media_queue_slot_t *slot)
+{
+    rtc_status_t status;
+
+    status = pc->executors.media.post(pc->executors.media.user_data,
+                                      rtc_media_rtcp_receive_task, slot);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        return status;
+    }
+    return slot->dispatch_status;
+}
+
 rtc_status_t rtc_media_handle_rtp_datagram(rtc_peer_connection_t *pc,
                                            const uint8_t *data,
                                            size_t data_len)
@@ -432,9 +456,8 @@ rtc_status_t rtc_media_handle_rtcp_datagram(rtc_peer_connection_t *pc,
         return status;
     }
 
-    status = rtc_rtcp_parse_compound(pc, slot->payload, packet_len);
-    rtc_media_release_slot(slot);
-    return status;
+    slot->payload_len = packet_len;
+    return rtc_media_dispatch_rtcp_slot(pc, slot);
 }
 
 rtc_status_t rtc_media_send_rtcp_reports(rtc_peer_connection_t *pc)
@@ -669,12 +692,14 @@ static rtc_status_t rtc_media_send_h264(rtc_peer_connection_t *pc,
 
     pc->video_rtp_sequence = state.sequence;
     pc->video_rtp_timestamp = state.timestamp;
+    rtc_media_release_slots(slots + packet_count, slot_count - packet_count);
     for (i = 0; i < packet_count; ++i) {
         slots[i]->payload_len = packets[i].len;
         status = rtc_media_dispatch_slot(pc, slots[i], frame->kind,
                                          packets[i].sequence,
                                          packets[i].timestamp);
         if (status != RTC_STATUS_OK) {
+            rtc_media_release_slots(slots + i + 1, packet_count - i - 1);
             return status;
         }
     }
