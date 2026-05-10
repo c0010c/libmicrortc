@@ -17,6 +17,7 @@ add_library(rtc STATIC
     src/jsep/jsep.c
     src/ice/ice.c
     src/stun/stun.c
+    src/net/demux.c
     src/executor/executor.c
     src/memory/arena.c
     src/memory/allocator.c
@@ -47,6 +48,7 @@ if(RTC_BUILD_TESTS)
         tests/test_jsep.c
         tests/test_stun.c
         tests/test_ice.c
+        tests/test_datagram.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)

@@ -7,6 +7,7 @@
 #include "executor/executor.h"
 #include "ice/ice.h"
 #include "memory/allocator.h"
+#include "net/demux.h"
 #include "observability/counters.h"
 #include "observability/observer.h"
 #include "observability/trace.h"
@@ -297,6 +298,65 @@ static rtc_status_t rtc_unsupported_signaling(rtc_peer_connection_t *pc,
     }
 
     return rtc_pc_unsupported(pc, operation);
+}
+
+static void rtc_pc_trace_demux(rtc_peer_connection_t *pc,
+                               rtc_net_protocol_t protocol,
+                               rtc_status_t status, const char *reason)
+{
+    rtc_trace_field_t fields[5];
+    size_t field_count = 4;
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "net";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = "receive_datagram";
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_PROTOCOL;
+    fields[2].value = rtc_net_protocol_name(protocol);
+    fields[2].number = 0;
+    fields[3].key = RTC_TRACE_FIELD_STATUS;
+    fields[3].value = 0;
+    fields[3].number = (uint64_t)status;
+    if (reason != 0) {
+        fields[4].key = RTC_TRACE_FIELD_REASON;
+        fields[4].value = reason;
+        fields[4].number = 0;
+        field_count = 5;
+    }
+
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_NET_DEMUX, fields, field_count);
+}
+
+static void rtc_pc_note_demux_counter(rtc_peer_connection_t *pc,
+                                      rtc_net_protocol_t protocol)
+{
+    switch (protocol) {
+    case RTC_NET_PROTOCOL_STUN:
+        pc->counters.net.demux_stun++;
+        break;
+    case RTC_NET_PROTOCOL_DTLS:
+        pc->counters.net.demux_dtls++;
+        break;
+    case RTC_NET_PROTOCOL_RTP:
+        pc->counters.net.demux_rtp++;
+        break;
+    case RTC_NET_PROTOCOL_RTCP:
+        pc->counters.net.demux_rtcp++;
+        break;
+    case RTC_NET_PROTOCOL_UNKNOWN:
+    default:
+        pc->counters.net.demux_unknown++;
+        break;
+    }
+}
+
+static int rtc_pc_datagram_looks_like_stun(const uint8_t *data,
+                                           size_t data_len)
+{
+    return data != 0 && data_len >= 20u && (data[0] & 0xC0u) == 0;
 }
 
 rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *config,
@@ -884,9 +944,8 @@ rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
                                                   size_t data_len)
 {
     rtc_status_t status;
-
-    (void)data;
-    (void)data_len;
+    rtc_net_protocol_t protocol;
+    const char *reason = 0;
 
     status = rtc_require_pc(pc);
     if (status != RTC_STATUS_OK) {
@@ -898,7 +957,45 @@ rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
         return rtc_pc_affinity_violation(pc, "receive_datagram");
     }
 
-    return rtc_pc_unsupported(pc, "receive_datagram");
+    status = rtc_net_demux_datagram(data, data_len, &protocol);
+    if (status != RTC_STATUS_OK) {
+        rtc_observer_emit_error(&pc->observer, status, "net",
+                                "receive_datagram", 0);
+        rtc_pc_trace_demux(pc, RTC_NET_PROTOCOL_UNKNOWN, status,
+                           "invalid_datagram");
+        return status;
+    }
+
+    if (protocol == RTC_NET_PROTOCOL_UNKNOWN &&
+        rtc_pc_datagram_looks_like_stun(data, data_len)) {
+        protocol = RTC_NET_PROTOCOL_STUN;
+        reason = "malformed_stun";
+    }
+
+    rtc_pc_note_demux_counter(pc, protocol);
+    rtc_pc_trace_demux(pc, protocol, RTC_STATUS_OK, reason);
+
+    if (protocol == RTC_NET_PROTOCOL_STUN) {
+        status = rtc_ice_handle_stun_response(pc, data, data_len);
+        if (status != RTC_STATUS_OK) {
+            if (reason == 0) {
+                reason = "malformed_stun";
+            }
+            rtc_pc_trace_demux(pc, protocol, status, reason);
+            return RTC_STATUS_PROTOCOL_ERROR;
+        }
+        return RTC_STATUS_OK;
+    }
+
+    if (protocol == RTC_NET_PROTOCOL_UNKNOWN) {
+        rtc_observer_emit_error(&pc->observer, RTC_STATUS_PROTOCOL_ERROR, "net",
+                                "receive_datagram", 0);
+        rtc_pc_trace_demux(pc, protocol, RTC_STATUS_PROTOCOL_ERROR,
+                           "unknown_datagram");
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    return RTC_STATUS_OK;
 }
 
 rtc_status_t rtc_peer_connection_get_counters(

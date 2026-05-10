@@ -186,7 +186,7 @@ int rtc_test_peer_connection(void)
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_create(&config, &diag, &pc));
     rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
-    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
                     rtc_peer_connection_receive_datagram(pc, 0, 0));
     RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
     RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
