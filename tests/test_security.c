@@ -19,6 +19,7 @@ typedef struct security_test_state_t {
     int get_local_fingerprint_calls;
     int get_peer_fingerprint_calls;
     int export_keying_material_calls;
+    int init_srtp_context_calls;
     int start_dtls_calls;
     int handle_dtls_datagram_calls;
     int datagram_count;
@@ -38,8 +39,16 @@ typedef struct security_test_state_t {
     rtc_status_t create_status;
     rtc_status_t local_fingerprint_status;
     rtc_status_t peer_fingerprint_status;
+    rtc_status_t export_keying_material_status;
+    rtc_status_t init_srtp_context_status;
     const char *local_fingerprint;
     const char *peer_fingerprint;
+    const char *last_export_label;
+    size_t last_export_label_len;
+    size_t last_export_out_len;
+    uint8_t last_keying_material[128];
+    size_t last_keying_material_len;
+    rtc_security_dtls_role_t last_srtp_role;
 } security_test_state_t;
 
 static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
@@ -237,11 +246,44 @@ static rtc_status_t test_export_keying_material(void *session,
                                                 uint8_t *out, size_t out_len)
 {
     security_test_state_t *state = (security_test_state_t *)session;
-    (void)label;
-    (void)label_len;
-    (void)out;
-    (void)out_len;
+    size_t i;
+
     state->export_keying_material_calls++;
+    state->last_export_label = label;
+    state->last_export_label_len = label_len;
+    state->last_export_out_len = out_len;
+    if (state->export_keying_material_status != RTC_STATUS_OK) {
+        return state->export_keying_material_status;
+    }
+    if (out == 0 || out_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < out_len; ++i) {
+        out[i] = (uint8_t)(0xA0u + (uint8_t)i);
+    }
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_init_srtp_context(void *session,
+                                           const uint8_t *keying_material,
+                                           size_t keying_material_len,
+                                           rtc_security_dtls_role_t local_role)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+
+    state->init_srtp_context_calls++;
+    state->last_srtp_role = local_role;
+    state->last_keying_material_len = keying_material_len;
+    if (keying_material_len > sizeof(state->last_keying_material)) {
+        keying_material_len = sizeof(state->last_keying_material);
+    }
+    if (keying_material != 0 && keying_material_len > 0) {
+        memcpy(state->last_keying_material, keying_material,
+               keying_material_len);
+    }
+    if (state->init_srtp_context_status != RTC_STATUS_OK) {
+        return state->init_srtp_context_status;
+    }
     return RTC_STATUS_OK;
 }
 
@@ -256,6 +298,7 @@ static rtc_security_backend_vtable_t test_backend_vtable(void)
     vtable.handle_dtls_datagram = test_handle_dtls_datagram;
     vtable.get_peer_fingerprint = test_get_peer_fingerprint;
     vtable.export_keying_material = test_export_keying_material;
+    vtable.init_srtp_context = test_init_srtp_context;
     return vtable;
 }
 
@@ -657,6 +700,159 @@ static int test_security_fingerprint_mismatch_blocks_key_export(void)
     return 0;
 }
 
+static void set_matching_remote_fingerprint(rtc_peer_connection_t *pc)
+{
+    memcpy(pc->remote_summary.dtls_fingerprint,
+           "sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+           "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+           sizeof("sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                  "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"));
+}
+
+static int test_security_handshake_complete_exports_key_and_sets_srtp_ready(void)
+{
+    unsigned char arena[16384];
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_security_backend_event_t event;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_counters_t counters;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_state = RTC_ICE_CONNECTED;
+    pc->dtls_role = RTC_SECURITY_DTLS_ROLE_SERVER;
+    set_matching_remote_fingerprint(pc);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    memset(&event, 0, sizeof(event));
+    event.type = RTC_SECURITY_BACKEND_EVENT_HANDSHAKE_COMPLETE;
+    state.event_cb(state.event_user_data, &event);
+
+    RTC_TEST_EQ_INT(1, state.get_peer_fingerprint_calls);
+    RTC_TEST_EQ_INT(1, state.export_keying_material_calls);
+    RTC_TEST_EQ_INT(1, state.init_srtp_context_calls);
+    RTC_TEST_ASSERT(strcmp(state.last_export_label, "EXTRACTOR-dtls_srtp") ==
+                    0);
+    RTC_TEST_EQ_INT(19, (int)state.last_export_label_len);
+    RTC_TEST_EQ_INT((int)state.last_export_out_len,
+                    (int)state.last_keying_material_len);
+    RTC_TEST_ASSERT(memcmp(state.last_keying_material,
+                           (const uint8_t *)"\xA0\xA1\xA2\xA3", 4) == 0);
+    RTC_TEST_EQ_INT(RTC_SECURITY_DTLS_ROLE_SERVER, state.last_srtp_role);
+    RTC_TEST_EQ_INT(RTC_SECURITY_DTLS_CONNECTED, pc->dtls_state);
+    RTC_TEST_EQ_INT(1, pc->srtp_ready);
+    RTC_TEST_ASSERT(strcmp(state.last_state, "srtp.ready") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.handshake_completed);
+    RTC_TEST_EQ_INT(0, (int)counters.dtls.key_export_failed);
+    RTC_TEST_EQ_INT(0, (int)counters.dtls.srtp_init_failed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_security_key_export_failure_blocks_srtp_ready(void)
+{
+    unsigned char arena[16384];
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_security_backend_event_t event;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_counters_t counters;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.export_keying_material_status = RTC_STATUS_BACKEND_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_state = RTC_ICE_CONNECTED;
+    set_matching_remote_fingerprint(pc);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    memset(&event, 0, sizeof(event));
+    event.type = RTC_SECURITY_BACKEND_EVENT_HANDSHAKE_COMPLETE;
+    state.event_cb(state.event_user_data, &event);
+
+    RTC_TEST_EQ_INT(1, state.export_keying_material_calls);
+    RTC_TEST_EQ_INT(0, state.init_srtp_context_calls);
+    RTC_TEST_EQ_INT(RTC_SECURITY_DTLS_FAILED, pc->dtls_state);
+    RTC_TEST_EQ_INT(0, pc->srtp_ready);
+    RTC_TEST_ASSERT(strcmp(state.last_state, "dtls.failed") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_subsystem, "srtp") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_operation, "key_export") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "key_export_failed") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.key_export_failed);
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.handshake_failed);
+    RTC_TEST_EQ_INT(0, (int)counters.dtls.handshake_completed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_security_srtp_init_failure_blocks_srtp_ready(void)
+{
+    unsigned char arena[16384];
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_security_backend_event_t event;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_counters_t counters;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.init_srtp_context_status = RTC_STATUS_BACKEND_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_state = RTC_ICE_CONNECTED;
+    set_matching_remote_fingerprint(pc);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    memset(&event, 0, sizeof(event));
+    event.type = RTC_SECURITY_BACKEND_EVENT_HANDSHAKE_COMPLETE;
+    state.event_cb(state.event_user_data, &event);
+
+    RTC_TEST_EQ_INT(1, state.export_keying_material_calls);
+    RTC_TEST_EQ_INT(1, state.init_srtp_context_calls);
+    RTC_TEST_EQ_INT(RTC_SECURITY_DTLS_FAILED, pc->dtls_state);
+    RTC_TEST_EQ_INT(0, pc->srtp_ready);
+    RTC_TEST_ASSERT(strcmp(state.last_state, "dtls.failed") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_subsystem, "srtp") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_operation, "srtp_init") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "srtp_init_failed") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.srtp_init_failed);
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.handshake_failed);
+    RTC_TEST_EQ_INT(0, (int)counters.dtls.handshake_completed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 static int test_security_counters_and_trace_contract(void)
 {
     rtc_peer_connection_counters_t counters;
@@ -733,5 +929,17 @@ int rtc_test_security(void)
     if (status != 0) {
         return status;
     }
-    return test_security_fingerprint_mismatch_blocks_key_export();
+    status = test_security_fingerprint_mismatch_blocks_key_export();
+    if (status != 0) {
+        return status;
+    }
+    status = test_security_handshake_complete_exports_key_and_sets_srtp_ready();
+    if (status != 0) {
+        return status;
+    }
+    status = test_security_key_export_failure_blocks_srtp_ready();
+    if (status != 0) {
+        return status;
+    }
+    return test_security_srtp_init_failure_blocks_srtp_ready();
 }
