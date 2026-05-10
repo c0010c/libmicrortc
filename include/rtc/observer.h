@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "rtc/media.h"
 #include "rtc/status.h"
 #include "rtc/trace.h"
 
@@ -22,6 +23,10 @@ typedef struct rtc_observer_vtable_t {
                                size_t candidate_len);
     void (*on_media_frame)(void *user_data, const uint8_t *data,
                            size_t data_len);
+    void (*on_media_frame_typed)(void *user_data,
+                                 const rtc_media_frame_t *frame);
+    void (*on_media_feedback)(void *user_data,
+                              const rtc_media_feedback_t *feedback);
     void (*on_datagram)(void *user_data, const uint8_t *data, size_t data_len);
     void *user_data;
 } rtc_observer_vtable_t;

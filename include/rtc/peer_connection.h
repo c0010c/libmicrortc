@@ -6,6 +6,7 @@
 
 #include "rtc/config.h"
 #include "rtc/counters.h"
+#include "rtc/media.h"
 #include "rtc/status.h"
 
 #ifdef __cplusplus
@@ -40,6 +41,12 @@ rtc_status_t rtc_peer_connection_start_connectivity_checks(
 rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
                                                   const uint8_t *data,
                                                   size_t data_len);
+rtc_status_t rtc_peer_connection_send_media_frame(
+    rtc_peer_connection_t *pc,
+    const rtc_media_frame_t *frame);
+rtc_status_t rtc_peer_connection_request_keyframe(
+    rtc_peer_connection_t *pc,
+    rtc_media_kind_t kind);
 rtc_status_t rtc_peer_connection_get_counters(
     rtc_peer_connection_t *pc,
     rtc_peer_connection_counters_t *out_counters);

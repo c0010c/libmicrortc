@@ -392,6 +392,12 @@ static int rtc_pc_datagram_looks_like_stun(const uint8_t *data,
     return data != 0 && data_len >= 20u && (data[0] & 0xC0u) == 0;
 }
 
+static int rtc_media_kind_supported(rtc_media_kind_t kind)
+{
+    return kind == RTC_MEDIA_KIND_AUDIO_OPUS ||
+           kind == RTC_MEDIA_KIND_VIDEO_H264;
+}
+
 rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *config,
                                         rtc_capacity_diagnostics_t *diag,
                                         rtc_peer_connection_t **out_pc)
@@ -1061,6 +1067,55 @@ rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
     }
 
     return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_peer_connection_send_media_frame(
+    rtc_peer_connection_t *pc,
+    const rtc_media_frame_t *frame)
+{
+    rtc_status_t status;
+
+    status = rtc_require_pc(pc);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    status = rtc_executor_require(RTC_EXECUTOR_MEDIA);
+    if (status != RTC_STATUS_OK) {
+        return rtc_pc_affinity_violation(pc, "send_media_frame");
+    }
+
+    if (frame == 0 || frame->data == 0 || frame->data_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (!rtc_media_kind_supported(frame->kind)) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    return rtc_pc_unsupported(pc, "send_media_frame");
+}
+
+rtc_status_t rtc_peer_connection_request_keyframe(
+    rtc_peer_connection_t *pc,
+    rtc_media_kind_t kind)
+{
+    rtc_status_t status;
+
+    status = rtc_require_pc(pc);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    status = rtc_executor_require(RTC_EXECUTOR_MEDIA);
+    if (status != RTC_STATUS_OK) {
+        return rtc_pc_affinity_violation(pc, "request_keyframe");
+    }
+
+    if (!rtc_media_kind_supported(kind)) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    return rtc_pc_unsupported(pc, "request_keyframe");
 }
 
 rtc_status_t rtc_peer_connection_get_counters(
