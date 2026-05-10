@@ -10,6 +10,7 @@
 
 #include "observability/counters.h"
 #include "security/security.h"
+#include "srtp/srtp.h"
 
 #include <string.h>
 
@@ -20,6 +21,10 @@ typedef struct security_test_state_t {
     int get_peer_fingerprint_calls;
     int export_keying_material_calls;
     int init_srtp_context_calls;
+    int srtp_protect_rtp_calls;
+    int srtp_unprotect_rtp_calls;
+    int srtcp_protect_calls;
+    int srtcp_unprotect_calls;
     int start_dtls_calls;
     int handle_dtls_datagram_calls;
     int datagram_count;
@@ -41,6 +46,10 @@ typedef struct security_test_state_t {
     rtc_status_t peer_fingerprint_status;
     rtc_status_t export_keying_material_status;
     rtc_status_t init_srtp_context_status;
+    rtc_status_t srtp_protect_rtp_status;
+    rtc_status_t srtp_unprotect_rtp_status;
+    rtc_status_t srtcp_protect_status;
+    rtc_status_t srtcp_unprotect_status;
     const char *local_fingerprint;
     const char *peer_fingerprint;
     const char *last_export_label;
@@ -287,6 +296,61 @@ static rtc_status_t test_init_srtp_context(void *session,
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t test_srtp_protect_rtp(void *session, uint8_t *packet,
+                                          size_t *inout_len, size_t capacity)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+
+    state->srtp_protect_rtp_calls++;
+    if (state->srtp_protect_rtp_status != RTC_STATUS_OK) {
+        return state->srtp_protect_rtp_status;
+    }
+    if (packet == 0 || inout_len == 0 || capacity < *inout_len + 4u) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    packet[*inout_len] = 0xAA;
+    packet[*inout_len + 1u] = 0xBB;
+    packet[*inout_len + 2u] = 0xCC;
+    packet[*inout_len + 3u] = 0xDD;
+    *inout_len += 4u;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_srtp_unprotect_rtp(void *session, uint8_t *packet,
+                                            size_t *inout_len)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+
+    (void)packet;
+    state->srtp_unprotect_rtp_calls++;
+    if (state->srtp_unprotect_rtp_status != RTC_STATUS_OK) {
+        return state->srtp_unprotect_rtp_status;
+    }
+    if (inout_len == 0 || *inout_len < 4u) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    *inout_len -= 4u;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_srtcp_protect(void *session, uint8_t *packet,
+                                       size_t *inout_len, size_t capacity)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+
+    state->srtcp_protect_calls++;
+    return test_srtp_protect_rtp(session, packet, inout_len, capacity);
+}
+
+static rtc_status_t test_srtcp_unprotect(void *session, uint8_t *packet,
+                                         size_t *inout_len)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+
+    state->srtcp_unprotect_calls++;
+    return test_srtp_unprotect_rtp(session, packet, inout_len);
+}
+
 static rtc_security_backend_vtable_t test_backend_vtable(void)
 {
     rtc_security_backend_vtable_t vtable;
@@ -299,6 +363,10 @@ static rtc_security_backend_vtable_t test_backend_vtable(void)
     vtable.get_peer_fingerprint = test_get_peer_fingerprint;
     vtable.export_keying_material = test_export_keying_material;
     vtable.init_srtp_context = test_init_srtp_context;
+    vtable.srtp_protect_rtp = test_srtp_protect_rtp;
+    vtable.srtp_unprotect_rtp = test_srtp_unprotect_rtp;
+    vtable.srtcp_protect = test_srtcp_protect;
+    vtable.srtcp_unprotect = test_srtcp_unprotect;
     return vtable;
 }
 
@@ -853,6 +921,136 @@ static int test_security_srtp_init_failure_blocks_srtp_ready(void)
     return 0;
 }
 
+static int test_srtp_protect_requires_ready(void)
+{
+    unsigned char arena[16384];
+    uint8_t packet[32] = {0x80, 0x60, 0, 1};
+    size_t packet_len = 4;
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
+                    rtc_srtp_protect_rtp(pc, packet, &packet_len,
+                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(0, state.srtp_protect_rtp_calls);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "srtp_not_ready") == 0);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_srtp_protect_failure_does_not_emit_datagram(void)
+{
+    unsigned char arena[16384];
+    uint8_t packet[32] = {0x80, 0x60, 0, 1};
+    size_t packet_len = 4;
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_counters_t counters;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.srtp_protect_rtp_status = RTC_STATUS_BACKEND_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+    RTC_TEST_EQ_INT(RTC_STATUS_BACKEND_ERROR,
+                    rtc_srtp_protect_rtp(pc, packet, &packet_len,
+                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtp_protect_rtp_calls);
+    RTC_TEST_EQ_INT(0, state.datagram_count);
+    RTC_TEST_ASSERT(strcmp(state.last_error_subsystem, "srtp") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_operation, "protect_rtp") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "srtp_protect_failed") ==
+                    0);
+
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.srtp.protect_failed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_srtp_unprotect_failure_blocks_media_output(void)
+{
+    unsigned char arena[16384];
+    uint8_t packet[32] = {0x80, 0x60, 0, 1, 0xAA, 0xBB, 0xCC, 0xDD};
+    size_t packet_len = 8;
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_counters_t counters;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.srtp_unprotect_rtp_status = RTC_STATUS_PROTOCOL_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_srtp_unprotect_rtp(pc, packet, &packet_len));
+    RTC_TEST_EQ_INT(1, state.srtp_unprotect_rtp_calls);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "srtp_replay_failed") ==
+                    0);
+
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.srtp.unprotect_failed);
+    RTC_TEST_EQ_INT(1, (int)counters.srtp.replay_failed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_srtcp_wrappers_call_backend(void)
+{
+    unsigned char arena[16384];
+    uint8_t packet[32] = {0x81, 0xc9, 0, 1};
+    size_t packet_len = 4;
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_srtp_protect_rtcp(pc, packet, &packet_len,
+                                          sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtcp_protect_calls);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_srtp_unprotect_rtcp(pc, packet, &packet_len));
+    RTC_TEST_EQ_INT(1, state.srtcp_unprotect_calls);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 static int test_security_counters_and_trace_contract(void)
 {
     rtc_peer_connection_counters_t counters;
@@ -941,5 +1139,21 @@ int rtc_test_security(void)
     if (status != 0) {
         return status;
     }
-    return test_security_srtp_init_failure_blocks_srtp_ready();
+    status = test_security_srtp_init_failure_blocks_srtp_ready();
+    if (status != 0) {
+        return status;
+    }
+    status = test_srtp_protect_requires_ready();
+    if (status != 0) {
+        return status;
+    }
+    status = test_srtp_protect_failure_does_not_emit_datagram();
+    if (status != 0) {
+        return status;
+    }
+    status = test_srtp_unprotect_failure_blocks_media_output();
+    if (status != 0) {
+        return status;
+    }
+    return test_srtcp_wrappers_call_backend();
 }
