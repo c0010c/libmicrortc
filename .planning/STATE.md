@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 3 execution complete pending verification
-last_updated: "2026-05-10T19:40:04+08:00"
+status: Phase 4 planned ready for execution
+last_updated: "2026-05-10T20:55:00+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 12
+  total_plans: 18
   completed_plans: 12
   percent: 50
 ---
@@ -16,14 +16,14 @@ progress:
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 3 阶段计划已执行完成，等待阶段验证
+**当前状态：** 第 4 阶段已规划，准备执行
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 3: ICE/STUN 与 Datagram 网络层
+**当前焦点：** Phase 4: DTLS-SRTP 安全传输
 
 ## 工作流配置
 
@@ -38,21 +38,21 @@ progress:
 
 ## 当前阶段
 
-### 第 3 阶段：ICE/STUN 与 Datagram 网络层
+### 第 4 阶段：DTLS-SRTP 安全传输
 
-**目标：** 实现网络连通性基础，让库可以通过用户提供的 UDP datagram 完成 ICE gathering、connectivity checks、trickle candidate 和协议 demux。
+**目标：** 通过可插拔 backend vtable 建立 DTLS-SRTP 安全通道，不让核心 API 绑定特定第三方 TLS/SRTP 实现。
 
-**状态：** 执行完成，待验证
+**状态：** 已规划，准备执行
 
-**计划数量：** 4
+**计划数量：** 6
 
 **下一步：**
 
 ```bash
-$gsd-verify-work
+$gsd-execute-phase 4
 ```
 
-**计划入口：** `.planning/phases/03-ice-stun-datagram-network-layer/`
+**计划入口：** `.planning/phases/04-dtls-srtp-secure-transport/`
 
 ## 已创建工件
 
@@ -104,6 +104,17 @@ $gsd-verify-work
 - `.planning/phases/03-ice-stun-datagram-network-layer/03-02-SUMMARY.md`
 - `.planning/phases/03-ice-stun-datagram-network-layer/03-03-SUMMARY.md`
 - `.planning/phases/03-ice-stun-datagram-network-layer/03-04-SUMMARY.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-CONTEXT.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-DISCUSSION-LOG.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-RESEARCH.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-VALIDATION.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-PATTERNS.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-01-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-02-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-03-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-04-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-05-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-06-PLAN.md`
 
 ---
-*最后更新：2026-05-10，第 3 阶段计划执行完成后*
+*最后更新：2026-05-10，第 4 阶段规划修订后*

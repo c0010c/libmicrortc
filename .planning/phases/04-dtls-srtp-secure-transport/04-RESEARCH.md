@@ -325,17 +325,17 @@ status = backend->export_keying_material(ctx, k_dtls_srtp_label,
 |---|-------|---------|---------------|
 | A1 | 双方都等待或双方都发 ClientHello 是 role 映射错误的典型 warning sign。 | Common Pitfalls | 需要用 deterministic backend 测试确认具体 failure trace。 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **是否保留 `rtc_sdp_parameters_t.dtls_fingerprint` 字段？**  
+1. **RESOLVED — 是否保留 `rtc_sdp_parameters_t.dtls_fingerprint` 字段？**  
    - What we know: CONTEXT 锁定本地 fingerprint 必须来自 backend。[VERIFIED: 04-CONTEXT.md]  
-   - What's unclear: public struct 兼容性是否要求字段暂时保留。[ASSUMED]  
-   - Recommendation: planner 保留字段但标记 Phase 4 后不作为本地 SDP 来源，避免破坏测试/示例；后续 API 清理再移除。[ASSUMED]
+   - Decision: 保留 `rtc_sdp_parameters_t.dtls_fingerprint` 字段用于兼容既有测试、示例和 create-time 参数结构，但第 4 阶段开始本地 SDP fingerprint 的权威来源必须是 security backend。`createOffer` / `createAnswer` 写本地 SDP 前必须查询 backend local `sha-256` fingerprint，并覆盖或忽略 create-time 字符串；不得把 create-time 字符串作为 Phase 4 local SDP fingerprint 来源。[VERIFIED: revision_context Decision 1][VERIFIED: 04-CONTEXT.md]
+   - Planning impact: 04-03 计划明确保留字段但将本地 SDP 写入源头切到 backend，并测试 backend fingerprint 覆盖旧 create-time 字符串。
 
-2. **真实参考 backend 到什么程度？**  
+2. **RESOLVED — 真实参考 backend 到什么程度？**  
    - What we know: deterministic backend 是成功标准，真实库只要求骨架/文档/可选示例。[VERIFIED: 04-CONTEXT.md]  
-   - What's unclear: 是否要在本阶段加入 CMake option stub。[ASSUMED]  
-   - Recommendation: 只加 `RTC_ENABLE_OPENSSL_SRTP_BACKEND` 之类可选开关的设计文档或空适配目录，不让默认 build 依赖外部库。[VERIFIED: pkg-config]
+   - Decision: 真实 backend 在第 4 阶段只作为文档/骨架范围，不作为默认构建 gate；默认 build 和 automated verification 只依赖 deterministic backend，不强制 OpenSSL/libsrtp 开发包。[VERIFIED: revision_context Decision 2][VERIFIED: pkg-config][VERIFIED: 04-CONTEXT.md]
+   - Planning impact: 04-05 文档收口要求说明真实适配的固定 storage 契约和可选编译边界，但不得让默认 build 依赖 OpenSSL/libsrtp。
 
 ## Environment Availability
 

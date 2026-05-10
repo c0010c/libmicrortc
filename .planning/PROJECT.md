@@ -33,6 +33,7 @@
 ### 阶段规划记录
 
 - 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
+- 第 4 阶段已规划：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；执行完成并验证后再移入“已验证”。
 
 ### 不在范围内
 
@@ -103,4 +104,4 @@
 4. 使用当前状态更新背景
 
 ---
-*最后更新：2026-05-10，第 2 阶段执行完成后*
+*最后更新：2026-05-10，第 4 阶段规划修订后*
