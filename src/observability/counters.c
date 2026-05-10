@@ -36,6 +36,19 @@ void rtc_counters_init(rtc_peer_connection_counters_t *counters)
     counters->srtp.protect_failed = 0;
     counters->srtp.unprotect_failed = 0;
     counters->srtp.replay_failed = 0;
+    counters->rtp.packets_sent = 0;
+    counters->rtp.packets_received = 0;
+    counters->rtp.packets_dropped = 0;
+    counters->rtcp.rtcp_sr_sent = 0;
+    counters->rtcp.rtcp_rr_received = 0;
+    counters->rtcp.pli_sent = 0;
+    counters->rtcp.pli_received = 0;
+    counters->rtcp.nack_received = 0;
+    counters->rtcp.nack_no_retransmit = 0;
+    counters->media.frames_sent = 0;
+    counters->media.frames_received = 0;
+    counters->media.h264_reassembly_drops = 0;
+    counters->media.media_queue_full = 0;
     counters->trace.trace_events = 0;
 }
 

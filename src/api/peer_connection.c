@@ -192,6 +192,14 @@ static rtc_status_t rtc_validate_config(const rtc_peer_connection_config_t *conf
         config->limits.ice.max_candidates == 0 ||
         config->limits.ice.max_candidate_pairs == 0 ||
         config->limits.ice.max_transactions == 0 ||
+        config->limits.rtp.max_packet_cache == 0 ||
+        config->limits.rtp.max_payload_bytes == 0 ||
+        config->limits.rtp.max_packets_per_frame == 0 ||
+        config->limits.rtp.max_reassembly_bytes == 0 ||
+        config->limits.rtp.max_media_queue_slots == 0 ||
+        config->limits.rtcp.max_reports == 0 ||
+        config->limits.rtcp.max_feedback_packets == 0 ||
+        config->limits.rtcp.max_sdes_cname_bytes == 0 ||
         config->sdp.ice_ufrag == 0 || config->sdp.ice_ufrag_len == 0 ||
         config->sdp.ice_pwd == 0 || config->sdp.ice_pwd_len == 0 ||
         config->sdp.dtls_fingerprint == 0 ||
@@ -272,6 +280,40 @@ static rtc_status_t rtc_pc_alloc_stun_transactions(
         RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS, diag);
     return *out_transactions != 0 ? RTC_STATUS_OK
                                   : RTC_STATUS_CAPACITY_STUN_TRANSACTIONS;
+}
+
+static rtc_status_t rtc_pc_alloc_media_queue_slots(
+    rtc_arena_view_t *arena, size_t max_slots,
+    rtc_media_queue_slot_t **out_slots, rtc_capacity_diagnostics_t *diag)
+{
+    size_t bytes;
+
+    bytes = max_slots * sizeof(**out_slots);
+    *out_slots = (rtc_media_queue_slot_t *)rtc_core_alloc(
+        arena, bytes, sizeof(void *), RTC_CAPACITY_RESOURCE_MEDIA_FRAME, diag);
+    return *out_slots != 0 ? RTC_STATUS_OK : RTC_STATUS_CAPACITY;
+}
+
+static rtc_status_t rtc_pc_alloc_media_packet_cache(
+    rtc_arena_view_t *arena, size_t max_slots, size_t max_payload_bytes,
+    uint8_t **out_cache, rtc_capacity_diagnostics_t *diag)
+{
+    size_t bytes;
+
+    bytes = max_slots * max_payload_bytes;
+    *out_cache = (uint8_t *)rtc_core_alloc(
+        arena, bytes, sizeof(void *), RTC_CAPACITY_RESOURCE_PACKET_CACHE, diag);
+    return *out_cache != 0 ? RTC_STATUS_OK : RTC_STATUS_CAPACITY_PACKET_CACHE;
+}
+
+static rtc_status_t rtc_pc_alloc_h264_reassembly_buffer(
+    rtc_arena_view_t *arena, size_t max_reassembly_bytes,
+    uint8_t **out_buffer, rtc_capacity_diagnostics_t *diag)
+{
+    *out_buffer = (uint8_t *)rtc_core_alloc(
+        arena, max_reassembly_bytes, sizeof(void *),
+        RTC_CAPACITY_RESOURCE_RTP_REASSEMBLY, diag);
+    return *out_buffer != 0 ? RTC_STATUS_OK : RTC_STATUS_CAPACITY;
 }
 
 static rtc_status_t rtc_pc_alloc_security_session_storage(
@@ -454,6 +496,13 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->srflx_candidate_gathered = 0;
     pc->connectivity_checks_started = 0;
     pc->remote_candidate_pending_pairs = 0;
+    pc->media_queue_slots = 0;
+    pc->media_packet_cache = 0;
+    pc->h264_reassembly_buffer = 0;
+    pc->media_queue_slot_count = config->limits.rtp.max_media_queue_slots;
+    pc->media_max_payload_bytes = config->limits.rtp.max_payload_bytes;
+    pc->media_max_packets_per_frame = config->limits.rtp.max_packets_per_frame;
+    pc->media_max_reassembly_bytes = config->limits.rtp.max_reassembly_bytes;
     pc->security_backend = 0;
     pc->security_session = 0;
     pc->security_session_storage = 0;
@@ -517,6 +566,37 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     memset(pc->stun_transactions, 0,
            config->limits.ice.max_transactions *
                sizeof(*pc->stun_transactions));
+    status = rtc_pc_alloc_media_queue_slots(
+        &pc->arena, config->limits.rtp.max_media_queue_slots,
+        &pc->media_queue_slots, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    memset(pc->media_queue_slots, 0,
+           config->limits.rtp.max_media_queue_slots *
+               sizeof(*pc->media_queue_slots));
+    status = rtc_pc_alloc_media_packet_cache(
+        &pc->arena, config->limits.rtp.max_media_queue_slots,
+        config->limits.rtp.max_payload_bytes, &pc->media_packet_cache, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    {
+        size_t i;
+        for (i = 0; i < config->limits.rtp.max_media_queue_slots; ++i) {
+            pc->media_queue_slots[i].payload =
+                pc->media_packet_cache +
+                (i * config->limits.rtp.max_payload_bytes);
+            pc->media_queue_slots[i].payload_capacity =
+                config->limits.rtp.max_payload_bytes;
+        }
+    }
+    status = rtc_pc_alloc_h264_reassembly_buffer(
+        &pc->arena, config->limits.rtp.max_reassembly_bytes,
+        &pc->h264_reassembly_buffer, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
     status = rtc_pc_alloc_security_session_storage(
         pc, config->security_backend, diag);
     if (status != RTC_STATUS_OK) {

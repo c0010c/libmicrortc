@@ -29,6 +29,10 @@ extern "C" {
 #define RTC_TRACE_DTLS_HANDSHAKE "dtls.handshake"
 #define RTC_TRACE_SRTP_STATE "srtp.state"
 #define RTC_TRACE_SRTP_PROTECT "srtp.protect"
+#define RTC_TRACE_MEDIA_FRAME "media.frame"
+#define RTC_TRACE_RTP_PACKET "rtp.packet"
+#define RTC_TRACE_RTCP_PACKET "rtcp.packet"
+#define RTC_TRACE_MEDIA_FEEDBACK "media.feedback"
 
 #define RTC_TRACE_FIELD_SUBSYSTEM "subsystem"
 #define RTC_TRACE_FIELD_OPERATION "operation"
@@ -49,6 +53,10 @@ extern "C" {
 #define RTC_TRACE_FIELD_PORT "port"
 #define RTC_TRACE_FIELD_TRANSACTION_ID "transaction_id"
 #define RTC_TRACE_FIELD_PROTOCOL "protocol"
+#define RTC_TRACE_FIELD_MEDIA_KIND "media_kind"
+#define RTC_TRACE_FIELD_SSRC "ssrc"
+#define RTC_TRACE_FIELD_SEQUENCE "sequence"
+#define RTC_TRACE_FIELD_TIMESTAMP "timestamp"
 
 typedef struct rtc_trace_field_t {
     const char *key;

@@ -145,7 +145,13 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.limits.dtls.max_sessions = 1;
     config.limits.dtls.max_session_storage_bytes = 64;
     config.limits.rtp.max_packet_cache = 16;
+    config.limits.rtp.max_payload_bytes = 256;
+    config.limits.rtp.max_packets_per_frame = 4;
+    config.limits.rtp.max_reassembly_bytes = 512;
+    config.limits.rtp.max_media_queue_slots = 2;
     config.limits.rtcp.max_reports = 4;
+    config.limits.rtcp.max_feedback_packets = 4;
+    config.limits.rtcp.max_sdes_cname_bytes = 64;
     config.limits.trace.max_events = 16;
     config.sdp.ice_ufrag = "testufrag";
     config.sdp.ice_ufrag_len = strlen(config.sdp.ice_ufrag);
@@ -225,7 +231,7 @@ int rtc_test_peer_connection(void)
     RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_ARENA, diag.resource);
 
     {
-        unsigned char pair_arena[6800];
+        unsigned char pair_arena[7200];
         config = test_config(pair_arena, sizeof(pair_arena));
         config.limits.ice.max_candidates = 1;
         RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ICE_PAIRS,
@@ -234,7 +240,7 @@ int rtc_test_peer_connection(void)
     }
 
     {
-        unsigned char transaction_arena[6800];
+        unsigned char transaction_arena[7000];
         config = test_config(transaction_arena, sizeof(transaction_arena));
         config.limits.ice.max_candidates = 1;
         config.limits.ice.max_candidate_pairs = 1;

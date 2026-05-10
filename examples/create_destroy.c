@@ -61,7 +61,13 @@ int main(void)
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
     config.limits.rtp.max_packet_cache = 16;
+    config.limits.rtp.max_payload_bytes = 256;
+    config.limits.rtp.max_packets_per_frame = 4;
+    config.limits.rtp.max_reassembly_bytes = 512;
+    config.limits.rtp.max_media_queue_slots = 2;
     config.limits.rtcp.max_reports = 4;
+    config.limits.rtcp.max_feedback_packets = 4;
+    config.limits.rtcp.max_sdes_cname_bytes = 64;
     config.limits.trace.max_events = 16;
     config.sdp.ice_ufrag = "testufrag";
     config.sdp.ice_ufrag_len = strlen(config.sdp.ice_ufrag);

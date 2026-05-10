@@ -139,7 +139,13 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.limits.dtls.max_sessions = 1;
     config.limits.dtls.max_session_storage_bytes = 64;
     config.limits.rtp.max_packet_cache = 16;
+    config.limits.rtp.max_payload_bytes = 256;
+    config.limits.rtp.max_packets_per_frame = 4;
+    config.limits.rtp.max_reassembly_bytes = 512;
+    config.limits.rtp.max_media_queue_slots = 2;
     config.limits.rtcp.max_reports = 4;
+    config.limits.rtcp.max_feedback_packets = 4;
+    config.limits.rtcp.max_sdes_cname_bytes = 64;
     config.limits.trace.max_events = 16;
     config.sdp.ice_ufrag = "testufrag";
     config.sdp.ice_ufrag_len = strlen(config.sdp.ice_ufrag);
@@ -165,7 +171,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
 
 int rtc_test_jsep(void)
 {
-    unsigned char arena[8192];
+    unsigned char arena[16384];
     rtc_peer_connection_config_t config;
     rtc_capacity_diagnostics_t diag;
     rtc_peer_connection_t *pc;

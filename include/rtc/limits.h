@@ -25,10 +25,16 @@ typedef struct rtc_dtls_limits_t {
 
 typedef struct rtc_rtp_limits_t {
     size_t max_packet_cache;
+    size_t max_payload_bytes;
+    size_t max_packets_per_frame;
+    size_t max_reassembly_bytes;
+    size_t max_media_queue_slots;
 } rtc_rtp_limits_t;
 
 typedef struct rtc_rtcp_limits_t {
     size_t max_reports;
+    size_t max_feedback_packets;
+    size_t max_sdes_cname_bytes;
 } rtc_rtcp_limits_t;
 
 typedef struct rtc_trace_limits_t {

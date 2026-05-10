@@ -61,6 +61,28 @@ typedef struct rtc_srtp_counters_t {
     uint64_t replay_failed;
 } rtc_srtp_counters_t;
 
+typedef struct rtc_rtp_counters_t {
+    uint64_t packets_sent;
+    uint64_t packets_received;
+    uint64_t packets_dropped;
+} rtc_rtp_counters_t;
+
+typedef struct rtc_rtcp_counters_t {
+    uint64_t rtcp_sr_sent;
+    uint64_t rtcp_rr_received;
+    uint64_t pli_sent;
+    uint64_t pli_received;
+    uint64_t nack_received;
+    uint64_t nack_no_retransmit;
+} rtc_rtcp_counters_t;
+
+typedef struct rtc_media_counters_t {
+    uint64_t frames_sent;
+    uint64_t frames_received;
+    uint64_t h264_reassembly_drops;
+    uint64_t media_queue_full;
+} rtc_media_counters_t;
+
 typedef struct rtc_trace_counters_t {
     uint64_t trace_events;
 } rtc_trace_counters_t;
@@ -74,6 +96,9 @@ typedef struct rtc_peer_connection_counters_t {
     rtc_net_counters_t net;
     rtc_dtls_counters_t dtls;
     rtc_srtp_counters_t srtp;
+    rtc_rtp_counters_t rtp;
+    rtc_rtcp_counters_t rtcp;
+    rtc_media_counters_t media;
     rtc_trace_counters_t trace;
 } rtc_peer_connection_counters_t;
 

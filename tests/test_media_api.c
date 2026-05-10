@@ -126,7 +126,7 @@ static int test_media_header_contract(void)
 
 static int test_media_send_validation_and_affinity(void)
 {
-    unsigned char arena[16384];
+    unsigned char arena[32768];
     uint8_t payload[4] = {1, 2, 3, 4};
     rtc_peer_connection_config_t config;
     rtc_capacity_diagnostics_t diag;
@@ -169,7 +169,7 @@ static int test_media_send_validation_and_affinity(void)
 
 static int test_media_limits_counters_trace_and_fixed_slots(void)
 {
-    unsigned char arena[16384];
+    unsigned char arena[32768];
     rtc_peer_connection_config_t config;
     rtc_peer_connection_counters_t counters;
     rtc_capacity_diagnostics_t diag;
