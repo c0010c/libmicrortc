@@ -1,6 +1,7 @@
 #include "api/peer_connection.h"
 #include "executor/executor.h"
 #include "ice/ice.h"
+#include "rtc/trace.h"
 #include "stun/stun.h"
 #include "test_runner.h"
 
@@ -15,6 +16,8 @@ typedef struct ice_observer_state_t {
     uint8_t last_datagram[64];
     size_t last_datagram_len;
     const char *last_state;
+    const char *last_trace;
+    const char *last_reason;
     rtc_executor_task_fn timer_task;
     void *timer_user_data;
 } ice_observer_state_t;
@@ -103,6 +106,20 @@ static void on_error(void *user_data, rtc_status_t status,
     state->error_count++;
 }
 
+static void on_trace(void *user_data, const char *event,
+                     const rtc_trace_field_t *fields, size_t field_count)
+{
+    ice_observer_state_t *state = (ice_observer_state_t *)user_data;
+    size_t i;
+
+    state->last_trace = event;
+    for (i = 0; i < field_count; ++i) {
+        if (strcmp(fields[i].key, RTC_TRACE_FIELD_REASON) == 0) {
+            state->last_reason = fields[i].value;
+        }
+    }
+}
+
 static rtc_peer_connection_config_t test_config(unsigned char *arena,
                                                 size_t arena_size,
                                                 ice_observer_state_t *state)
@@ -140,6 +157,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.executors.network = test_executor(state);
     config.observer.on_state = on_state;
     config.observer.on_error = on_error;
+    config.observer.on_trace = on_trace;
     config.observer.on_local_candidate = on_local_candidate;
     config.observer.on_datagram = on_datagram;
     config.observer.user_data = state;
@@ -175,6 +193,22 @@ static void write_success_response(uint8_t *response, const uint8_t *request,
     test_write_u16(response + 26,
                    (uint16_t)(port ^ (RTC_STUN_MAGIC_COOKIE >> 16)));
     test_write_u32(response + 28, ip ^ RTC_STUN_MAGIC_COOKIE);
+}
+
+static void write_role_conflict_response(uint8_t *response,
+                                         const uint8_t *request)
+{
+    memset(response, 0, 28);
+    test_write_u16(response, RTC_STUN_BINDING_ERROR_RESPONSE);
+    test_write_u16(response + 2, 8);
+    test_write_u32(response + 4, RTC_STUN_MAGIC_COOKIE);
+    memcpy(response + 8, request + 8, RTC_STUN_TRANSACTION_ID_BYTES);
+    test_write_u16(response + 20, 0x0009);
+    test_write_u16(response + 22, 4);
+    response[24] = 0;
+    response[25] = 0;
+    response[26] = 4;
+    response[27] = 87;
 }
 
 static int test_host_only_gathering(void)
@@ -518,6 +552,112 @@ static int test_candidate_pair_capacity_and_trickle_pairs(void)
     return 0;
 }
 
+static int test_pair_check_timeout_exhausts_pairs(void)
+{
+    unsigned char arena[16384];
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_ASSERT(state.timer_task != 0);
+    state.timer_task(state.timer_user_data);
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.failed") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_reason, "pair_check_exhausted") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.stun.transactions_timed_out);
+    RTC_TEST_EQ_INT(1, (int)counters.ice.checks_failed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_malformed_stun_fails_check(void)
+{
+    unsigned char arena[16384];
+    uint8_t malformed[3] = {0xff, 0x00, 0x00};
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_ice_handle_stun_response(pc, malformed,
+                                                 sizeof(malformed)));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.failed") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_reason, "malformed_stun") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_role_conflict_error_fails_with_trace(void)
+{
+    unsigned char arena[16384];
+    uint8_t response[28];
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    write_role_conflict_response(response, state.last_datagram);
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_ice_handle_stun_response(pc, response,
+                                                 sizeof(response)));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.failed") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_reason, "role_conflict") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 int rtc_test_ice(void)
 {
     RTC_TEST_EQ_INT(0, test_host_only_gathering());
@@ -529,5 +669,8 @@ int rtc_test_ice(void)
     RTC_TEST_EQ_INT(0, test_controlling_regular_nomination_selects_pair());
     RTC_TEST_EQ_INT(0, test_controlled_nominated_request_selects_pair());
     RTC_TEST_EQ_INT(0, test_candidate_pair_capacity_and_trickle_pairs());
+    RTC_TEST_EQ_INT(0, test_pair_check_timeout_exhausts_pairs());
+    RTC_TEST_EQ_INT(0, test_malformed_stun_fails_check());
+    RTC_TEST_EQ_INT(0, test_role_conflict_error_fails_with_trace());
     return 0;
 }

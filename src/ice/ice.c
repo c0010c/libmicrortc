@@ -20,6 +20,19 @@ enum {
     RTC_STUN_PURPOSE_NOMINATION = 2
 };
 
+static const char *RTC_ICE_FAILURE_NO_LOCAL_CANDIDATES =
+    "no_local_candidates";
+static const char *RTC_ICE_FAILURE_NO_REMOTE_CANDIDATES =
+    "no_remote_candidates";
+static const char *RTC_ICE_FAILURE_STUN_TIMEOUT = "stun_timeout";
+static const char *RTC_ICE_FAILURE_ROLE_CONFLICT = "role_conflict";
+static const char *RTC_ICE_FAILURE_PAIR_CHECK_EXHAUSTED =
+    "pair_check_exhausted";
+static const char *RTC_ICE_FAILURE_CAPACITY_EXHAUSTED =
+    "capacity_exhausted";
+static const char *RTC_ICE_FAILURE_MALFORMED_STUN = "malformed_stun";
+static const char *RTC_ICE_FAILURE_UNKNOWN_DATAGRAM = "unknown_datagram";
+
 static const char *rtc_ice_state_name(rtc_ice_state_t state)
 {
     switch (state) {
@@ -524,7 +537,7 @@ static rtc_status_t rtc_ice_start_next_pair(rtc_peer_connection_t *pc)
         }
     }
 
-    rtc_ice_fail(pc, "pair_check", "pair_check_exhausted");
+    rtc_ice_fail(pc, "pair_check", RTC_ICE_FAILURE_PAIR_CHECK_EXHAUSTED);
     return RTC_STATUS_PROTOCOL_ERROR;
 }
 
@@ -544,13 +557,15 @@ rtc_status_t rtc_ice_start_connectivity_checks(rtc_peer_connection_t *pc)
     if (pc->local_candidate_count == 0) {
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_INVALID_STATE, "ice",
                                 "start_connectivity_checks", 0);
-        rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED, "no_local_candidates");
+        rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED,
+                                  RTC_ICE_FAILURE_NO_LOCAL_CANDIDATES);
         return RTC_STATUS_INVALID_STATE;
     }
     if (pc->remote_candidate_count == 0) {
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_INVALID_STATE, "ice",
                                 "start_connectivity_checks", 0);
-        rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED, "no_remote_candidates");
+        rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED,
+                                  RTC_ICE_FAILURE_NO_REMOTE_CANDIDATES);
         return RTC_STATUS_INVALID_STATE;
     }
     if (pc->ice_role == RTC_ICE_ROLE_UNKNOWN) {
@@ -560,7 +575,8 @@ rtc_status_t rtc_ice_start_connectivity_checks(rtc_peer_connection_t *pc)
     status = rtc_ice_create_all_pairs(pc);
     if (status != RTC_STATUS_OK) {
         if (status == RTC_STATUS_CAPACITY_ICE_PAIRS) {
-            rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED, "capacity_exhausted");
+            rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED,
+                                      RTC_ICE_FAILURE_CAPACITY_EXHAUSTED);
         }
         return status;
     }
@@ -624,6 +640,11 @@ void rtc_ice_stun_transaction_timeout(void *user_data)
                  purpose == RTC_STUN_PURPOSE_NOMINATION) &&
                 pair_id < pc->candidate_pair_count) {
                 pc->candidate_pairs[pair_id].state = RTC_ICE_PAIR_FAILED;
+                rtc_observer_emit_error(&pc->observer,
+                                        RTC_STATUS_PROTOCOL_ERROR, "stun",
+                                        "timeout", 0);
+                rtc_ice_emit_state_reason(pc, RTC_ICE_CHECKING,
+                                          RTC_ICE_FAILURE_STUN_TIMEOUT);
             }
         }
     }
@@ -654,6 +675,13 @@ rtc_status_t rtc_ice_handle_stun_response(rtc_peer_connection_t *pc,
 
     status = rtc_stun_parse_header(data, data_len, &header);
     if (status != RTC_STATUS_OK) {
+        rtc_observer_emit_error(&pc->observer, RTC_STATUS_PROTOCOL_ERROR,
+                                "stun", "handle_stun_response", 0);
+        if (pc->connectivity_checks_started) {
+            rtc_ice_emit_state_reason(pc, RTC_ICE_FAILED,
+                                      RTC_ICE_FAILURE_MALFORMED_STUN);
+            pc->counters.ice.checks_failed++;
+        }
         return status;
     }
 
@@ -688,6 +716,8 @@ rtc_status_t rtc_ice_handle_stun_response(rtc_peer_connection_t *pc,
         }
     }
     if (!matched) {
+        rtc_observer_emit_error(&pc->observer, RTC_STATUS_PROTOCOL_ERROR,
+                                "stun", "handle_stun_response", 0);
         return RTC_STATUS_PROTOCOL_ERROR;
     }
 
@@ -695,7 +725,7 @@ rtc_status_t rtc_ice_handle_stun_response(rtc_peer_connection_t *pc,
         uint16_t code = 0;
         if (rtc_stun_parse_error_code(data, data_len, &code) == RTC_STATUS_OK &&
             code == RTC_STUN_ERROR_ROLE_CONFLICT) {
-            rtc_ice_fail(pc, "pair_check", "role_conflict");
+            rtc_ice_fail(pc, "pair_check", RTC_ICE_FAILURE_ROLE_CONFLICT);
         }
         return RTC_STATUS_PROTOCOL_ERROR;
     }

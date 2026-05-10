@@ -52,7 +52,7 @@
 
 非法状态转换返回 `RTC_STATUS_INVALID_STATE`，结构缺失返回 `RTC_STATUS_PROTOCOL_ERROR`，不支持的方向或 codec 返回 `RTC_STATUS_UNSUPPORTED`。失败路径不会保存 description，也不会推进 JSEP 状态。
 
-第 3 阶段新增 `rtc_peer_connection_gather_candidates` 和 `rtc_peer_connection_start_connectivity_checks`，二者必须在 `RTC_EXECUTOR_NETWORK` 上调用。`rtc_peer_connection_gather_candidates` 负责显式启动 host/srflx gathering；`rtc_peer_connection_start_connectivity_checks` 后续负责 candidate pair checks。`createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription` 和 `addIceCandidate` 不会隐式启动 checks、STUN transaction、socket 或 datagram 输出。
+第 3 阶段新增 `rtc_peer_connection_gather_candidates` 和 `rtc_peer_connection_start_connectivity_checks`，二者必须在 `RTC_EXECUTOR_NETWORK` 上调用。`rtc_peer_connection_gather_candidates` 负责显式启动 host/srflx gathering；`rtc_peer_connection_start_connectivity_checks` 负责 Full ICE candidate pair checks、regular nomination 和 selected pair 推进。`createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription` 和 `addIceCandidate` 不会隐式启动 socket，也不会隐式启动 gathering/checks；只有已显式启动 checks 后的 trickle `addIceCandidate` 会在固定 pair table 内增量创建 candidate pair。
 
 `rtc_peer_connection_gather_candidates` 的当前行为：
 
@@ -62,13 +62,26 @@
 - STUN timeout：network executor 的 timer 回调会释放 transaction 槽并递增 timeout counter；如果 host candidate 已输出，则 gathering 仍以 host-only 结果完成。
 - 重复调用：gathering 已开始或已完成后再次调用 `rtc_peer_connection_gather_candidates` 返回 `RTC_STATUS_INVALID_STATE`。
 
+`rtc_peer_connection_start_connectivity_checks` 的当前行为：
+
+- 启动前要求至少 1 个本地 candidate 和至少 1 个远端 candidate。缺少本地候选返回 `RTC_STATUS_INVALID_STATE`，状态进入 `ice.failed`，trace reason 为 `no_local_candidates`；缺少远端候选同理，reason 为 `no_remote_candidates`。
+- ICE role 由 JSEP 路径推导：本地 offer 路径为 `controlling`，远端 offer 路径为 `controlled`；测试路径未设置 description 时默认按 `controlling` 处理。
+- 启动时为每个 local/remote candidate 组合创建 candidate pair，受 `limits.ice.max_candidate_pairs` 约束。容量不足返回 `RTC_STATUS_CAPACITY_ICE_PAIRS`，状态进入 `ice.failed`，reason 为 `capacity_exhausted`。
+- pair 创建通过 `RTC_TRACE_ICE_PAIR_CREATED` 输出，字段包含 pair id、本地/远端地址、candidate type、port 和 deterministic priority。
+- checks 启动后进入 `ice.checking`，并通过 `observer.on_datagram` 输出最高优先级 pair 的 STUN Binding request。用户负责把 datagram 发往远端 candidate；库不创建 socket，不保存回调 buffer。
+- controlling 角色采用 regular nomination：普通 Binding success 只把 pair 标记为 succeeded，随后发送带 `USE-CANDIDATE` 的 nominated Binding request；nominated success 后设置 selected pair，状态进入 `ice.connected`。
+- controlled 角色收到带 `USE-CANDIDATE` 的 nominated Binding request 后标记 nominated，并设置 selected pair。
+- selected pair 通过 `RTC_TRACE_ICE_SELECTED_PAIR` 输出，字段包含 `pair_id`、`role`、`local_address`、`remote_address`、`candidate_type` 和 `port`。
+- pair check timeout 会释放 STUN transaction 槽、递增 timeout counter，并尝试下一个 pair；所有 pair exhausted 后进入 `ice.failed`，reason 为 `pair_check_exhausted`，`checks_failed` counter 递增。
+- STUN role conflict error response 映射为 `role_conflict`，通过 observer error 和 `RTC_TRACE_ICE_STATE` reason 暴露。当前实现不能安全调整 role 时进入 `ice.failed`。
+- 畸形 STUN datagram 映射为 `malformed_stun`。非 STUN/未知 datagram 在后续 demux 入口中应映射为 `unknown_datagram`。
+
 `rtc_peer_connection_config_t.local_host_ip` 必须是 IP 字面量字符，`local_host_port` 必须大于 0。`rtc_peer_connection_config_t.stun_server_count` 只接受 `0` 或 `1`。为 `1` 时，`stun_server.ip` 必须是 IPv4/IPv6 字面量字符，`stun_server.port` 必须大于 0；hostname/DNS 和多个 STUN server 不属于首版边界。
 
-`addIceCandidate` 仅接受 `candidate:` 或 `a=candidate:` 开头的远端 candidate 字符串，并复制到创建阶段分配的固定槽。第 3 阶段会解析 foundation、component、transport、priority、address、port 和 type，当前只支持 `host/srflx`，要求 component 为 `1`、transport 为 UDP、port 在 `1..65535`。原始字符串和结构化摘要都会复制到内部 arena，不保存调用方 buffer；调用返回后用户可以立即复用或释放输入 buffer。槽数量受 `limits.ice.max_candidates` 限制，超限返回 `RTC_STATUS_CAPACITY_ICE_CANDIDATES`。本计划中 `addIceCandidate` 不创建 candidate pair、不执行 STUN、不触发 `on_local_candidate`，也不会产生任何 socket 或 datagram 副作用。
+`addIceCandidate` 仅接受 `candidate:` 或 `a=candidate:` 开头的远端 candidate 字符串，并复制到创建阶段分配的固定槽。第 3 阶段会解析 foundation、component、transport、priority、address、port 和 type，当前只支持 `host/srflx`，要求 component 为 `1`、transport 为 UDP、port 在 `1..65535`。原始字符串和结构化摘要都会复制到内部 arena，不保存调用方 buffer；调用返回后用户可以立即复用或释放输入 buffer。槽数量受 `limits.ice.max_candidates` 限制，超限返回 `RTC_STATUS_CAPACITY_ICE_CANDIDATES`。如果 checks 已经启动，`addIceCandidate` 会为新增远端 candidate 与现有本地 candidates 增量创建 pair；pair table 超限返回 `RTC_STATUS_CAPACITY_ICE_PAIRS`。该增量路径仍不创建 socket，不触发 `on_local_candidate`。
 
 ## 当前占位 API
 
-第 3 阶段已经实现 host/srflx gathering，但尚未实现 ICE connectivity checks、DTLS-SRTP 或 RTP/RTCP。以下 API 当前返回 `RTC_STATUS_UNSUPPORTED`：
+第 3 阶段已经实现 host/srflx gathering 和 ICE connectivity checks，但尚未实现 DTLS-SRTP 或 RTP/RTCP。以下 API 当前返回 `RTC_STATUS_UNSUPPORTED`：
 
 - `rtc_peer_connection_receive_datagram`
-- `rtc_peer_connection_start_connectivity_checks`
