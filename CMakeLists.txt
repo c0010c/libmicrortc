@@ -49,6 +49,7 @@ if(RTC_BUILD_TESTS)
         tests/test_stun.c
         tests/test_ice.c
         tests/test_datagram.c
+        tests/test_security.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
