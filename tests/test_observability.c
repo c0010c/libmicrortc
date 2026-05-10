@@ -95,6 +95,8 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.arena.size = arena_size;
     config.limits.sdp.max_description_bytes = 2048;
     config.limits.ice.max_candidates = 8;
+    config.limits.ice.max_candidate_pairs = 16;
+    config.limits.ice.max_transactions = 4;
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
     config.limits.rtp.max_packet_cache = 16;

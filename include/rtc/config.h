@@ -21,6 +21,8 @@ typedef enum rtc_capacity_resource_t {
     RTC_CAPACITY_RESOURCE_ARENA = 0,
     RTC_CAPACITY_RESOURCE_SDP_BUFFER,
     RTC_CAPACITY_RESOURCE_ICE_CANDIDATES,
+    RTC_CAPACITY_RESOURCE_ICE_PAIRS,
+    RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS,
     RTC_CAPACITY_RESOURCE_TIMER_SLOTS,
     RTC_CAPACITY_RESOURCE_PACKET_CACHE,
     RTC_CAPACITY_RESOURCE_TRACE_BUFFER
@@ -45,10 +47,18 @@ typedef struct rtc_sdp_parameters_t {
     uint64_t session_version;
 } rtc_sdp_parameters_t;
 
+typedef struct rtc_stun_server_t {
+    const char *ip;
+    size_t ip_len;
+    uint16_t port;
+} rtc_stun_server_t;
+
 typedef struct rtc_peer_connection_config_t {
     rtc_arena_t arena;
     rtc_peer_connection_limits_t limits;
     rtc_sdp_parameters_t sdp;
+    rtc_stun_server_t stun_server;
+    size_t stun_server_count;
     void *platform;
     rtc_executors_t executors;
     rtc_observer_vtable_t observer;

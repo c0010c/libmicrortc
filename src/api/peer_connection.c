@@ -83,6 +83,37 @@ static int rtc_executor_vtable_valid(const rtc_executor_vtable_t *executor)
            executor->schedule_timer != 0 && executor->cancel_timer != 0;
 }
 
+static int rtc_stun_ip_char_valid(char ch)
+{
+    return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') ||
+           (ch >= 'a' && ch <= 'f') || ch == ':' || ch == '.';
+}
+
+static rtc_status_t rtc_validate_stun_config(
+    const rtc_peer_connection_config_t *config)
+{
+    size_t i;
+
+    if (config->stun_server_count > 1u) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (config->stun_server_count == 0u) {
+        return RTC_STATUS_OK;
+    }
+    if (config->stun_server.ip == 0 || config->stun_server.ip_len == 0 ||
+        config->stun_server.port == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (i = 0; i < config->stun_server.ip_len; ++i) {
+        if (!rtc_stun_ip_char_valid(config->stun_server.ip[i])) {
+            return RTC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t rtc_validate_config(const rtc_peer_connection_config_t *config)
 {
     if (config == 0 || config->arena.data == 0 || config->arena.size == 0) {
@@ -96,6 +127,9 @@ static rtc_status_t rtc_validate_config(const rtc_peer_connection_config_t *conf
     }
 
     if (config->limits.sdp.max_description_bytes == 0 ||
+        config->limits.ice.max_candidates == 0 ||
+        config->limits.ice.max_candidate_pairs == 0 ||
+        config->limits.ice.max_transactions == 0 ||
         config->sdp.ice_ufrag == 0 || config->sdp.ice_ufrag_len == 0 ||
         config->sdp.ice_pwd == 0 || config->sdp.ice_pwd_len == 0 ||
         config->sdp.dtls_fingerprint == 0 ||
@@ -104,7 +138,7 @@ static rtc_status_t rtc_validate_config(const rtc_peer_connection_config_t *conf
         return RTC_STATUS_INVALID_ARGUMENT;
     }
 
-    return RTC_STATUS_OK;
+    return rtc_validate_stun_config(config);
 }
 
 static rtc_status_t rtc_pc_alloc_sdp_buffer(rtc_arena_view_t *arena,
@@ -129,6 +163,48 @@ static rtc_status_t rtc_pc_alloc_candidates(rtc_arena_view_t *arena,
         arena, bytes, sizeof(char), RTC_CAPACITY_RESOURCE_ICE_CANDIDATES, diag);
     return *out_candidates != 0 ? RTC_STATUS_OK
                                 : RTC_STATUS_CAPACITY_ICE_CANDIDATES;
+}
+
+static rtc_status_t rtc_pc_alloc_candidate_summaries(
+    rtc_arena_view_t *arena, size_t max_candidates,
+    rtc_ice_candidate_summary_t **out_candidates,
+    rtc_capacity_diagnostics_t *diag)
+{
+    size_t bytes;
+
+    bytes = max_candidates * sizeof(**out_candidates);
+    *out_candidates = (rtc_ice_candidate_summary_t *)rtc_core_alloc(
+        arena, bytes, sizeof(void *), RTC_CAPACITY_RESOURCE_ICE_CANDIDATES,
+        diag);
+    return *out_candidates != 0 ? RTC_STATUS_OK
+                                : RTC_STATUS_CAPACITY_ICE_CANDIDATES;
+}
+
+static rtc_status_t rtc_pc_alloc_candidate_pairs(
+    rtc_arena_view_t *arena, size_t max_pairs,
+    rtc_ice_candidate_pair_t **out_pairs, rtc_capacity_diagnostics_t *diag)
+{
+    size_t bytes;
+
+    bytes = max_pairs * sizeof(**out_pairs);
+    *out_pairs = (rtc_ice_candidate_pair_t *)rtc_core_alloc(
+        arena, bytes, sizeof(void *), RTC_CAPACITY_RESOURCE_ICE_PAIRS, diag);
+    return *out_pairs != 0 ? RTC_STATUS_OK : RTC_STATUS_CAPACITY_ICE_PAIRS;
+}
+
+static rtc_status_t rtc_pc_alloc_stun_transactions(
+    rtc_arena_view_t *arena, size_t max_transactions,
+    rtc_stun_transaction_t **out_transactions,
+    rtc_capacity_diagnostics_t *diag)
+{
+    size_t bytes;
+
+    bytes = max_transactions * sizeof(**out_transactions);
+    *out_transactions = (rtc_stun_transaction_t *)rtc_core_alloc(
+        arena, bytes, sizeof(void *),
+        RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS, diag);
+    return *out_transactions != 0 ? RTC_STATUS_OK
+                                  : RTC_STATUS_CAPACITY_STUN_TRANSACTIONS;
 }
 
 static rtc_status_t rtc_require_pc(rtc_peer_connection_t *pc)
@@ -191,6 +267,8 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->arena = arena;
     pc->limits = config->limits;
     pc->sdp = config->sdp;
+    pc->stun_server = config->stun_server;
+    pc->stun_server_count = config->stun_server_count;
     pc->executors = config->executors;
     pc->observer = config->observer;
     rtc_counters_init(&pc->counters);
@@ -199,7 +277,12 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->local_description_len = 0;
     pc->remote_description_len = 0;
     pc->remote_candidate_slot_bytes = RTC_PC_REMOTE_CANDIDATE_SLOT_BYTES;
+    pc->local_candidate_count = 0;
     pc->remote_candidate_count = 0;
+    pc->candidate_pair_count = 0;
+    pc->stun_transaction_count = 0;
+    pc->connectivity_checks_started = 0;
+    pc->remote_candidate_pending_pairs = 0;
     pc->is_closed = 0;
 
     status = rtc_pc_alloc_sdp_buffer(&pc->arena,
@@ -220,11 +303,64 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     if (status != RTC_STATUS_OK) {
         return status;
     }
+    status = rtc_pc_alloc_candidate_summaries(
+        &pc->arena, config->limits.ice.max_candidates,
+        &pc->local_candidate_summaries, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    status = rtc_pc_alloc_candidate_summaries(
+        &pc->arena, config->limits.ice.max_candidates,
+        &pc->remote_candidate_summaries, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    status = rtc_pc_alloc_candidate_pairs(
+        &pc->arena, config->limits.ice.max_candidate_pairs,
+        &pc->candidate_pairs, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    status = rtc_pc_alloc_stun_transactions(
+        &pc->arena, config->limits.ice.max_transactions,
+        &pc->stun_transactions, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
 
     *out_pc = pc;
     rtc_pc_trace(pc, RTC_TRACE_PC_CREATE, "create", RTC_STATUS_OK);
 
     return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_unsupported_network(rtc_peer_connection_t *pc,
+                                            const char *operation)
+{
+    rtc_status_t status;
+
+    status = rtc_require_pc(pc);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    status = rtc_executor_require(RTC_EXECUTOR_NETWORK);
+    if (status != RTC_STATUS_OK) {
+        return rtc_pc_affinity_violation(pc, operation);
+    }
+
+    return rtc_pc_unsupported(pc, operation);
+}
+
+rtc_status_t rtc_peer_connection_gather_candidates(rtc_peer_connection_t *pc)
+{
+    return rtc_unsupported_network(pc, "gather_candidates");
+}
+
+rtc_status_t rtc_peer_connection_start_connectivity_checks(
+    rtc_peer_connection_t *pc)
+{
+    return rtc_unsupported_network(pc, "start_connectivity_checks");
 }
 
 rtc_status_t rtc_peer_connection_destroy(rtc_peer_connection_t *pc)

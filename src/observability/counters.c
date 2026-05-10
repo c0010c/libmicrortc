@@ -11,6 +11,20 @@ void rtc_counters_init(rtc_peer_connection_counters_t *counters)
     counters->api.create_calls = 0;
     counters->api.destroy_calls = 0;
     counters->api.unsupported_api_calls = 0;
+    counters->ice.local_candidates = 0;
+    counters->ice.remote_candidates = 0;
+    counters->ice.candidate_pairs = 0;
+    counters->ice.selected_pairs = 0;
+    counters->ice.gathering_failures = 0;
+    counters->ice.checks_failed = 0;
+    counters->stun.transactions_sent = 0;
+    counters->stun.transactions_received = 0;
+    counters->stun.transactions_timed_out = 0;
+    counters->net.demux_stun = 0;
+    counters->net.demux_dtls = 0;
+    counters->net.demux_rtp = 0;
+    counters->net.demux_rtcp = 0;
+    counters->net.demux_unknown = 0;
     counters->trace.trace_events = 0;
 }
 

@@ -56,6 +56,8 @@ int main(void)
     config.arena.size = sizeof(arena);
     config.limits.sdp.max_description_bytes = 1024;
     config.limits.ice.max_candidates = 8;
+    config.limits.ice.max_candidate_pairs = 16;
+    config.limits.ice.max_transactions = 4;
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
     config.limits.rtp.max_packet_cache = 16;

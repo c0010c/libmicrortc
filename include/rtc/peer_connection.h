@@ -34,6 +34,9 @@ rtc_status_t rtc_peer_connection_set_remote_description(rtc_peer_connection_t *p
 rtc_status_t rtc_peer_connection_add_ice_candidate(rtc_peer_connection_t *pc,
                                                    const char *candidate,
                                                    size_t candidate_len);
+rtc_status_t rtc_peer_connection_gather_candidates(rtc_peer_connection_t *pc);
+rtc_status_t rtc_peer_connection_start_connectivity_checks(
+    rtc_peer_connection_t *pc);
 rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
                                                   const uint8_t *data,
                                                   size_t data_len);

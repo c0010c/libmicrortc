@@ -18,6 +18,13 @@ extern "C" {
 #define RTC_TRACE_JSEP_TRANSITION "jsep.transition"
 #define RTC_TRACE_JSEP_REJECT "jsep.reject"
 #define RTC_TRACE_ICE_CANDIDATE_STORED "ice.candidate.stored"
+#define RTC_TRACE_ICE_STATE "ice.state"
+#define RTC_TRACE_ICE_CANDIDATE_LOCAL "ice.candidate.local"
+#define RTC_TRACE_ICE_CANDIDATE_REMOTE "ice.candidate.remote"
+#define RTC_TRACE_ICE_PAIR_CREATED "ice.pair.created"
+#define RTC_TRACE_ICE_SELECTED_PAIR "ice.selected_pair"
+#define RTC_TRACE_STUN_TRANSACTION "stun.transaction"
+#define RTC_TRACE_NET_DEMUX "net.demux"
 
 #define RTC_TRACE_FIELD_SUBSYSTEM "subsystem"
 #define RTC_TRACE_FIELD_OPERATION "operation"
@@ -29,6 +36,15 @@ extern "C" {
 #define RTC_TRACE_FIELD_TARGET_STATE "target_state"
 #define RTC_TRACE_FIELD_DESCRIPTION_TYPE "description_type"
 #define RTC_TRACE_FIELD_REASON "reason"
+#define RTC_TRACE_FIELD_CANDIDATE_TYPE "candidate_type"
+#define RTC_TRACE_FIELD_CANDIDATE_ID "candidate_id"
+#define RTC_TRACE_FIELD_PAIR_ID "pair_id"
+#define RTC_TRACE_FIELD_ROLE "role"
+#define RTC_TRACE_FIELD_LOCAL_ADDRESS "local_address"
+#define RTC_TRACE_FIELD_REMOTE_ADDRESS "remote_address"
+#define RTC_TRACE_FIELD_PORT "port"
+#define RTC_TRACE_FIELD_TRANSACTION_ID "transaction_id"
+#define RTC_TRACE_FIELD_PROTOCOL "protocol"
 
 typedef struct rtc_trace_field_t {
     const char *key;

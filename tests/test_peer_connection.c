@@ -55,6 +55,8 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.arena.size = arena_size;
     config.limits.sdp.max_description_bytes = 2048;
     config.limits.ice.max_candidates = 8;
+    config.limits.ice.max_candidate_pairs = 16;
+    config.limits.ice.max_transactions = 4;
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
     config.limits.rtp.max_packet_cache = 16;
@@ -99,10 +101,60 @@ int rtc_test_peer_connection(void)
     RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
                     rtc_peer_connection_create(0, &diag, &pc));
 
+    config = test_config(arena, sizeof(arena));
+    config.stun_server_count = 1;
+    config.stun_server.ip = "192.0.2.1";
+    config.stun_server.ip_len = strlen(config.stun_server.ip);
+    config.stun_server.port = 3478;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+
+    config = test_config(arena, sizeof(arena));
+    config.stun_server_count = 2;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
+    config = test_config(arena, sizeof(arena));
+    config.stun_server_count = 1;
+    config.stun_server.ip = "stun.example.test";
+    config.stun_server.ip_len = strlen(config.stun_server.ip);
+    config.stun_server.port = 3478;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
+    config = test_config(arena, sizeof(arena));
+    config.stun_server_count = 1;
+    config.stun_server.ip = "2001:db8::1";
+    config.stun_server.ip_len = strlen(config.stun_server.ip);
+    config.stun_server.port = 0;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
     config = test_config(small_arena, sizeof(small_arena));
     RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ARENA,
                     rtc_peer_connection_create(&config, &diag, &pc));
     RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_ARENA, diag.resource);
+
+    {
+        unsigned char pair_arena[6400];
+        config = test_config(pair_arena, sizeof(pair_arena));
+        config.limits.ice.max_candidates = 1;
+        RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ICE_PAIRS,
+                        rtc_peer_connection_create(&config, &diag, &pc));
+        RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_ICE_PAIRS, diag.resource);
+    }
+
+    {
+        unsigned char transaction_arena[6420];
+        config = test_config(transaction_arena, sizeof(transaction_arena));
+        config.limits.ice.max_candidates = 1;
+        config.limits.ice.max_candidate_pairs = 1;
+        RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_STUN_TRANSACTIONS,
+                        rtc_peer_connection_create(&config, &diag, &pc));
+        RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS,
+                        diag.resource);
+    }
 
     config = test_config(arena, sizeof(arena));
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
@@ -128,6 +180,15 @@ int rtc_test_peer_connection(void)
     rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
     RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
                     rtc_peer_connection_receive_datagram(pc, 0, 0));
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+                    rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
+    RTC_TEST_EQ_INT(RTC_STATUS_AFFINITY_VIOLATION,
+                    rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_AFFINITY_VIOLATION,
+                    rtc_peer_connection_start_connectivity_checks(pc));
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
 

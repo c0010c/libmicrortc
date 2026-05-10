@@ -13,6 +13,8 @@ typedef struct rtc_sdp_limits_t {
 
 typedef struct rtc_ice_limits_t {
     size_t max_candidates;
+    size_t max_candidate_pairs;
+    size_t max_transactions;
     size_t max_timer_slots;
 } rtc_ice_limits_t;
 
