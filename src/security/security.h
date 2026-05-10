@@ -9,6 +9,8 @@
 
 typedef struct rtc_peer_connection_t rtc_peer_connection_t;
 
+#define RTC_DTLS_SRTP_KEY_MATERIAL_BYTES 60u
+
 rtc_status_t rtc_security_init(
     rtc_peer_connection_t *pc,
     const rtc_security_backend_config_t *backend);

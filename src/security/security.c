@@ -8,6 +8,10 @@
 #include <string.h>
 
 #define RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH 4001
+#define RTC_SECURITY_DETAIL_KEY_EXPORT_FAILED 4002
+#define RTC_SECURITY_DETAIL_SRTP_INIT_FAILED 4003
+
+static const char RTC_DTLS_SRTP_EXPORTER_LABEL[] = "EXTRACTOR-dtls_srtp";
 
 static const char *rtc_security_dtls_state_name(rtc_security_dtls_state_t state)
 {
@@ -64,6 +68,33 @@ static void rtc_security_emit_state(rtc_peer_connection_t *pc,
                        reason);
 }
 
+static void rtc_security_emit_srtp_ready(rtc_peer_connection_t *pc)
+{
+    rtc_trace_field_t fields[5];
+
+    pc->srtp_ready = 1;
+    rtc_observer_emit_state(&pc->observer, "srtp.ready");
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "srtp";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = "srtp_init";
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_STATUS;
+    fields[2].value = 0;
+    fields[2].number = (uint64_t)RTC_STATUS_OK;
+    fields[3].key = RTC_TRACE_FIELD_STATE;
+    fields[3].value = "srtp.ready";
+    fields[3].number = 0;
+    fields[4].key = RTC_TRACE_FIELD_REASON;
+    fields[4].value = "srtp_init_ok";
+    fields[4].number = 0;
+
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_SRTP_STATE, fields, 5);
+}
+
 static int rtc_security_is_sha256_fingerprint(const char *fingerprint,
                                               size_t fingerprint_len)
 {
@@ -90,6 +121,7 @@ static rtc_status_t rtc_security_fail_fingerprint(
 static void rtc_security_handle_handshake_complete(rtc_peer_connection_t *pc)
 {
     rtc_status_t status;
+    uint8_t key_block[RTC_DTLS_SRTP_KEY_MATERIAL_BYTES];
 
     status = rtc_security_verify_peer_fingerprint(pc);
     if (status != RTC_STATUS_OK) {
@@ -97,8 +129,51 @@ static void rtc_security_handle_handshake_complete(rtc_peer_connection_t *pc)
         return;
     }
 
+    if (pc->security_backend == 0 || pc->security_backend->vtable == 0 ||
+        pc->security_backend->vtable->export_keying_material == 0 ||
+        pc->security_backend->vtable->init_srtp_context == 0 ||
+        pc->security_session == 0) {
+        status = RTC_STATUS_BACKEND_ERROR;
+    } else {
+        status = pc->security_backend->vtable->export_keying_material(
+            pc->security_session, RTC_DTLS_SRTP_EXPORTER_LABEL,
+            sizeof(RTC_DTLS_SRTP_EXPORTER_LABEL) - 1u, key_block,
+            sizeof(key_block));
+    }
+    if (status != RTC_STATUS_OK) {
+        pc->srtp_ready = 0;
+        pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
+        pc->counters.dtls.key_export_failed++;
+        pc->counters.dtls.handshake_failed++;
+        rtc_observer_emit_state(&pc->observer, "dtls.failed");
+        rtc_observer_emit_error(&pc->observer, RTC_STATUS_BACKEND_ERROR,
+                                "srtp", "key_export",
+                                RTC_SECURITY_DETAIL_KEY_EXPORT_FAILED);
+        rtc_security_trace(pc, RTC_TRACE_SRTP_STATE, "key_export",
+                           RTC_STATUS_BACKEND_ERROR, "key_export_failed");
+        return;
+    }
+
+    status = pc->security_backend->vtable->init_srtp_context(
+        pc->security_session, key_block, sizeof(key_block), pc->dtls_role);
+    memset(key_block, 0, sizeof(key_block));
+    if (status != RTC_STATUS_OK) {
+        pc->srtp_ready = 0;
+        pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
+        pc->counters.dtls.srtp_init_failed++;
+        pc->counters.dtls.handshake_failed++;
+        rtc_observer_emit_state(&pc->observer, "dtls.failed");
+        rtc_observer_emit_error(&pc->observer, RTC_STATUS_BACKEND_ERROR,
+                                "srtp", "srtp_init",
+                                RTC_SECURITY_DETAIL_SRTP_INIT_FAILED);
+        rtc_security_trace(pc, RTC_TRACE_SRTP_STATE, "srtp_init",
+                           RTC_STATUS_BACKEND_ERROR, "srtp_init_failed");
+        return;
+    }
+
     pc->counters.dtls.handshake_completed++;
     rtc_security_emit_state(pc, RTC_SECURITY_DTLS_CONNECTED, 0);
+    rtc_security_emit_srtp_ready(pc);
 }
 
 static void rtc_security_backend_event_cb_dispatch(
