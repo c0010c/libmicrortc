@@ -25,6 +25,10 @@ extern "C" {
 #define RTC_TRACE_ICE_SELECTED_PAIR "ice.selected_pair"
 #define RTC_TRACE_STUN_TRANSACTION "stun.transaction"
 #define RTC_TRACE_NET_DEMUX "net.demux"
+#define RTC_TRACE_DTLS_STATE "dtls.state"
+#define RTC_TRACE_DTLS_HANDSHAKE "dtls.handshake"
+#define RTC_TRACE_SRTP_STATE "srtp.state"
+#define RTC_TRACE_SRTP_PROTECT "srtp.protect"
 
 #define RTC_TRACE_FIELD_SUBSYSTEM "subsystem"
 #define RTC_TRACE_FIELD_OPERATION "operation"

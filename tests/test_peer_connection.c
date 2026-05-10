@@ -149,7 +149,7 @@ int rtc_test_peer_connection(void)
     }
 
     {
-        unsigned char transaction_arena[6500];
+        unsigned char transaction_arena[6700];
         config = test_config(transaction_arena, sizeof(transaction_arena));
         config.limits.ice.max_candidates = 1;
         config.limits.ice.max_candidate_pairs = 1;

@@ -25,6 +25,17 @@ void rtc_counters_init(rtc_peer_connection_counters_t *counters)
     counters->net.demux_rtp = 0;
     counters->net.demux_rtcp = 0;
     counters->net.demux_unknown = 0;
+    counters->dtls.handshake_started = 0;
+    counters->dtls.handshake_completed = 0;
+    counters->dtls.handshake_failed = 0;
+    counters->dtls.early_datagrams_rejected = 0;
+    counters->dtls.outgoing_datagrams = 0;
+    counters->dtls.fingerprint_mismatch = 0;
+    counters->dtls.key_export_failed = 0;
+    counters->dtls.srtp_init_failed = 0;
+    counters->srtp.protect_failed = 0;
+    counters->srtp.unprotect_failed = 0;
+    counters->srtp.replay_failed = 0;
     counters->trace.trace_events = 0;
 }
 

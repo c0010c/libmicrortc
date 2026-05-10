@@ -44,6 +44,23 @@ typedef struct rtc_net_counters_t {
     uint64_t demux_unknown;
 } rtc_net_counters_t;
 
+typedef struct rtc_dtls_counters_t {
+    uint64_t handshake_started;
+    uint64_t handshake_completed;
+    uint64_t handshake_failed;
+    uint64_t early_datagrams_rejected;
+    uint64_t outgoing_datagrams;
+    uint64_t fingerprint_mismatch;
+    uint64_t key_export_failed;
+    uint64_t srtp_init_failed;
+} rtc_dtls_counters_t;
+
+typedef struct rtc_srtp_counters_t {
+    uint64_t protect_failed;
+    uint64_t unprotect_failed;
+    uint64_t replay_failed;
+} rtc_srtp_counters_t;
+
 typedef struct rtc_trace_counters_t {
     uint64_t trace_events;
 } rtc_trace_counters_t;
@@ -55,6 +72,8 @@ typedef struct rtc_peer_connection_counters_t {
     rtc_ice_counters_t ice;
     rtc_stun_counters_t stun;
     rtc_net_counters_t net;
+    rtc_dtls_counters_t dtls;
+    rtc_srtp_counters_t srtp;
     rtc_trace_counters_t trace;
 } rtc_peer_connection_counters_t;
 
