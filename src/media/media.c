@@ -3,6 +3,7 @@
 #include "observability/counters.h"
 #include "observability/observer.h"
 #include "observability/trace.h"
+#include "rtcp/rtcp.h"
 #include "rtp/rtp.h"
 #include "srtp/srtp.h"
 
@@ -87,6 +88,19 @@ static void rtc_media_network_send_task(void *user_data)
                                      slot->payload_len);
         }
         pc->counters.rtp.packets_sent++;
+        if (slot->kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
+            pc->rtcp_audio.packets_sent++;
+            if (slot->payload_len >= RTC_RTP_HEADER_BYTES) {
+                pc->rtcp_audio.octets_sent +=
+                    slot->payload_len - RTC_RTP_HEADER_BYTES;
+            }
+        } else if (slot->kind == RTC_MEDIA_KIND_VIDEO_H264) {
+            pc->rtcp_video.packets_sent++;
+            if (slot->payload_len >= RTC_RTP_HEADER_BYTES) {
+                pc->rtcp_video.octets_sent +=
+                    slot->payload_len - RTC_RTP_HEADER_BYTES;
+            }
+        }
     } else {
         pc->counters.rtp.packets_dropped++;
     }
@@ -290,8 +304,105 @@ rtc_status_t rtc_media_handle_rtp_datagram(rtc_peer_connection_t *pc,
     slot->marker = header.marker;
     slot->dispatch_status = RTC_STATUS_OK;
     pc->counters.rtp.packets_received++;
+    if (header.payload_type == RTC_RTP_PAYLOAD_TYPE_OPUS) {
+        pc->rtcp_audio.ssrc = header.ssrc;
+        pc->rtcp_audio.packets_received++;
+        pc->rtcp_audio.last_sequence = header.sequence;
+    } else if (header.payload_type == RTC_RTP_PAYLOAD_TYPE_H264) {
+        pc->rtcp_video.ssrc = header.ssrc;
+        pc->rtcp_video.packets_received++;
+        pc->rtcp_video.last_sequence = header.sequence;
+    }
 
     return rtc_media_dispatch_received_slot(pc, slot);
+}
+
+rtc_status_t rtc_media_handle_rtcp_datagram(rtc_peer_connection_t *pc,
+                                            const uint8_t *data,
+                                            size_t data_len)
+{
+    rtc_media_queue_slot_t *slot;
+    rtc_status_t status;
+    size_t packet_len;
+
+    if (pc == 0 || data == 0 || data_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (data_len > pc->media_packet_capacity) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+
+    slot = rtc_media_acquire_slot(pc);
+    if (slot == 0) {
+        return RTC_STATUS_CAPACITY;
+    }
+    memcpy(slot->payload, data, data_len);
+    slot->payload_len = data_len;
+    packet_len = slot->payload_len;
+
+    status = rtc_srtp_unprotect_rtcp(pc, slot->payload, &packet_len);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        return status;
+    }
+
+    status = rtc_rtcp_parse_compound(pc, slot->payload, packet_len);
+    rtc_media_release_slot(slot);
+    return status;
+}
+
+rtc_status_t rtc_media_send_rtcp_reports(rtc_peer_connection_t *pc)
+{
+    rtc_media_queue_slot_t *slot;
+    size_t offset = 0;
+    size_t written = 0;
+    size_t packet_len;
+    rtc_status_t status;
+
+    if (pc == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+
+    slot = rtc_media_acquire_slot(pc);
+    if (slot == 0) {
+        return RTC_STATUS_CAPACITY;
+    }
+
+    status = rtc_rtcp_write_sender_report(&pc->rtcp_audio, slot->payload,
+                                          slot->payload_capacity, &written);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        return status;
+    }
+    offset += written;
+
+    status = rtc_rtcp_write_sdes(
+        pc->rtcp_audio.ssrc, "rtc-cname", 9,
+        pc->limits.rtcp.max_sdes_cname_bytes, slot->payload + offset,
+        slot->payload_capacity - offset, &written);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        return status;
+    }
+    offset += written;
+    packet_len = offset;
+
+    status = rtc_srtp_protect_rtcp(pc, slot->payload, &packet_len,
+                                   slot->payload_capacity);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        return status;
+    }
+
+    slot->payload_len = packet_len;
+    if (pc->observer.on_datagram != 0) {
+        pc->observer.on_datagram(pc->observer.user_data, slot->payload,
+                                 slot->payload_len);
+    }
+    pc->counters.rtcp.rtcp_sr_sent++;
+    pc->counters.rtcp.rtcp_sdes_sent++;
+    rtc_media_release_slot(slot);
+    return RTC_STATUS_OK;
 }
 
 static rtc_status_t rtc_media_send_opus(rtc_peer_connection_t *pc,

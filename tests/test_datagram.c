@@ -275,7 +275,7 @@ static int test_receive_demux_and_errors(void)
     RTC_TEST_ASSERT(strcmp(state.last_reason, "ice_not_connected") == 0);
     RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
                     rtc_peer_connection_receive_datagram(pc, rtp, sizeof(rtp)));
-    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
                     rtc_peer_connection_receive_datagram(pc, rtcp,
                                                          sizeof(rtcp)));
     RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,

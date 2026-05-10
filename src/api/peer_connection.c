@@ -1164,6 +1164,10 @@ rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
         return rtc_media_handle_rtp_datagram(pc, data, data_len);
     }
 
+    if (protocol == RTC_NET_PROTOCOL_RTCP) {
+        return rtc_media_handle_rtcp_datagram(pc, data, data_len);
+    }
+
     if (protocol == RTC_NET_PROTOCOL_UNKNOWN) {
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_PROTOCOL_ERROR, "net",
                                 "receive_datagram", 0);
