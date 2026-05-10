@@ -45,8 +45,8 @@
 
 - [x] **SEC-01**: 库通过 backend vtable 驱动 DTLS 握手，不在核心 API 中绑定特定 TLS 库。
 - [x] **SEC-02**: 库校验远端 SDP fingerprint 与 DTLS 证书一致。
-- [ ] **SEC-03**: 库从 DTLS 握手导出 SRTP keying material。
-- [ ] **SEC-04**: 库通过 backend vtable 对 RTP/RTCP 执行 SRTP/SRTCP protect 和 unprotect。
+- [x] **SEC-03**: 库从 DTLS 握手导出 SRTP keying material。
+- [x] **SEC-04**: 库通过 backend vtable 对 RTP/RTCP 执行 SRTP/SRTCP protect 和 unprotect。
 - [ ] **SEC-05**: 安全后端错误被映射为稳定的 `rtc_status_t` 和 observer 错误事件。
 
 ### RTP/RTCP 与媒体帧
@@ -144,8 +144,8 @@
 | NET-03 | 第 3 阶段 | 已规划 |
 | SEC-01 | 第 4 阶段 | 已完成：04-01 建立 backend 公共契约，04-02 完成固定 storage runtime、ICE connected 自动启动 DTLS 和 DTLS datagram/event 接入 |
 | SEC-02 | 第 4 阶段 | 已完成：04-03 将本地 SDP fingerprint 绑定到 backend sha-256 fingerprint，并在 DTLS peer fingerprint mismatch 时进入 dtls.failed、阻断 key export |
-| SEC-03 | 第 4 阶段 | 已规划 |
-| SEC-04 | 第 4 阶段 | 已规划 |
+| SEC-03 | 第 4 阶段 | 已完成：04-04 在 handshake complete + fingerprint verification 后导出 `EXTRACTOR-dtls_srtp` keying material，并初始化单一 BUNDLE SRTP/SRTCP context |
+| SEC-04 | 第 4 阶段 | 已完成：04-04 新增内部 SRTP/SRTCP protect/unprotect wrapper，失败路径阻断明文或未认证数据输出 |
 | SEC-05 | 第 4 阶段 | 已规划 |
 | RTP-01 | 第 5 阶段 | 待开始 |
 | RTP-02 | 第 5 阶段 | 待开始 |
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-10，04-03 执行完成后*
+*最后更新：2026-05-10，04-04 执行完成后*
