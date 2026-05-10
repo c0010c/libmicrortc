@@ -12,6 +12,9 @@ option(RTC_BUILD_EXAMPLES "Build rtc examples" ON)
 add_library(rtc STATIC
     src/api/rtc.c
     src/api/peer_connection.c
+    src/sdp/sdp_parser.c
+    src/sdp/sdp_writer.c
+    src/jsep/jsep.c
     src/executor/executor.c
     src/memory/arena.c
     src/memory/allocator.c
@@ -37,10 +40,16 @@ if(RTC_BUILD_TESTS)
         tests/test_executor_affinity.c
         tests/test_peer_connection.c
         tests/test_observability.c
+        tests/test_sdp_writer.c
+        tests/test_sdp_parser.c
+        tests/test_jsep.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
     add_test(NAME rtc_tests COMMAND rtc_tests)
+    set_tests_properties(rtc_tests PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
 endif()
 
 if(RTC_BUILD_EXAMPLES)

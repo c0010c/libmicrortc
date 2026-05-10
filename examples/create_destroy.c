@@ -1,6 +1,7 @@
 #include "rtc/rtc.h"
 
 #include <stdint.h>
+#include <string.h>
 
 static rtc_status_t example_post(void *user_data, rtc_executor_task_fn task,
                                  void *task_user_data)
@@ -46,7 +47,7 @@ static rtc_executor_vtable_t example_executor(void)
 
 int main(void)
 {
-    unsigned char arena[1024];
+    unsigned char arena[16384];
     rtc_peer_connection_config_t config;
     rtc_capacity_diagnostics_t diag;
     rtc_peer_connection_t *pc;
@@ -60,6 +61,18 @@ int main(void)
     config.limits.rtp.max_packet_cache = 16;
     config.limits.rtcp.max_reports = 4;
     config.limits.trace.max_events = 16;
+    config.sdp.ice_ufrag = "testufrag";
+    config.sdp.ice_ufrag_len = strlen(config.sdp.ice_ufrag);
+    config.sdp.ice_pwd = "testpassword1234567890";
+    config.sdp.ice_pwd_len = strlen(config.sdp.ice_pwd);
+    config.sdp.dtls_fingerprint =
+        "sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:"
+        "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
+    config.sdp.dtls_fingerprint_len = strlen(config.sdp.dtls_fingerprint);
+    config.sdp.dtls_setup = "actpass";
+    config.sdp.dtls_setup_len = strlen(config.sdp.dtls_setup);
+    config.sdp.session_id = 1000;
+    config.sdp.session_version = 2;
     config.platform = 0;
     config.executors.signaling = example_executor();
     config.executors.media = example_executor();

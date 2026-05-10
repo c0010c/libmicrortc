@@ -7,6 +7,7 @@
 typedef struct observer_state_t {
     int error_count;
     int trace_count;
+    int local_candidate_count;
     rtc_status_t last_error;
     const char *last_trace;
 } observer_state_t;
@@ -75,20 +76,42 @@ static void on_trace(void *user_data, const char *event,
     state->last_trace = event;
 }
 
+static void on_local_candidate(void *user_data, const char *candidate,
+                               size_t candidate_len)
+{
+    observer_state_t *state = (observer_state_t *)user_data;
+    (void)candidate;
+    (void)candidate_len;
+    state->local_candidate_count++;
+}
+
 static rtc_peer_connection_config_t test_config(unsigned char *arena,
                                                 size_t arena_size,
                                                 observer_state_t *state)
 {
     rtc_peer_connection_config_t config;
+    memset(&config, 0, sizeof(config));
     config.arena.data = arena;
     config.arena.size = arena_size;
-    config.limits.sdp.max_description_bytes = 1024;
+    config.limits.sdp.max_description_bytes = 2048;
     config.limits.ice.max_candidates = 8;
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
     config.limits.rtp.max_packet_cache = 16;
     config.limits.rtcp.max_reports = 4;
     config.limits.trace.max_events = 16;
+    config.sdp.ice_ufrag = "testufrag";
+    config.sdp.ice_ufrag_len = strlen(config.sdp.ice_ufrag);
+    config.sdp.ice_pwd = "testpassword1234567890";
+    config.sdp.ice_pwd_len = strlen(config.sdp.ice_pwd);
+    config.sdp.dtls_fingerprint =
+        "sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:"
+        "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
+    config.sdp.dtls_fingerprint_len = strlen(config.sdp.dtls_fingerprint);
+    config.sdp.dtls_setup = "actpass";
+    config.sdp.dtls_setup_len = strlen(config.sdp.dtls_setup);
+    config.sdp.session_id = 1000;
+    config.sdp.session_version = 2;
     config.platform = 0;
     config.executors.signaling = test_executor();
     config.executors.media = test_executor();
@@ -96,7 +119,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.observer.on_state = 0;
     config.observer.on_error = on_error;
     config.observer.on_trace = on_trace;
-    config.observer.on_local_candidate = 0;
+    config.observer.on_local_candidate = on_local_candidate;
     config.observer.on_media_frame = 0;
     config.observer.on_datagram = 0;
     config.observer.user_data = state;
@@ -106,8 +129,8 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
 
 int rtc_test_observability(void)
 {
-    unsigned char arena[512];
-    observer_state_t state = {0, 0, RTC_STATUS_OK, 0};
+    unsigned char arena[16384];
+    observer_state_t state = {0, 0, 0, RTC_STATUS_OK, 0};
     rtc_peer_connection_config_t config;
     rtc_capacity_diagnostics_t diag;
     rtc_peer_connection_t *pc;
@@ -121,13 +144,15 @@ int rtc_test_observability(void)
     RTC_TEST_ASSERT(state.trace_count > 0);
     RTC_TEST_ASSERT(strcmp(state.last_trace, RTC_TRACE_PC_CREATE) == 0);
 
-    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
-                    rtc_peer_connection_create_offer(pc, 0, 0));
-    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED, state.last_error);
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
+                    rtc_peer_connection_create_answer(pc, 0, 0));
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE, state.last_error);
+    RTC_TEST_ASSERT(strcmp(state.last_trace, RTC_TRACE_JSEP_REJECT) == 0);
+    RTC_TEST_EQ_INT(0, state.local_candidate_count);
 
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_get_counters(pc, &counters));
-    RTC_TEST_EQ_INT(1, (int)counters.api.unsupported_api_calls);
+    RTC_TEST_EQ_INT(0, (int)counters.api.unsupported_api_calls);
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
     RTC_TEST_EQ_INT(RTC_STATUS_AFFINITY_VIOLATION,

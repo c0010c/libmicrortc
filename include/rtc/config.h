@@ -2,6 +2,7 @@
 #define RTC_CONFIG_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "rtc/executor.h"
 #include "rtc/limits.h"
@@ -31,9 +32,23 @@ typedef struct rtc_capacity_diagnostics_t {
     size_t used;
 } rtc_capacity_diagnostics_t;
 
+typedef struct rtc_sdp_parameters_t {
+    const char *ice_ufrag;
+    size_t ice_ufrag_len;
+    const char *ice_pwd;
+    size_t ice_pwd_len;
+    const char *dtls_fingerprint;
+    size_t dtls_fingerprint_len;
+    const char *dtls_setup;
+    size_t dtls_setup_len;
+    uint64_t session_id;
+    uint64_t session_version;
+} rtc_sdp_parameters_t;
+
 typedef struct rtc_peer_connection_config_t {
     rtc_arena_t arena;
     rtc_peer_connection_limits_t limits;
+    rtc_sdp_parameters_t sdp;
     void *platform;
     rtc_executors_t executors;
     rtc_observer_vtable_t observer;
