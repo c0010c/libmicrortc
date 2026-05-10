@@ -38,10 +38,10 @@
 cmake --build build && ctest --test-dir build --output-on-failure
 ```
 
-阶段级验证还需要确认文档没有宣称 Chrome 端到端已完成：
+阶段级验证还需要确认文档没有宣称 Chrome 真实 E2E 已完成：
 
 ```bash
-! grep -R "Chrome.*端到端.*已完成" .planning docs
+! grep -R "Chrome.*真实.*已完成" .planning docs
 ```
 
 ## 与第 6 阶段的分界

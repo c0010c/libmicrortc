@@ -13,7 +13,7 @@
 | 2 | SDP/JSEP 与 Offer/Answer | 生成和解析 Chrome 1v1 最小 SDP，并完成发起/接听信令 API | SDP-01, SDP-02, SDP-03, SDP-04, API-04 | 已完成 |
 | 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 执行完成，待验证 |
 | 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 执行完成，待阶段验证 |
-| 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 执行中：5/6 plans 已完成 |
+| 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 执行完成，待阶段验证 |
 | 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | 待开始 |
 
 ## 阶段详情
@@ -183,7 +183,7 @@
 - `05-05-PLAN.md`：PLI 显式请求、远端 PLI/NACK 上报和 NACK no-retransmit 可观测性。已完成，见 `05-05-SUMMARY.md`。
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- `05-06-PLAN.md`：媒体 API 文档、UAT、需求追踪和项目状态收口。已规划。
+- `05-06-PLAN.md`：媒体 API 文档、UAT、需求追踪和项目状态收口。已完成，见 `05-06-SUMMARY.md`。
 
 **跨计划约束：**
 - 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
@@ -196,6 +196,8 @@
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
 **需求：** TST-01, EXM-01, EXM-02, ACC-01
+
+**状态：** 待开始。第 5 阶段只完成 typed media/RTP/RTCP 媒体平面和本地 deterministic tests；本地 Chrome 页面、信令示例和真实 1v1 音视频验收仍在本阶段完成。
 
 **成功标准：**
 1. 自动化测试覆盖 SDP/JSEP、ICE/STUN、DTLS/SRTP、RTP/RTCP、固定内存和关键错误路径。
@@ -214,4 +216,4 @@
 | 阶段总数 | 6 |
 
 ---
-*最后更新：2026-05-11，05-05 PLI/NACK 媒体反馈计划完成后*
+*最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*

@@ -147,16 +147,16 @@
 | SEC-03 | 第 4 阶段 | 已完成：04-04 在 handshake complete + fingerprint verification 后导出 `EXTRACTOR-dtls_srtp` keying material，并初始化单一 BUNDLE SRTP/SRTCP context |
 | SEC-04 | 第 4 阶段 | 已完成：04-04 新增内部 SRTP/SRTCP protect/unprotect wrapper，失败路径阻断明文或未认证数据输出 |
 | SEC-05 | 第 4 阶段 | 已完成：04-05 新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定 status、observer detail、trace reason 和 counter，04-06 文档收口确认默认构建不要求 OpenSSL/libsrtp |
-| RTP-01 | 第 5 阶段 | 已完成：05-02 实现 Opus frame 到 RTP packetize、timestamp/sequence 更新、SRTP protect 和受保护 datagram 输出 |
-| RTP-02 | 第 5 阶段 | 已完成：05-03 实现 RTP datagram SRTP unprotect 后 Opus depacketize，并通过 `on_media_frame_typed` 输出 `RTC_MEDIA_KIND_AUDIO_OPUS` frame |
-| RTP-03 | 第 5 阶段 | 已完成：05-02 实现 H264 Annex B access unit single NALU 与 FU-A 发送，覆盖 marker、容量和 protect 失败不输出明文 |
-| RTP-04 | 第 5 阶段 | 已完成：05-03 实现 H264 single NALU、FU-A 和有限 STAP-A 接收重组，sequence gap / capacity 失败不输出媒体帧 |
-| RTP-05 | 第 5 阶段 | 已完成：05-01 建立 typed media kind，v1 只公开 1 路 Opus audio 和 1 路 H264 video 的 public contract 与固定容量基线 |
-| RTCP-01 | 第 5 阶段 | 已完成：05-04 实现 RTCP Sender Report / Receiver Report 固定 buffer codec、compound parser、基础 stats 和 SRTCP receive/send 集成 |
-| RTCP-02 | 第 5 阶段 | 已完成：05-04 实现 RTCP SDES CNAME 写入/解析，CNAME 长度受 `limits.rtcp.max_sdes_cname_bytes` 限制 |
-| RTCP-03 | 第 5 阶段 | 已完成：05-05 实现 `rtc_peer_connection_request_keyframe(video)` 生成受保护 PLI datagram，并在远端 PLI 后通过 `on_media_feedback` 上报 |
-| RTCP-04 | 第 5 阶段 | 已完成：05-05 实现 Generic NACK PID/BLP 固定数组展开和 observer 上报，`retransmit_performed = 0` 且不执行重传 |
-| OBS-04 | 第 5 阶段 | 已完成：05-05 为 PLI/NACK 输出 typed feedback、counter 和 trace；NACK reason 固定为 `nack_no_retransmit` |
+| RTP-01 | 第 5 阶段 | 已完成：05-02 实现 Opus frame 到 RTP packetize、timestamp/sequence 更新、SRTP protect 和受保护 datagram 输出；05-06 在 API 契约与 UAT 中收口发送语义 |
+| RTP-02 | 第 5 阶段 | 已完成：05-03 实现 RTP datagram SRTP unprotect 后 Opus depacketize，并通过 `on_media_frame_typed` 输出 `RTC_MEDIA_KIND_AUDIO_OPUS` frame；05-06 在 API 契约与 UAT 中收口接收语义 |
+| RTP-03 | 第 5 阶段 | 已完成：05-02 实现 H264 Annex B access unit single NALU 与 FU-A 发送，覆盖 marker、容量和 protect 失败不输出明文；05-06 文档化 H264 access unit 发送边界 |
+| RTP-04 | 第 5 阶段 | 已完成：05-03 实现 H264 single NALU、FU-A 和有限 STAP-A 接收重组，sequence gap / capacity 失败不输出媒体帧；05-06 文档化 H264 access unit 接收边界 |
+| RTP-05 | 第 5 阶段 | 已完成：05-01 建立 typed media kind，v1 只公开 1 路 Opus audio 和 1 路 H264 video 的 public contract 与固定容量基线；05-06 在设计边界中确认 v1 不做多路媒体 |
+| RTCP-01 | 第 5 阶段 | 已完成：05-04 实现 RTCP Sender Report / Receiver Report 固定 buffer codec、compound parser、基础 stats 和 SRTCP receive/send 集成；05-06 文档化 SR/RR 行为 |
+| RTCP-02 | 第 5 阶段 | 已完成：05-04 实现 RTCP SDES CNAME 写入/解析，CNAME 长度受 `limits.rtcp.max_sdes_cname_bytes` 限制；05-06 文档化 SDES 行为 |
+| RTCP-03 | 第 5 阶段 | 已完成：05-05 实现 `rtc_peer_connection_request_keyframe(video)` 生成受保护 PLI datagram，并在远端 PLI 后通过 `on_media_feedback` 上报；05-06 文档化显式 PLI 与用户编码器责任 |
+| RTCP-04 | 第 5 阶段 | 已完成：05-05 实现 Generic NACK PID/BLP 固定数组展开和 observer 上报，`retransmit_performed = 0` 且不执行重传；05-06 文档和 UAT 明确 NACK 不触发重传 |
+| OBS-04 | 第 5 阶段 | 已完成：05-05 为 PLI/NACK 输出 typed feedback、counter 和 trace；NACK reason 固定为 `nack_no_retransmit`；05-06 在 API 契约、UAT 和项目状态中收口可观测语义 |
 | TST-01 | 第 6 阶段 | 待开始 |
 | EXM-01 | 第 6 阶段 | 待开始 |
 | EXM-02 | 第 6 阶段 | 待开始 |
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-11，05-05 PLI/NACK 媒体反馈计划完成后*
+*最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*

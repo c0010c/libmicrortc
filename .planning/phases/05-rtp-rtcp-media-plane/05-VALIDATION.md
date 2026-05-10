@@ -68,7 +68,7 @@ created: 2026-05-10
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| 真实 Chrome 音视频通话 | ACC-01 | 第 5 阶段不包含 Chrome 页面和信令示例，属于第 6 阶段 | 确认文档和状态没有宣称 Chrome E2E 已完成 |
+| 真实 Chrome 音视频通话 | ACC-01 | 第 5 阶段不包含 Chrome 页面和信令示例，属于第 6 阶段 | 确认文档和状态仍把 Chrome E2E 留在第 6 阶段 |
 | 真实编解码器控制关键帧 | RTCP-03 | 库不处理编码器；收到 PLI 后由用户触发编码器 | 确认 API 文档说明用户负责关键帧生成 |
 
 ## Validation Sign-Off

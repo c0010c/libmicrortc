@@ -16,6 +16,7 @@
 
 - 第 1 阶段验证：纯 C CMake 静态库骨架、公共 `rtc_status_t`、不透明 `PeerConnection` create/destroy、固定 arena/limits、三执行器 vtable、亲和检查、observer、trace、计数器、最小 create/destroy 示例和中文 API 契约文档已通过本地构建与测试。
 - 第 2 阶段验证：固定 Chrome 1v1 SDP/JSEP profile、create-time SDP 参数、offer/answer writer、Chrome SDP parser、最小 JSEP 状态机、`addIceCandidate` 远端 candidate 固定槽保存和相关 golden/API 测试已通过本地构建与测试。
+- 第 5 阶段验证：typed media API、Opus/H264 RTP packetize/depacketize、H264 single NALU/FU-A/STAP-A、RTCP SR/RR/SDES、显式 PLI、NACK parse-only feedback、SRTP/SRTCP 失败不泄漏和 executor/buffer 生命周期契约已通过本地 deterministic tests 与中文文档/UAT 收口；Chrome 真实端到端验收仍属于第 6 阶段。
 
 ### 当前范围
 
@@ -23,7 +24,7 @@
 - [x] 支持 Chrome 1v1 最小 SDP/JSEP 画像中的 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus、`sendrecv`/`recvonly` 和 trickle ICE candidate 保存。
 - [ ] 实现 Full ICE + STUN，支持 host/srflx candidate，不支持 TURN。
 - [ ] 通过可插拔 backend vtable 集成 DTLS、SRTP 和 crypto 能力。
-- [ ] 支持 RTP/RTCP 音视频传输，覆盖 H264 access unit、Opus frame、SR/RR、SDES、PLI，并解析上报 NACK。
+- [x] 支持 RTP/RTCP 音视频传输，覆盖 H264 access unit、Opus frame、SR/RR、SDES、PLI，并解析上报 NACK。
 - [ ] 使用固定 arena 和 limits，在创建阶段完成内存切分，创建成功后运行期不动态增长。
 - [ ] 使用 `signaling`、`media`、`network` 三类 `post + timer` 执行器抽象，库内部不创建线程。
 - [ ] 通过 datagram 输入输出 API 与用户提供的 UDP/socket 层集成。
@@ -34,7 +35,7 @@
 
 - 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
 - 第 4 阶段已规划：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；默认构建不要求 OpenSSL/libsrtp 开发包，真实 Chrome DTLS 端到端验收留到第 6 阶段。
-- 第 5 阶段已规划：范围覆盖 typed media frame API、Opus/H264 RTP packetize/depacketize、H264 FU-A/STAP-A、RTCP SR/RR/SDES、PLI 显式请求、NACK 只上报不重传、media/network executor 分层和媒体可观测性；Chrome 页面、信令示例和真实音视频端到端验收留到第 6 阶段。
+- 第 5 阶段已执行完成，待阶段级验证：范围覆盖 typed media frame API、Opus/H264 RTP packetize/depacketize、H264 FU-A/STAP-A、RTCP SR/RR/SDES、PLI 显式请求、NACK 只上报不重传、media/network executor 分层和媒体可观测性；Chrome 页面、信令示例和真实音视频端到端验收留到第 6 阶段。
 
 ### 不在范围内
 
@@ -85,7 +86,7 @@
 | Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | 第 3 阶段已规划，待执行验证 |
 | DTLS/SRTP/crypto 使用单一 `security_backend` vtable | 保持依赖和许可策略可替换；默认构建不强制 OpenSSL/libsrtp，真实适配必须可选 | 第 4 阶段已规划，准备执行阶段收口 |
 | 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — 待验证 |
-| NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | — 待验证 |
+| NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | 第 5 阶段已通过 typed feedback、counter、trace 和 UAT 文档验证 |
 
 ## 演进规则
 
@@ -105,4 +106,4 @@
 4. 使用当前状态更新背景
 
 ---
-*最后更新：2026-05-10，第 5 阶段规划完成后*
+*最后更新：2026-05-11，第 5 阶段计划执行完成后*
