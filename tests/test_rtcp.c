@@ -5,6 +5,7 @@
 #include "rtc/media.h"
 #include "rtc/rtc.h"
 #include "rtc/security.h"
+#include "media/media.h"
 #include "rtcp/rtcp.h"
 
 #include <string.h>
@@ -325,6 +326,159 @@ static int test_rtcp_rejects_sdes_cname_over_limit_and_unknown_type(void)
     return 0;
 }
 
+static void write_rr(uint8_t *packet, uint32_t ssrc)
+{
+    packet[0] = 0x80;
+    packet[1] = 201;
+    packet[2] = 0;
+    packet[3] = 1;
+    packet[4] = (uint8_t)(ssrc >> 24);
+    packet[5] = (uint8_t)((ssrc >> 16) & 0xffu);
+    packet[6] = (uint8_t)((ssrc >> 8) & 0xffu);
+    packet[7] = (uint8_t)(ssrc & 0xffu);
+    packet[8] = 0xAA;
+    packet[9] = 0xBB;
+    packet[10] = 0xCC;
+    packet[11] = 0xDD;
+}
+
+static int test_rtcp_receive_rr_uses_srtcp_unprotect_before_parse(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet[12];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+    write_rr(packet, pc->rtcp_audio.ssrc);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_receive_datagram(pc, packet,
+                                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtcp_unprotect_calls);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.rtcp_rr_received);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_rtcp_unprotect_failure_does_not_parse_rr(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet[12];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    state.srtcp_unprotect_status = RTC_STATUS_PROTOCOL_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+    write_rr(packet, pc->rtcp_audio.ssrc);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_peer_connection_receive_datagram(pc, packet,
+                                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtcp_unprotect_calls);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.rtcp_rr_received);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_rtcp_send_reports_protects_and_outputs_datagram(void)
+{
+    unsigned char arena[32768];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+    pc->rtcp_audio.packets_sent = 2;
+    pc->rtcp_audio.octets_sent = 20;
+    pc->rtcp_audio.last_sr_ntp = 0x0102030405060708ULL;
+    pc->rtcp_audio.last_sr_rtp = 0x11223344u;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_media_send_rtcp_reports(pc));
+    RTC_TEST_EQ_INT(1, state.srtcp_protect_calls);
+    RTC_TEST_EQ_INT(1, state.datagram_count);
+    RTC_TEST_EQ_INT(0x80, state.datagrams[0][0]);
+    RTC_TEST_EQ_INT(200, state.datagrams[0][1]);
+    RTC_TEST_EQ_INT(0xAA, state.datagrams[0][state.datagram_lens[0] - 4]);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.rtcp_sr_sent);
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.rtcp_sdes_sent);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_rtcp_protect_failure_does_not_output_datagram(void)
+{
+    unsigned char arena[32768];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.srtcp_protect_status = RTC_STATUS_BACKEND_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_BACKEND_ERROR,
+                    rtc_media_send_rtcp_reports(pc));
+    RTC_TEST_EQ_INT(1, state.srtcp_protect_calls);
+    RTC_TEST_EQ_INT(0, state.datagram_count);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 int rtc_test_rtcp(void)
 {
     int status;
@@ -333,5 +487,21 @@ int rtc_test_rtcp(void)
     if (status != 0) {
         return status;
     }
-    return test_rtcp_rejects_sdes_cname_over_limit_and_unknown_type();
+    status = test_rtcp_rejects_sdes_cname_over_limit_and_unknown_type();
+    if (status != 0) {
+        return status;
+    }
+    status = test_rtcp_receive_rr_uses_srtcp_unprotect_before_parse();
+    if (status != 0) {
+        return status;
+    }
+    status = test_rtcp_unprotect_failure_does_not_parse_rr();
+    if (status != 0) {
+        return status;
+    }
+    status = test_rtcp_send_reports_protects_and_outputs_datagram();
+    if (status != 0) {
+        return status;
+    }
+    return test_rtcp_protect_failure_does_not_output_datagram();
 }
