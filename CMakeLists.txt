@@ -21,6 +21,7 @@ add_library(rtc STATIC
     src/security/security.c
     src/srtp/srtp.c
     src/rtp/rtp.c
+    src/rtcp/rtcp.c
     src/media/media.c
     src/executor/executor.c
     src/memory/arena.c
@@ -56,6 +57,7 @@ if(RTC_BUILD_TESTS)
         tests/test_security.c
         tests/test_media_api.c
         tests/test_rtp.c
+        tests/test_rtcp.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
