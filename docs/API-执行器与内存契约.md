@@ -127,3 +127,49 @@ SRTP/SRTCP wrapper 语义：
 - SRTP/SRTCP protect 成功后才允许输出受保护 datagram；protect 失败不得调用 `observer.on_datagram` 输出明文 RTP/RTCP。
 - SRTP/SRTCP unprotect 成功后才允许把包交给媒体层；unprotect、认证或 replay 失败不得输出未认证媒体数据。
 - 安全失败 public status 保持粗粒度：backend 失败主要映射为 `RTC_STATUS_BACKEND_ERROR`，fingerprint/replay 等协议安全失败映射为 `RTC_STATUS_PROTOCOL_ERROR`，状态顺序错误映射为 `RTC_STATUS_INVALID_STATE`。细节通过 `RTC_SECURITY_DETAIL_*`、trace reason（例如 `handshake_failed`、`fingerprint_mismatch`、`key_export_failed`、`srtp_protect_failed`、`srtp_unprotect_failed`、`srtp_replay_failed`）和 counters 表达。
+
+## 第 5 阶段：RTP/RTCP 媒体平面契约
+
+第 5 阶段交付 typed media API、Opus/H264 RTP payload format、RTCP SR/RR/SDES、PLI/NACK feedback 和媒体可观测性。该阶段只覆盖本地 deterministic tests 验证的媒体平面行为；Chrome 页面、信令示例和真实 1v1 音视频端到端验收仍属于第 6 阶段。
+
+### Public API 与 executor 亲和
+
+- `rtc_peer_connection_send_media_frame` 必须在 `RTC_EXECUTOR_MEDIA` 上调用。该入口接收 `rtc_media_frame_t`，v1 只接受 `RTC_MEDIA_KIND_AUDIO_OPUS` 和 `RTC_MEDIA_KIND_VIDEO_H264`。
+- `rtc_peer_connection_request_keyframe` 必须在 `RTC_EXECUTOR_MEDIA` 上调用。v1 只支持对 `RTC_MEDIA_KIND_VIDEO_H264` 显式触发 PLI；对 Opus 请求 keyframe 返回不支持。
+- `rtc_peer_connection_receive_datagram` 必须在 `RTC_EXECUTOR_NETWORK` 上调用。RTP/RTCP datagram 在 network executor 上完成 demux、SRTP/SRTCP unprotect 和安全门检查后，才会投递到 media executor 做 depacketize、reassembly 或 feedback 上报。
+- `observer.on_datagram` 在 `RTC_EXECUTOR_NETWORK` 上回调，并且只输出已经通过 SRTP/SRTCP protect 的 RTP/RTCP datagram。库不会通过该回调输出明文 RTP/RTCP。
+- `observer.on_media_frame_typed` 在 `RTC_EXECUTOR_MEDIA` 上回调，用于输出 typed Opus frame 或 H264 access unit。旧 `observer.on_media_frame(data,len)` 仅作为兼容回调，不是第 5 阶段主要媒体出口。
+- `observer.on_media_feedback` 在 `RTC_EXECUTOR_MEDIA` 上回调，用于输出远端 PLI/NACK feedback。用户负责据此驱动编码器，例如收到 PLI 后产生 H264 关键帧。
+
+### Buffer 生命周期
+
+- `rtc_peer_connection_send_media_frame` 只在调用期间读取 `frame` 和 `frame->data`；跨 executor 发送前会复制到创建阶段分配的固定 media/RTP slot，不保存调用方 buffer 指针。
+- `rtc_peer_connection_receive_datagram` 只在调用期间读取用户传入的 datagram buffer；RTP/RTCP 数据进入内部固定 slot 后再处理，不保存调用方 buffer 指针。
+- `observer.on_datagram` 回调中的 datagram buffer 只在回调期间有效；用户需要在回调内完成 socket 发送或自行复制。
+- `observer.on_media_frame_typed` 和 `observer.on_media_feedback` 回调中的结构体及其内部 buffer 只在回调期间有效；用户如需异步解码、编码器控制或统计，需要自行复制。
+
+### RTP 媒体语义
+
+- Opus 发送方向按一个 Opus frame 到一个 RTP packet 的首版路径实现，payload type 固定匹配 Chrome profile 的 Opus PT 111。
+- Opus 接收方向在 SRTP unprotect 成功后把 RTP payload 作为 `RTC_MEDIA_KIND_AUDIO_OPUS` typed frame 输出。
+- H264 发送方向要求用户提交 H264 access unit。当前发送支持 Annex B single NALU 和 FU-A；超过固定 RTP payload 上限的 NALU 使用 FU-A 分片。
+- H264 接收方向支持 single NALU、FU-A 和有限 STAP-A。接收侧会把重组结果作为 `RTC_MEDIA_KIND_VIDEO_H264` typed frame 输出；H264 access unit 输出为重组后的 NALU bytes。
+- H264 FU-A sequence gap、missing start、STAP-A length 越界或 reassembly capacity 不足时，当前 access unit 被丢弃，并通过 counter/trace 暴露；不会输出损坏媒体帧。
+- 单个 `PeerConnection` v1 最多支持 1 路 Opus audio 和 1 路 H264 video。非法 media kind、空 frame、payload 超限或固定 slot 不足返回稳定错误，并通过 observer error、trace 和 counters 诊断。
+
+### RTCP 与 feedback 语义
+
+- RTCP SR/RR/SDES 由库维护 internal codec 和基础 stats；用户不需要也不能通过 public API 手动组 SR/RR/SDES。
+- RTCP receive 必须先通过 SRTCP unprotect；只有 unprotect 成功后才解析 SR/RR/SDES/PLI/NACK 并更新 counters 或输出 feedback。
+- RTCP send 必须先写入固定 buffer，再通过 SRTCP protect；只有 protect 成功后才通过 `observer.on_datagram` 输出受保护 RTCP datagram。
+- PLI 发送由 `rtc_peer_connection_request_keyframe(pc, RTC_MEDIA_KIND_VIDEO_H264)` 显式触发；库负责生成 RTCP PSFB PLI 并走 SRTCP protect/output gate。
+- 收到远端 PLI 后，库通过 `observer.on_media_feedback` 上报 `RTC_MEDIA_FEEDBACK_PLI`。库不控制编码器；用户负责让 H264 编码器产生关键帧。
+- 收到远端 NACK 后，库解析 Generic NACK PID/BLP，并把丢包序号展开到 `rtc_media_feedback_t.lost_sequence_numbers` 的固定 17 项容量内。
+- NACK 不触发重传。NACK 上报时 `retransmit_performed = 0`，并通过 `nack_no_retransmit` counter/trace reason 明确表达 “NACK 不触发重传”。
+
+### 安全失败语义
+
+- SRTP protect 失败不输出明文：RTP 发送路径只有 `rtc_srtp_protect_rtp` 成功后才调用 `observer.on_datagram`。
+- SRTCP protect 失败不输出明文：RTCP SR/RR/SDES/PLI 发送路径只有 `rtc_srtp_protect_rtcp` 成功后才调用 `observer.on_datagram`。
+- SRTP unprotect、认证或 replay 失败不输出媒体帧：RTP 接收路径失败时不会调用 `observer.on_media_frame_typed`。
+- SRTCP unprotect、认证或 replay 失败不输出 feedback：RTCP 接收路径失败时不会调用 `observer.on_media_feedback`，也不会把未认证 RTCP 当作有效 SR/RR/SDES/PLI/NACK。
