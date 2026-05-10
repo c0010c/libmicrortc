@@ -10,13 +10,13 @@
 
 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
 
-## Requirements
+## 需求
 
-### Validated
+### 已验证
 
-(None yet — ship to validate)
+（暂无，交付后验证）
 
-### Active
+### 当前范围
 
 - [ ] 提供完整 `PeerConnection` 生命周期，支持发起和接听，即 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription`、`addIceCandidate` 等核心流程。
 - [ ] 支持 Chrome 1v1 最小 SDP/JSEP 画像，包括 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus 和 trickle ICE。
@@ -29,7 +29,7 @@
 - [ ] 提供事件、计数器和 trace hook，首版即可支撑生产排障。
 - [ ] 使用 CMake 交付静态库，并提供本地 Chrome 页面和信令示例完成端到端验收。
 
-### Out of Scope
+### 不在范围内
 
 - 音视频编解码 — 用户输入和接收 H264 access unit 与 Opus frame，库只负责 RTP payload format、时间戳、序列号和 SRTP。
 - 内部线程和事件循环 — 库通过执行器抽象投递任务和定时器，线程模型由用户决定。
@@ -41,7 +41,7 @@
 - 广泛 SDP 兼容 — 首版聚焦 Chrome 1v1 最小互通画像。
 - GPL/LGPL 依赖 — 依赖策略优先选择宽松许可。
 
-## Context
+## 背景
 
 项目的首版边界来自 `docs/000-设计边界记录.md`。目标不是构建浏览器级完整 WebRTC 栈，而是在嵌入式或性能受限环境中提供一个可集成、可排障、可控内存和线程行为的 WebRTC 连接库。
 
@@ -51,7 +51,7 @@
 
 验收方式是本地 Chrome 页面加信令示例完成 1v1 音视频通话。首版需要能通过事件、计数器和 trace hook 解释 ICE、DTLS、SRTP、RTP/RTCP、SDP/JSEP 等关键状态与失败原因。
 
-## Constraints
+## 约束
 
 - **语言**: 纯 C — 目标平台和集成场景要求低运行时依赖。
 - **交付形态**: CMake 静态库 — 便于跨平台和嵌入式集成。
@@ -64,37 +64,37 @@
 - **依赖策略**: 宽松许可优先，避免 GPL/LGPL — 降低商用和嵌入式集成风险。
 - **可观测性**: 首版必须包含事件、计数器和 trace hook — 生产排障不是后补功能。
 
-## Key Decisions
+## 关键决策
 
-| Decision | Rationale | Outcome |
+| 决策 | 理由 | 结果 |
 |----------|-----------|---------|
-| 首版提供完整 `PeerConnection` | 用户不需要直接编排 ICE、DTLS、SRTP、RTP/RTCP 和 SDP/JSEP 状态机 | — Pending |
-| 库自身不处理编解码 | 降低复杂度和依赖，保持对嵌入式平台友好 | — Pending |
-| 固定 arena + limits 内存模型 | 运行期内存可预测，适合性能受限设备 | — Pending |
-| 三执行器亲和模型 | 保留无线程库边界，同时允许用户映射到多线程、单线程或 superloop | — Pending |
-| 用户负责 UDP/socket 收发 | 避免平台 I/O 假设，保持跨平台边界清晰 | — Pending |
-| Chrome 最小 SDP/JSEP 画像 | 首版聚焦可验收互通，不追求泛化 SDP 兼容 | — Pending |
-| Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | — Pending |
-| DTLS/SRTP/crypto 使用 backend vtable | 保持依赖和许可策略可替换 | — Pending |
-| 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — Pending |
-| NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | — Pending |
+| 首版提供完整 `PeerConnection` | 用户不需要直接编排 ICE、DTLS、SRTP、RTP/RTCP 和 SDP/JSEP 状态机 | — 待验证 |
+| 库自身不处理编解码 | 降低复杂度和依赖，保持对嵌入式平台友好 | — 待验证 |
+| 固定 arena + limits 内存模型 | 运行期内存可预测，适合性能受限设备 | — 待验证 |
+| 三执行器亲和模型 | 保留无线程库边界，同时允许用户映射到多线程、单线程或 superloop | — 待验证 |
+| 用户负责 UDP/socket 收发 | 避免平台 I/O 假设，保持跨平台边界清晰 | — 待验证 |
+| Chrome 最小 SDP/JSEP 画像 | 首版聚焦可验收互通，不追求泛化 SDP 兼容 | — 待验证 |
+| Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | — 待验证 |
+| DTLS/SRTP/crypto 使用 backend vtable | 保持依赖和许可策略可替换 | — 待验证 |
+| 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — 待验证 |
+| NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | — 待验证 |
 
-## Evolution
+## 演进规则
 
-This document evolves at phase transitions and milestone boundaries.
+本文档在阶段切换和里程碑边界时演进。
 
-**After each phase transition** (via `$gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
+**每次阶段切换后**（通过 `$gsd-transition`）：
+1. 需求被证伪？→ 移到“不在范围内”并记录原因
+2. 需求被验证？→ 移到“已验证”并记录阶段引用
+3. 出现新需求？→ 加入“当前范围”
+4. 有新决策需要记录？→ 加入“关键决策”
+5. “这是什么”仍然准确？→ 如有偏移则更新
 
-**After each milestone** (via `$gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+**每次里程碑完成后**（通过 `$gsd-complete-milestone`）：
+1. 完整审查所有章节
+2. 检查核心价值是否仍是正确优先级
+3. 审查“不在范围内”的理由是否仍然成立
+4. 使用当前状态更新背景
 
 ---
-*Last updated: 2026-05-10 after initialization*
+*最后更新：2026-05-10，项目初始化后*

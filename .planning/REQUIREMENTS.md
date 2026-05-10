@@ -1,9 +1,9 @@
-# Requirements: WebRTC 纯 C 库
+# 需求：WebRTC 纯 C 库
 
-**Defined:** 2026-05-10
-**Core Value:** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
+**定义日期：** 2026-05-10
+**核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
 
-## v1 Requirements
+## v1 需求
 
 ### 公共 API 与生命周期
 
@@ -77,7 +77,7 @@
 - [ ] **EXM-02**: 项目提供最小信令示例，用于交换 SDP 和 trickle ICE candidate。
 - [ ] **ACC-01**: 用户可以通过本地 Chrome 页面和信令示例完成 1v1 音视频通话验收。
 
-## v2 Requirements
+## v2 需求
 
 ### 网络与媒体增强
 
@@ -93,9 +93,9 @@
 - **V2-SEC-01**: 提供更多安全 backend 官方适配。
 - **V2-OBS-01**: 提供结构化 trace 导出工具或 Wireshark 辅助脚本。
 
-## Out of Scope
+## 不在范围内
 
-| Feature | Reason |
+| 功能 | 原因 |
 |---------|--------|
 | 音视频编解码 | 用户负责 H264/Opus 编解码，库只处理编码帧与 RTP/RTCP |
 | 内部线程 | 执行器由用户提供，库不拥有线程和事件循环 |
@@ -109,64 +109,64 @@
 | 泛 SDP 兼容 | 首版只追求 Chrome 1v1 最小画像 |
 | GPL/LGPL 依赖 | 依赖策略优先宽松许可 |
 
-## Traceability
+## 需求追踪
 
-| Requirement | Phase | Status |
+| 需求 | 阶段 | 状态 |
 |-------------|-------|--------|
-| API-01 | Phase 1 | Pending |
-| API-02 | Phase 1 | Pending |
-| API-03 | Phase 1 | Pending |
-| API-05 | Phase 1 | Pending |
-| MEM-01 | Phase 1 | Pending |
-| MEM-02 | Phase 1 | Pending |
-| MEM-03 | Phase 1 | Pending |
-| EXE-01 | Phase 1 | Pending |
-| EXE-02 | Phase 1 | Pending |
-| EXE-03 | Phase 1 | Pending |
-| OBS-01 | Phase 1 | Pending |
-| OBS-02 | Phase 1 | Pending |
-| OBS-03 | Phase 1 | Pending |
-| BLD-01 | Phase 1 | Pending |
-| BLD-02 | Phase 1 | Pending |
-| SDP-01 | Phase 2 | Pending |
-| SDP-02 | Phase 2 | Pending |
-| SDP-03 | Phase 2 | Pending |
-| SDP-04 | Phase 2 | Pending |
-| API-04 | Phase 2 | Pending |
-| SDP-05 | Phase 3 | Pending |
-| ICE-01 | Phase 3 | Pending |
-| ICE-02 | Phase 3 | Pending |
-| ICE-03 | Phase 3 | Pending |
-| ICE-04 | Phase 3 | Pending |
-| ICE-05 | Phase 3 | Pending |
-| NET-01 | Phase 3 | Pending |
-| NET-02 | Phase 3 | Pending |
-| NET-03 | Phase 3 | Pending |
-| SEC-01 | Phase 4 | Pending |
-| SEC-02 | Phase 4 | Pending |
-| SEC-03 | Phase 4 | Pending |
-| SEC-04 | Phase 4 | Pending |
-| SEC-05 | Phase 4 | Pending |
-| RTP-01 | Phase 5 | Pending |
-| RTP-02 | Phase 5 | Pending |
-| RTP-03 | Phase 5 | Pending |
-| RTP-04 | Phase 5 | Pending |
-| RTP-05 | Phase 5 | Pending |
-| RTCP-01 | Phase 5 | Pending |
-| RTCP-02 | Phase 5 | Pending |
-| RTCP-03 | Phase 5 | Pending |
-| RTCP-04 | Phase 5 | Pending |
-| OBS-04 | Phase 5 | Pending |
-| TST-01 | Phase 6 | Pending |
-| EXM-01 | Phase 6 | Pending |
-| EXM-02 | Phase 6 | Pending |
-| ACC-01 | Phase 6 | Pending |
+| API-01 | 第 1 阶段 | 待开始 |
+| API-02 | 第 1 阶段 | 待开始 |
+| API-03 | 第 1 阶段 | 待开始 |
+| API-05 | 第 1 阶段 | 待开始 |
+| MEM-01 | 第 1 阶段 | 待开始 |
+| MEM-02 | 第 1 阶段 | 待开始 |
+| MEM-03 | 第 1 阶段 | 待开始 |
+| EXE-01 | 第 1 阶段 | 待开始 |
+| EXE-02 | 第 1 阶段 | 待开始 |
+| EXE-03 | 第 1 阶段 | 待开始 |
+| OBS-01 | 第 1 阶段 | 待开始 |
+| OBS-02 | 第 1 阶段 | 待开始 |
+| OBS-03 | 第 1 阶段 | 待开始 |
+| BLD-01 | 第 1 阶段 | 待开始 |
+| BLD-02 | 第 1 阶段 | 待开始 |
+| SDP-01 | 第 2 阶段 | 待开始 |
+| SDP-02 | 第 2 阶段 | 待开始 |
+| SDP-03 | 第 2 阶段 | 待开始 |
+| SDP-04 | 第 2 阶段 | 待开始 |
+| API-04 | 第 2 阶段 | 待开始 |
+| SDP-05 | 第 3 阶段 | 待开始 |
+| ICE-01 | 第 3 阶段 | 待开始 |
+| ICE-02 | 第 3 阶段 | 待开始 |
+| ICE-03 | 第 3 阶段 | 待开始 |
+| ICE-04 | 第 3 阶段 | 待开始 |
+| ICE-05 | 第 3 阶段 | 待开始 |
+| NET-01 | 第 3 阶段 | 待开始 |
+| NET-02 | 第 3 阶段 | 待开始 |
+| NET-03 | 第 3 阶段 | 待开始 |
+| SEC-01 | 第 4 阶段 | 待开始 |
+| SEC-02 | 第 4 阶段 | 待开始 |
+| SEC-03 | 第 4 阶段 | 待开始 |
+| SEC-04 | 第 4 阶段 | 待开始 |
+| SEC-05 | 第 4 阶段 | 待开始 |
+| RTP-01 | 第 5 阶段 | 待开始 |
+| RTP-02 | 第 5 阶段 | 待开始 |
+| RTP-03 | 第 5 阶段 | 待开始 |
+| RTP-04 | 第 5 阶段 | 待开始 |
+| RTP-05 | 第 5 阶段 | 待开始 |
+| RTCP-01 | 第 5 阶段 | 待开始 |
+| RTCP-02 | 第 5 阶段 | 待开始 |
+| RTCP-03 | 第 5 阶段 | 待开始 |
+| RTCP-04 | 第 5 阶段 | 待开始 |
+| OBS-04 | 第 5 阶段 | 待开始 |
+| TST-01 | 第 6 阶段 | 待开始 |
+| EXM-01 | 第 6 阶段 | 待开始 |
+| EXM-02 | 第 6 阶段 | 待开始 |
+| ACC-01 | 第 6 阶段 | 待开始 |
 
-**Coverage:**
-- v1 requirements: 48 total
-- Mapped to phases: 48
-- Unmapped: 0
+**覆盖情况：**
+- v1 需求：48 项
+- 已映射到阶段：48 项
+- 未映射：0 项
 
 ---
-*Requirements defined: 2026-05-10*
-*Last updated: 2026-05-10 after initial definition*
+*需求定义：2026-05-10*
+*最后更新：2026-05-10，初始定义后*
