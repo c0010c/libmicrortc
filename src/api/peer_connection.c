@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "executor/executor.h"
+#include "ice/ice.h"
 #include "memory/allocator.h"
 #include "observability/counters.h"
 #include "observability/observer.h"
@@ -152,8 +153,29 @@ static rtc_status_t rtc_validate_stun_config(
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t rtc_validate_local_host_config(
+    const rtc_peer_connection_config_t *config)
+{
+    size_t i;
+
+    if (config->local_host_ip == 0 || config->local_host_ip_len == 0 ||
+        config->local_host_port == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (i = 0; i < config->local_host_ip_len; ++i) {
+        if (!rtc_stun_ip_char_valid(config->local_host_ip[i])) {
+            return RTC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t rtc_validate_config(const rtc_peer_connection_config_t *config)
 {
+    rtc_status_t status;
+
     if (config == 0 || config->arena.data == 0 || config->arena.size == 0) {
         return RTC_STATUS_INVALID_ARGUMENT;
     }
@@ -174,6 +196,11 @@ static rtc_status_t rtc_validate_config(const rtc_peer_connection_config_t *conf
         config->sdp.dtls_fingerprint_len == 0 ||
         config->sdp.dtls_setup == 0 || config->sdp.dtls_setup_len == 0) {
         return RTC_STATUS_INVALID_ARGUMENT;
+    }
+
+    status = rtc_validate_local_host_config(config);
+    if (status != RTC_STATUS_OK) {
+        return status;
     }
 
     return rtc_validate_stun_config(config);
@@ -305,6 +332,9 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->arena = arena;
     pc->limits = config->limits;
     pc->sdp = config->sdp;
+    pc->local_host_ip = config->local_host_ip;
+    pc->local_host_ip_len = config->local_host_ip_len;
+    pc->local_host_port = config->local_host_port;
     pc->stun_server = config->stun_server;
     pc->stun_server_count = config->stun_server_count;
     pc->executors = config->executors;
@@ -319,6 +349,9 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->remote_candidate_count = 0;
     pc->candidate_pair_count = 0;
     pc->stun_transaction_count = 0;
+    pc->ice_state = RTC_ICE_NEW;
+    pc->stun_transaction_nonce = 1;
+    pc->srflx_candidate_gathered = 0;
     pc->connectivity_checks_started = 0;
     pc->remote_candidate_pending_pairs = 0;
     pc->is_closed = 0;
@@ -347,24 +380,35 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     if (status != RTC_STATUS_OK) {
         return status;
     }
+    memset(pc->local_candidate_summaries, 0,
+           config->limits.ice.max_candidates *
+               sizeof(*pc->local_candidate_summaries));
     status = rtc_pc_alloc_candidate_summaries(
         &pc->arena, config->limits.ice.max_candidates,
         &pc->remote_candidate_summaries, diag);
     if (status != RTC_STATUS_OK) {
         return status;
     }
+    memset(pc->remote_candidate_summaries, 0,
+           config->limits.ice.max_candidates *
+               sizeof(*pc->remote_candidate_summaries));
     status = rtc_pc_alloc_candidate_pairs(
         &pc->arena, config->limits.ice.max_candidate_pairs,
         &pc->candidate_pairs, diag);
     if (status != RTC_STATUS_OK) {
         return status;
     }
+    memset(pc->candidate_pairs, 0,
+           config->limits.ice.max_candidate_pairs * sizeof(*pc->candidate_pairs));
     status = rtc_pc_alloc_stun_transactions(
         &pc->arena, config->limits.ice.max_transactions,
         &pc->stun_transactions, diag);
     if (status != RTC_STATUS_OK) {
         return status;
     }
+    memset(pc->stun_transactions, 0,
+           config->limits.ice.max_transactions *
+               sizeof(*pc->stun_transactions));
 
     *out_pc = pc;
     rtc_pc_trace(pc, RTC_TRACE_PC_CREATE, "create", RTC_STATUS_OK);
@@ -392,7 +436,19 @@ static rtc_status_t rtc_unsupported_network(rtc_peer_connection_t *pc,
 
 rtc_status_t rtc_peer_connection_gather_candidates(rtc_peer_connection_t *pc)
 {
-    return rtc_unsupported_network(pc, "gather_candidates");
+    rtc_status_t status;
+
+    status = rtc_require_pc(pc);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    status = rtc_executor_require(RTC_EXECUTOR_NETWORK);
+    if (status != RTC_STATUS_OK) {
+        return rtc_pc_affinity_violation(pc, "gather_candidates");
+    }
+
+    return rtc_ice_gather_candidates(pc);
 }
 
 rtc_status_t rtc_peer_connection_start_connectivity_checks(

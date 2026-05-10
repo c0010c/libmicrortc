@@ -15,6 +15,7 @@ add_library(rtc STATIC
     src/sdp/sdp_parser.c
     src/sdp/sdp_writer.c
     src/jsep/jsep.c
+    src/ice/ice.c
     src/stun/stun.c
     src/executor/executor.c
     src/memory/arena.c
@@ -45,6 +46,7 @@ if(RTC_BUILD_TESTS)
         tests/test_sdp_parser.c
         tests/test_jsep.c
         tests/test_stun.c
+        tests/test_ice.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)

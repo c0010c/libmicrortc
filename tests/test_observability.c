@@ -10,6 +10,7 @@ typedef struct observer_state_t {
     int local_candidate_count;
     rtc_status_t last_error;
     const char *last_trace;
+    const char *last_state;
 } observer_state_t;
 
 static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
@@ -66,6 +67,12 @@ static void on_error(void *user_data, rtc_status_t status,
     state->last_error = status;
 }
 
+static void on_state(void *user_data, const char *state)
+{
+    observer_state_t *observer = (observer_state_t *)user_data;
+    observer->last_state = state;
+}
+
 static void on_trace(void *user_data, const char *event,
                      const rtc_trace_field_t *fields, size_t field_count)
 {
@@ -114,11 +121,14 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.sdp.dtls_setup_len = strlen(config.sdp.dtls_setup);
     config.sdp.session_id = 1000;
     config.sdp.session_version = 2;
+    config.local_host_ip = "192.0.2.10";
+    config.local_host_ip_len = strlen(config.local_host_ip);
+    config.local_host_port = 5000;
     config.platform = 0;
     config.executors.signaling = test_executor();
     config.executors.media = test_executor();
     config.executors.network = test_executor();
-    config.observer.on_state = 0;
+    config.observer.on_state = on_state;
     config.observer.on_error = on_error;
     config.observer.on_trace = on_trace;
     config.observer.on_local_candidate = on_local_candidate;
@@ -132,7 +142,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
 int rtc_test_observability(void)
 {
     unsigned char arena[16384];
-    observer_state_t state = {0, 0, 0, RTC_STATUS_OK, 0};
+    observer_state_t state = {0, 0, 0, RTC_STATUS_OK, 0, 0};
     rtc_peer_connection_config_t config;
     rtc_capacity_diagnostics_t diag;
     rtc_peer_connection_t *pc;
@@ -166,6 +176,13 @@ int rtc_test_observability(void)
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_get_counters(pc, &counters));
     RTC_TEST_EQ_INT(1, (int)counters.ice.remote_candidates);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.gathering_complete") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace, RTC_TRACE_ICE_STATE) == 0 ||
+                    strcmp(state.last_trace,
+                           RTC_TRACE_ICE_CANDIDATE_LOCAL) == 0);
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
     RTC_TEST_EQ_INT(RTC_STATUS_AFFINITY_VIOLATION,

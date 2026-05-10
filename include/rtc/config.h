@@ -57,6 +57,9 @@ typedef struct rtc_peer_connection_config_t {
     rtc_arena_t arena;
     rtc_peer_connection_limits_t limits;
     rtc_sdp_parameters_t sdp;
+    const char *local_host_ip;
+    size_t local_host_ip_len;
+    uint16_t local_host_port;
     rtc_stun_server_t stun_server;
     size_t stun_server_count;
     void *platform;

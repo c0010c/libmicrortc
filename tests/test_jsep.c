@@ -75,6 +75,9 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.sdp.dtls_setup_len = strlen(config.sdp.dtls_setup);
     config.sdp.session_id = 1000;
     config.sdp.session_version = 2;
+    config.local_host_ip = "192.0.2.10";
+    config.local_host_ip_len = strlen(config.local_host_ip);
+    config.local_host_port = 5000;
     config.executors.signaling = test_executor();
     config.executors.media = test_executor();
     config.executors.network = test_executor();

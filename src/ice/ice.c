@@ -1,0 +1,377 @@
+#include "ice/ice.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "api/peer_connection.h"
+#include "observability/counters.h"
+#include "observability/observer.h"
+#include "observability/trace.h"
+#include "stun/stun.h"
+
+#define RTC_ICE_CANDIDATE_STRING_BYTES 256u
+#define RTC_ICE_STUN_REQUEST_BYTES 20u
+#define RTC_ICE_STUN_TIMEOUT_MS 500u
+
+static const char *rtc_ice_state_name(rtc_ice_state_t state)
+{
+    switch (state) {
+    case RTC_ICE_GATHERING:
+        return "ice.gathering";
+    case RTC_ICE_GATHERING_COMPLETE:
+        return "ice.gathering_complete";
+    case RTC_ICE_CHECKING:
+        return "ice.checking";
+    case RTC_ICE_CONNECTED:
+        return "ice.connected";
+    case RTC_ICE_FAILED:
+        return "ice.failed";
+    case RTC_ICE_NEW:
+    default:
+        return "ice.new";
+    }
+}
+
+static const char *rtc_ice_candidate_type_name(rtc_ice_candidate_type_t type)
+{
+    return type == RTC_ICE_CANDIDATE_TYPE_SRFLX ? "srflx" : "host";
+}
+
+static void rtc_ice_emit_state(rtc_peer_connection_t *pc, rtc_ice_state_t state)
+{
+    rtc_trace_field_t fields[2];
+
+    pc->ice_state = state;
+    rtc_observer_emit_state(&pc->observer, rtc_ice_state_name(state));
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "ice";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_STATE;
+    fields[1].value = rtc_ice_state_name(state);
+    fields[1].number = 0;
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_ICE_STATE, fields, 2);
+}
+
+static void rtc_ice_trace_candidate(rtc_peer_connection_t *pc,
+                                    const rtc_ice_candidate_summary_t *candidate,
+                                    size_t candidate_id)
+{
+    rtc_trace_field_t fields[6];
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "ice";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = "gather_candidates";
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_CANDIDATE_TYPE;
+    fields[2].value = rtc_ice_candidate_type_name(candidate->type);
+    fields[2].number = 0;
+    fields[3].key = RTC_TRACE_FIELD_LOCAL_ADDRESS;
+    fields[3].value = candidate->address;
+    fields[3].number = 0;
+    fields[4].key = RTC_TRACE_FIELD_PORT;
+    fields[4].value = 0;
+    fields[4].number = candidate->port;
+    fields[5].key = RTC_TRACE_FIELD_CANDIDATE_ID;
+    fields[5].value = 0;
+    fields[5].number = candidate_id;
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_ICE_CANDIDATE_LOCAL, fields, 6);
+}
+
+static void rtc_ice_trace_stun(rtc_peer_connection_t *pc, const char *operation,
+                               size_t transaction_id, rtc_status_t status)
+{
+    rtc_trace_field_t fields[5];
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "stun";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = operation;
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_TRANSACTION_ID;
+    fields[2].value = 0;
+    fields[2].number = transaction_id;
+    fields[3].key = RTC_TRACE_FIELD_STATUS;
+    fields[3].value = 0;
+    fields[3].number = (uint64_t)status;
+    fields[4].key = RTC_TRACE_FIELD_REMOTE_ADDRESS;
+    fields[4].value = pc->stun_server.ip;
+    fields[4].number = 0;
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_STUN_TRANSACTION, fields, 5);
+}
+
+static rtc_status_t rtc_ice_format_candidate(
+    const rtc_ice_candidate_summary_t *candidate, const char *base_ip,
+    uint16_t base_port, char *out, size_t out_capacity, size_t *out_len)
+{
+    int written;
+
+    if (candidate->type == RTC_ICE_CANDIDATE_TYPE_SRFLX) {
+        written = snprintf(out, out_capacity,
+                           "candidate:%s 1 udp %u %s %u typ srflx raddr %s "
+                           "rport %u",
+                           candidate->foundation, candidate->priority,
+                           candidate->address, candidate->port, base_ip,
+                           base_port);
+    } else {
+        written = snprintf(out, out_capacity, "candidate:%s 1 udp %u %s %u "
+                                             "typ host",
+                           candidate->foundation, candidate->priority,
+                           candidate->address, candidate->port);
+    }
+
+    if (written < 0 || (size_t)written >= out_capacity) {
+        return RTC_STATUS_CAPACITY_ICE_CANDIDATES;
+    }
+    *out_len = (size_t)written;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_ice_emit_local_candidate(
+    rtc_peer_connection_t *pc, rtc_ice_candidate_summary_t *candidate,
+    const char *base_ip, uint16_t base_port)
+{
+    char text[RTC_ICE_CANDIDATE_STRING_BYTES];
+    size_t text_len;
+    size_t candidate_id;
+    rtc_status_t status;
+
+    if (pc->local_candidate_count >= pc->limits.ice.max_candidates) {
+        return RTC_STATUS_CAPACITY_ICE_CANDIDATES;
+    }
+
+    status = rtc_ice_format_candidate(candidate, base_ip, base_port, text,
+                                      sizeof(text), &text_len);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    candidate_id = pc->local_candidate_count;
+    pc->local_candidate_summaries[candidate_id] = *candidate;
+    pc->local_candidate_count++;
+    pc->counters.ice.local_candidates++;
+
+    if (pc->observer.on_local_candidate != 0) {
+        pc->observer.on_local_candidate(pc->observer.user_data, text, text_len);
+    }
+    rtc_ice_trace_candidate(pc, candidate, candidate_id);
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_ice_emit_host_candidate(rtc_peer_connection_t *pc)
+{
+    rtc_ice_candidate_summary_t candidate;
+
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.type = RTC_ICE_CANDIDATE_TYPE_HOST;
+    memcpy(candidate.foundation, "1", 2);
+    memcpy(candidate.transport, "udp", 4);
+    if (pc->local_host_ip_len >= sizeof(candidate.address)) {
+        return RTC_STATUS_CAPACITY_ICE_CANDIDATES;
+    }
+    memcpy(candidate.address, pc->local_host_ip, pc->local_host_ip_len);
+    candidate.address[pc->local_host_ip_len] = '\0';
+    candidate.priority = 2130706431u;
+    candidate.component = 1;
+    candidate.port = pc->local_host_port;
+    return rtc_ice_emit_local_candidate(pc, &candidate, candidate.address,
+                                        candidate.port);
+}
+
+static rtc_stun_transaction_t *rtc_ice_alloc_transaction(
+    rtc_peer_connection_t *pc, size_t *out_index)
+{
+    size_t i;
+
+    for (i = 0; i < pc->limits.ice.max_transactions; ++i) {
+        if (!pc->stun_transactions[i].in_use) {
+            memset(&pc->stun_transactions[i], 0, sizeof(pc->stun_transactions[i]));
+            pc->stun_transactions[i].in_use = 1;
+            pc->stun_transaction_count++;
+            *out_index = i;
+            return &pc->stun_transactions[i];
+        }
+    }
+
+    return 0;
+}
+
+static void rtc_ice_generate_transaction_id(rtc_peer_connection_t *pc,
+                                            uint8_t *transaction_id)
+{
+    uint32_t nonce = pc->stun_transaction_nonce++;
+    size_t i;
+
+    for (i = 0; i < RTC_STUN_TRANSACTION_ID_BYTES; ++i) {
+        transaction_id[i] = (uint8_t)(0xa5u + (uint8_t)i);
+    }
+    transaction_id[8] = (uint8_t)(nonce >> 24);
+    transaction_id[9] = (uint8_t)(nonce >> 16);
+    transaction_id[10] = (uint8_t)(nonce >> 8);
+    transaction_id[11] = (uint8_t)nonce;
+}
+
+static rtc_status_t rtc_ice_send_srflx_request(rtc_peer_connection_t *pc)
+{
+    rtc_stun_transaction_t *transaction;
+    uint8_t request[RTC_ICE_STUN_REQUEST_BYTES];
+    size_t request_len = 0;
+    size_t transaction_index = 0;
+    rtc_status_t status;
+
+    transaction = rtc_ice_alloc_transaction(pc, &transaction_index);
+    if (transaction == 0) {
+        return RTC_STATUS_CAPACITY_STUN_TRANSACTIONS;
+    }
+
+    rtc_ice_generate_transaction_id(pc, transaction->transaction_id);
+    status = rtc_stun_write_binding_request(request, sizeof(request),
+                                            transaction->transaction_id,
+                                            &request_len);
+    if (status != RTC_STATUS_OK) {
+        transaction->in_use = 0;
+        pc->stun_transaction_count--;
+        return status;
+    }
+
+    status = pc->executors.network.schedule_timer(
+        pc->executors.network.user_data, RTC_ICE_STUN_TIMEOUT_MS,
+        rtc_ice_stun_transaction_timeout, pc, &transaction->timer_id);
+    if (status != RTC_STATUS_OK) {
+        transaction->in_use = 0;
+        pc->stun_transaction_count--;
+        return status;
+    }
+
+    if (pc->observer.on_datagram != 0) {
+        pc->observer.on_datagram(pc->observer.user_data, request, request_len);
+    }
+    pc->counters.stun.transactions_sent++;
+    rtc_ice_trace_stun(pc, "srflx_request", transaction_index, RTC_STATUS_OK);
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_ice_gather_candidates(rtc_peer_connection_t *pc)
+{
+    rtc_status_t status;
+
+    if (pc->ice_state == RTC_ICE_GATHERING ||
+        pc->ice_state == RTC_ICE_GATHERING_COMPLETE) {
+        return RTC_STATUS_INVALID_STATE;
+    }
+
+    rtc_ice_emit_state(pc, RTC_ICE_GATHERING);
+    status = rtc_ice_emit_host_candidate(pc);
+    if (status != RTC_STATUS_OK) {
+        pc->counters.ice.gathering_failures++;
+        rtc_ice_emit_state(pc, RTC_ICE_FAILED);
+        return status;
+    }
+
+    if (pc->stun_server_count == 0) {
+        rtc_ice_emit_state(pc, RTC_ICE_GATHERING_COMPLETE);
+        return RTC_STATUS_OK;
+    }
+
+    status = rtc_ice_send_srflx_request(pc);
+    if (status != RTC_STATUS_OK) {
+        pc->counters.ice.gathering_failures++;
+        rtc_ice_emit_state(pc, RTC_ICE_FAILED);
+    }
+    return status;
+}
+
+void rtc_ice_stun_transaction_timeout(void *user_data)
+{
+    rtc_peer_connection_t *pc = (rtc_peer_connection_t *)user_data;
+    size_t i;
+
+    if (pc == 0) {
+        return;
+    }
+
+    for (i = 0; i < pc->limits.ice.max_transactions; ++i) {
+        if (pc->stun_transactions[i].in_use) {
+            pc->stun_transactions[i].in_use = 0;
+            pc->executors.network.cancel_timer(pc->executors.network.user_data,
+                                               pc->stun_transactions[i].timer_id);
+            if (pc->stun_transaction_count > 0) {
+                pc->stun_transaction_count--;
+            }
+            pc->counters.stun.transactions_timed_out++;
+            rtc_ice_trace_stun(pc, "timeout", i, RTC_STATUS_PROTOCOL_ERROR);
+        }
+    }
+
+    if (pc->local_candidate_count > 0) {
+        rtc_ice_emit_state(pc, RTC_ICE_GATHERING_COMPLETE);
+    } else {
+        pc->counters.ice.gathering_failures++;
+        rtc_ice_emit_state(pc, RTC_ICE_FAILED);
+    }
+}
+
+rtc_status_t rtc_ice_handle_stun_response(rtc_peer_connection_t *pc,
+                                          const uint8_t *data,
+                                          size_t data_len)
+{
+    rtc_stun_header_t header;
+    rtc_stun_xor_mapped_address_t mapped;
+    rtc_ice_candidate_summary_t candidate;
+    size_t i;
+    int matched = 0;
+    rtc_status_t status;
+
+    status = rtc_stun_parse_header(data, data_len, &header);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < pc->limits.ice.max_transactions; ++i) {
+        if (pc->stun_transactions[i].in_use &&
+            memcmp(pc->stun_transactions[i].transaction_id,
+                   header.transaction_id, RTC_STUN_TRANSACTION_ID_BYTES) == 0) {
+            pc->stun_transactions[i].in_use = 0;
+            if (pc->stun_transaction_count > 0) {
+                pc->stun_transaction_count--;
+            }
+            matched = 1;
+            break;
+        }
+    }
+    if (!matched) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    status = rtc_stun_parse_xor_mapped_address(data, data_len, &mapped);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.type = RTC_ICE_CANDIDATE_TYPE_SRFLX;
+    memcpy(candidate.foundation, "2", 2);
+    memcpy(candidate.transport, "udp", 4);
+    memcpy(candidate.address, mapped.ip, strlen(mapped.ip) + 1u);
+    candidate.priority = 1694498815u;
+    candidate.component = 1;
+    candidate.port = mapped.port;
+
+    status = rtc_ice_emit_local_candidate(pc, &candidate, pc->local_host_ip,
+                                          pc->local_host_port);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    pc->srflx_candidate_gathered = 1;
+    pc->counters.stun.transactions_received++;
+    rtc_ice_trace_stun(pc, "srflx_response", i, RTC_STATUS_OK);
+    rtc_ice_emit_state(pc, RTC_ICE_GATHERING_COMPLETE);
+    return RTC_STATUS_OK;
+}

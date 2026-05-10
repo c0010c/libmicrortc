@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "ice/ice.h"
 #include "jsep/jsep.h"
 #include "memory/arena.h"
 #include "rtc/peer_connection.h"
@@ -42,6 +43,9 @@ struct rtc_peer_connection_t {
     rtc_arena_view_t arena;
     rtc_peer_connection_limits_t limits;
     rtc_sdp_parameters_t sdp;
+    const char *local_host_ip;
+    size_t local_host_ip_len;
+    uint16_t local_host_port;
     rtc_stun_server_t stun_server;
     size_t stun_server_count;
     rtc_executors_t executors;
@@ -64,6 +68,9 @@ struct rtc_peer_connection_t {
     size_t remote_candidate_count;
     size_t candidate_pair_count;
     size_t stun_transaction_count;
+    rtc_ice_state_t ice_state;
+    uint32_t stun_transaction_nonce;
+    int srflx_candidate_gathered;
     int connectivity_checks_started;
     int remote_candidate_pending_pairs;
     int is_closed;

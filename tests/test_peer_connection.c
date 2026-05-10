@@ -74,6 +74,9 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.sdp.dtls_setup_len = strlen(config.sdp.dtls_setup);
     config.sdp.session_id = 1000;
     config.sdp.session_version = 2;
+    config.local_host_ip = "192.0.2.10";
+    config.local_host_ip_len = strlen(config.local_host_ip);
+    config.local_host_port = 5000;
     config.platform = 0;
     config.executors.signaling = test_executor();
     config.executors.media = test_executor();
@@ -137,7 +140,7 @@ int rtc_test_peer_connection(void)
     RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_ARENA, diag.resource);
 
     {
-        unsigned char pair_arena[6400];
+        unsigned char pair_arena[6600];
         config = test_config(pair_arena, sizeof(pair_arena));
         config.limits.ice.max_candidates = 1;
         RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ICE_PAIRS,
@@ -146,7 +149,7 @@ int rtc_test_peer_connection(void)
     }
 
     {
-        unsigned char transaction_arena[6420];
+        unsigned char transaction_arena[6500];
         config = test_config(transaction_arena, sizeof(transaction_arena));
         config.limits.ice.max_candidates = 1;
         config.limits.ice.max_candidate_pairs = 1;
@@ -155,6 +158,11 @@ int rtc_test_peer_connection(void)
         RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS,
                         diag.resource);
     }
+
+    config = test_config(arena, sizeof(arena));
+    config.local_host_port = 0;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
 
     config = test_config(arena, sizeof(arena));
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
@@ -180,8 +188,7 @@ int rtc_test_peer_connection(void)
     rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
     RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
                     rtc_peer_connection_receive_datagram(pc, 0, 0));
-    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
-                    rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
     RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
                     rtc_peer_connection_start_connectivity_checks(pc));
     rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
