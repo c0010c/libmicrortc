@@ -8,6 +8,7 @@ int rtc_test_observability(void);
 int rtc_test_sdp_writer(void);
 int rtc_test_sdp_parser(void);
 int rtc_test_jsep(void);
+int rtc_test_stun(void);
 
 int main(void)
 {
@@ -21,6 +22,7 @@ int main(void)
     RTC_RUN_TEST(rtc_test_sdp_writer, result);
     RTC_RUN_TEST(rtc_test_sdp_parser, result);
     RTC_RUN_TEST(rtc_test_jsep, result);
+    RTC_RUN_TEST(rtc_test_stun, result);
 
     if (result.failed != 0) {
         return 1;
