@@ -11,12 +11,16 @@ option(RTC_BUILD_EXAMPLES "Build rtc examples" ON)
 
 add_library(rtc STATIC
     src/api/rtc.c
+    src/memory/arena.c
+    src/memory/allocator.c
 )
 
 target_include_directories(rtc
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 if(RTC_BUILD_TESTS)
@@ -24,7 +28,9 @@ if(RTC_BUILD_TESTS)
     add_executable(rtc_tests
         tests/test_main.c
         tests/test_build.c
+        tests/test_memory.c
     )
+    target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
     add_test(NAME rtc_tests COMMAND rtc_tests)
 endif()
