@@ -17,12 +17,16 @@ typedef struct security_test_state_t {
     int create_session_calls;
     int destroy_session_calls;
     int get_local_fingerprint_calls;
+    int get_peer_fingerprint_calls;
+    int export_keying_material_calls;
     int start_dtls_calls;
     int handle_dtls_datagram_calls;
     int datagram_count;
     int error_count;
+    int state_count;
     const char *last_error_subsystem;
     const char *last_error_operation;
+    const char *last_state;
     const char *last_trace_reason;
     void *last_storage;
     size_t last_storage_len;
@@ -33,7 +37,9 @@ typedef struct security_test_state_t {
     void *event_user_data;
     rtc_status_t create_status;
     rtc_status_t local_fingerprint_status;
+    rtc_status_t peer_fingerprint_status;
     const char *local_fingerprint;
+    const char *peer_fingerprint;
 } security_test_state_t;
 
 static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
@@ -88,6 +94,13 @@ static void on_error(void *user_data, rtc_status_t status,
     state->error_count++;
     state->last_error_subsystem = subsystem;
     state->last_error_operation = operation;
+}
+
+static void on_state(void *user_data, const char *state_name)
+{
+    security_test_state_t *state = (security_test_state_t *)user_data;
+    state->state_count++;
+    state->last_state = state_name;
 }
 
 static void on_datagram(void *user_data, const uint8_t *data, size_t data_len)
@@ -169,6 +182,35 @@ static rtc_status_t test_get_local_fingerprint(void *session, char *out,
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t test_get_peer_fingerprint(void *session, char *out,
+                                              size_t *inout_len)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+    const char *fingerprint = state->peer_fingerprint;
+    size_t len;
+
+    state->get_peer_fingerprint_calls++;
+    if (state->peer_fingerprint_status != RTC_STATUS_OK) {
+        return state->peer_fingerprint_status;
+    }
+    if (fingerprint == 0) {
+        fingerprint =
+            "sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+            "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99";
+    }
+    len = strlen(fingerprint);
+    if (inout_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (out == 0 || *inout_len <= len) {
+        *inout_len = len + 1u;
+        return RTC_STATUS_CAPACITY;
+    }
+    memcpy(out, fingerprint, len + 1u);
+    *inout_len = len;
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t test_start_dtls(void *session,
                                     rtc_security_dtls_role_t role)
 {
@@ -189,6 +231,20 @@ static rtc_status_t test_handle_dtls_datagram(void *session,
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t test_export_keying_material(void *session,
+                                                const char *label,
+                                                size_t label_len,
+                                                uint8_t *out, size_t out_len)
+{
+    security_test_state_t *state = (security_test_state_t *)session;
+    (void)label;
+    (void)label_len;
+    (void)out;
+    (void)out_len;
+    state->export_keying_material_calls++;
+    return RTC_STATUS_OK;
+}
+
 static rtc_security_backend_vtable_t test_backend_vtable(void)
 {
     rtc_security_backend_vtable_t vtable;
@@ -198,6 +254,8 @@ static rtc_security_backend_vtable_t test_backend_vtable(void)
     vtable.get_local_fingerprint = test_get_local_fingerprint;
     vtable.start_dtls = test_start_dtls;
     vtable.handle_dtls_datagram = test_handle_dtls_datagram;
+    vtable.get_peer_fingerprint = test_get_peer_fingerprint;
+    vtable.export_keying_material = test_export_keying_material;
     return vtable;
 }
 
@@ -245,6 +303,7 @@ static rtc_peer_connection_config_t test_config(
     config.executors.media = test_executor(state);
     config.executors.network = test_executor(state);
     config.observer.on_error = on_error;
+    config.observer.on_state = on_state;
     config.observer.on_trace = on_trace;
     config.observer.on_datagram = on_datagram;
     config.observer.user_data = state;
@@ -543,6 +602,61 @@ static int test_security_starts_dtls_and_forwards_outgoing_datagram(void)
     return 0;
 }
 
+static int test_security_fingerprint_mismatch_blocks_key_export(void)
+{
+    unsigned char arena[16384];
+    security_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_security_backend_event_t event;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_counters_t counters;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.peer_fingerprint =
+        "sha-256 99:99:99:99:99:99:99:99:99:99:99:99:99:99:99:99:"
+        "99:99:99:99:99:99:99:99:99:99:99:99:99:99:99:99";
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_state = RTC_ICE_CONNECTED;
+    memcpy(pc->remote_summary.dtls_fingerprint,
+           "sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+           "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+           sizeof("sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                  "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"));
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_security_on_ice_connected(pc));
+    memset(&event, 0, sizeof(event));
+    event.type = RTC_SECURITY_BACKEND_EVENT_HANDSHAKE_COMPLETE;
+    state.event_cb(state.event_user_data, &event);
+
+    RTC_TEST_EQ_INT(1, state.get_peer_fingerprint_calls);
+    RTC_TEST_EQ_INT(0, state.export_keying_material_calls);
+    RTC_TEST_ASSERT(strcmp(state.last_state, "dtls.failed") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_subsystem, "dtls") == 0);
+    RTC_TEST_ASSERT(strcmp(state.last_error_operation, "fingerprint_verify") ==
+                    0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "fingerprint_mismatch") ==
+                    0);
+    RTC_TEST_EQ_INT(RTC_SECURITY_DTLS_FAILED, pc->dtls_state);
+    RTC_TEST_EQ_INT(0, pc->srtp_ready);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.fingerprint_mismatch);
+    RTC_TEST_EQ_INT(1, (int)counters.dtls.handshake_failed);
+    RTC_TEST_EQ_INT(0, (int)counters.dtls.handshake_completed);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 static int test_security_counters_and_trace_contract(void)
 {
     rtc_peer_connection_counters_t counters;
@@ -615,5 +729,9 @@ int rtc_test_security(void)
     if (status != 0) {
         return status;
     }
-    return test_security_starts_dtls_and_forwards_outgoing_datagram();
+    status = test_security_starts_dtls_and_forwards_outgoing_datagram();
+    if (status != 0) {
+        return status;
+    }
+    return test_security_fingerprint_mismatch_blocks_key_export();
 }
