@@ -20,6 +20,7 @@ typedef struct rtc_ice_limits_t {
 
 typedef struct rtc_dtls_limits_t {
     size_t max_sessions;
+    size_t max_session_storage_bytes;
 } rtc_dtls_limits_t;
 
 typedef struct rtc_rtp_limits_t {

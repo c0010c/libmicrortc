@@ -3,7 +3,7 @@
 #include "rtc/config.h"
 #include "rtc/security.h"
 
-static void test_security_backend_contract(void)
+static int test_security_backend_contract(void)
 {
     rtc_security_backend_event_t event;
     rtc_security_backend_config_t backend;
@@ -21,12 +21,13 @@ static void test_security_backend_contract(void)
 
     config.security_backend = &backend;
 
-    RTC_ASSERT_EQ(RTC_SECURITY_BACKEND_EVENT_OUTGOING_DATAGRAM, event.type);
-    RTC_ASSERT(config.security_backend == &backend);
+    RTC_TEST_EQ_INT(RTC_SECURITY_BACKEND_EVENT_OUTGOING_DATAGRAM, event.type);
+    RTC_TEST_ASSERT(config.security_backend == &backend);
+
+    return 0;
 }
 
 int rtc_test_security(void)
 {
-    test_security_backend_contract();
-    return 0;
+    return test_security_backend_contract();
 }

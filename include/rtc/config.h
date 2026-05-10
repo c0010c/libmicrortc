@@ -7,6 +7,7 @@
 #include "rtc/executor.h"
 #include "rtc/limits.h"
 #include "rtc/observer.h"
+#include "rtc/security.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,7 +26,8 @@ typedef enum rtc_capacity_resource_t {
     RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS,
     RTC_CAPACITY_RESOURCE_TIMER_SLOTS,
     RTC_CAPACITY_RESOURCE_PACKET_CACHE,
-    RTC_CAPACITY_RESOURCE_TRACE_BUFFER
+    RTC_CAPACITY_RESOURCE_TRACE_BUFFER,
+    RTC_CAPACITY_RESOURCE_DTLS_SESSION
 } rtc_capacity_resource_t;
 
 typedef struct rtc_capacity_diagnostics_t {
@@ -65,7 +67,7 @@ typedef struct rtc_peer_connection_config_t {
     void *platform;
     rtc_executors_t executors;
     rtc_observer_vtable_t observer;
-    void *security_backend;
+    const rtc_security_backend_config_t *security_backend;
 } rtc_peer_connection_config_t;
 
 #ifdef __cplusplus
