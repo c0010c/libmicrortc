@@ -1,0 +1,10 @@
+#ifndef RTC_MEDIA_INTERNAL_H
+#define RTC_MEDIA_INTERNAL_H
+
+#include "api/peer_connection.h"
+#include "rtc/status.h"
+
+rtc_status_t rtc_media_send_frame(rtc_peer_connection_t *pc,
+                                  const rtc_media_frame_t *frame);
+
+#endif

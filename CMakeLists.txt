@@ -20,6 +20,8 @@ add_library(rtc STATIC
     src/net/demux.c
     src/security/security.c
     src/srtp/srtp.c
+    src/rtp/rtp.c
+    src/media/media.c
     src/executor/executor.c
     src/memory/arena.c
     src/memory/allocator.c

@@ -11,6 +11,8 @@
 #include "observability/counters.h"
 #include "observability/observer.h"
 #include "observability/trace.h"
+#include "media/media.h"
+#include "rtp/rtp.h"
 #include "security/security.h"
 
 static void rtc_pc_trace(rtc_peer_connection_t *pc, const char *event,
@@ -501,8 +503,17 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->h264_reassembly_buffer = 0;
     pc->media_queue_slot_count = config->limits.rtp.max_media_queue_slots;
     pc->media_max_payload_bytes = config->limits.rtp.max_payload_bytes;
+    pc->media_packet_capacity = RTC_RTP_HEADER_BYTES +
+                                config->limits.rtp.max_payload_bytes +
+                                RTC_RTP_SRTP_MAX_TRAILER_BYTES;
     pc->media_max_packets_per_frame = config->limits.rtp.max_packets_per_frame;
     pc->media_max_reassembly_bytes = config->limits.rtp.max_reassembly_bytes;
+    pc->audio_rtp_sequence = 1;
+    pc->audio_rtp_timestamp = 0;
+    pc->audio_rtp_ssrc = 0x11111111u;
+    pc->video_rtp_sequence = 1;
+    pc->video_rtp_timestamp = 0;
+    pc->video_rtp_ssrc = 0x22222222u;
     pc->security_backend = 0;
     pc->security_session = 0;
     pc->security_session_storage = 0;
@@ -577,7 +588,7 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
                sizeof(*pc->media_queue_slots));
     status = rtc_pc_alloc_media_packet_cache(
         &pc->arena, config->limits.rtp.max_media_queue_slots,
-        config->limits.rtp.max_payload_bytes, &pc->media_packet_cache, diag);
+        pc->media_packet_capacity, &pc->media_packet_cache, diag);
     if (status != RTC_STATUS_OK) {
         return status;
     }
@@ -586,9 +597,12 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
         for (i = 0; i < config->limits.rtp.max_media_queue_slots; ++i) {
             pc->media_queue_slots[i].payload =
                 pc->media_packet_cache +
-                (i * config->limits.rtp.max_payload_bytes);
+                (i * pc->media_packet_capacity);
             pc->media_queue_slots[i].payload_capacity =
-                config->limits.rtp.max_payload_bytes;
+                pc->media_packet_capacity;
+            pc->media_queue_slots[i].pc = pc;
+            pc->media_queue_slots[i].dispatch_status = RTC_STATUS_OK;
+            pc->media_queue_slots[i].in_use = 0;
         }
     }
     status = rtc_pc_alloc_h264_reassembly_buffer(
@@ -1172,7 +1186,7 @@ rtc_status_t rtc_peer_connection_send_media_frame(
         return RTC_STATUS_UNSUPPORTED;
     }
 
-    return rtc_pc_unsupported(pc, "send_media_frame");
+    return rtc_media_send_frame(pc, frame);
 }
 
 rtc_status_t rtc_peer_connection_request_keyframe(

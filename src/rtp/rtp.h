@@ -1,0 +1,31 @@
+#ifndef RTC_RTP_INTERNAL_H
+#define RTC_RTP_INTERNAL_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "rtc/media.h"
+#include "rtc/status.h"
+
+#define RTC_RTP_HEADER_BYTES 12u
+#define RTC_RTP_VERSION 2u
+#define RTC_RTP_PAYLOAD_TYPE_OPUS 111u
+#define RTC_RTP_PAYLOAD_TYPE_H264 103u
+#define RTC_RTP_OPUS_CLOCK_INCREMENT 960u
+#define RTC_RTP_SRTP_MAX_TRAILER_BYTES 64u
+
+typedef struct rtc_rtp_packetizer_state_t {
+    uint16_t sequence;
+    uint32_t timestamp;
+    uint32_t ssrc;
+} rtc_rtp_packetizer_state_t;
+
+rtc_status_t rtc_rtp_write_header(uint8_t *out, size_t capacity, int marker,
+                                  uint8_t payload_type, uint16_t sequence,
+                                  uint32_t timestamp, uint32_t ssrc);
+rtc_status_t rtc_rtp_packetize_opus(const rtc_media_frame_t *frame,
+                                    rtc_rtp_packetizer_state_t *state,
+                                    size_t max_payload_bytes, uint8_t *out,
+                                    size_t capacity, size_t *out_len);
+
+#endif

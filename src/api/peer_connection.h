@@ -67,10 +67,13 @@ typedef struct rtc_stun_transaction_t {
 } rtc_stun_transaction_t;
 
 typedef struct rtc_media_queue_slot_t {
+    struct rtc_peer_connection_t *pc;
     rtc_media_kind_t kind;
     uint8_t *payload;
     size_t payload_len;
     size_t payload_capacity;
+    rtc_status_t dispatch_status;
+    int in_use;
 } rtc_media_queue_slot_t;
 
 struct rtc_peer_connection_t {
@@ -111,8 +114,15 @@ struct rtc_peer_connection_t {
     uint8_t *h264_reassembly_buffer;
     size_t media_queue_slot_count;
     size_t media_max_payload_bytes;
+    size_t media_packet_capacity;
     size_t media_max_packets_per_frame;
     size_t media_max_reassembly_bytes;
+    uint16_t audio_rtp_sequence;
+    uint32_t audio_rtp_timestamp;
+    uint32_t audio_rtp_ssrc;
+    uint16_t video_rtp_sequence;
+    uint32_t video_rtp_timestamp;
+    uint32_t video_rtp_ssrc;
     size_t local_candidate_count;
     size_t remote_candidate_count;
     size_t candidate_pair_count;

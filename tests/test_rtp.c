@@ -94,6 +94,45 @@ static void test_destroy_session(void *session)
     state->destroy_session_calls++;
 }
 
+static rtc_status_t test_get_local_fingerprint(void *session, char *out,
+                                               size_t *inout_len)
+{
+    static const char fingerprint[] =
+        "sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:"
+        "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
+    size_t len = sizeof(fingerprint) - 1u;
+
+    (void)session;
+    if (inout_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (out == 0 || *inout_len <= len) {
+        *inout_len = len + 1u;
+        return RTC_STATUS_CAPACITY;
+    }
+    memcpy(out, fingerprint, len + 1u);
+    *inout_len = len;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_start_dtls(void *session,
+                                    rtc_security_dtls_role_t role)
+{
+    (void)session;
+    (void)role;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_handle_dtls_datagram(void *session,
+                                              const uint8_t *packet,
+                                              size_t packet_len)
+{
+    (void)session;
+    (void)packet;
+    (void)packet_len;
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t test_srtp_protect_rtp(void *session, uint8_t *packet,
                                           size_t *inout_len, size_t capacity)
 {
@@ -120,6 +159,9 @@ static rtc_security_backend_vtable_t test_backend_vtable(void)
     memset(&vtable, 0, sizeof(vtable));
     vtable.create_session = test_create_session;
     vtable.destroy_session = test_destroy_session;
+    vtable.get_local_fingerprint = test_get_local_fingerprint;
+    vtable.start_dtls = test_start_dtls;
+    vtable.handle_dtls_datagram = test_handle_dtls_datagram;
     vtable.srtp_protect_rtp = test_srtp_protect_rtp;
     return vtable;
 }
