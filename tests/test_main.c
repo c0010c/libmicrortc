@@ -2,6 +2,8 @@
 
 int rtc_test_build(void);
 int rtc_test_memory(void);
+int rtc_test_executor_affinity(void);
+int rtc_test_peer_connection(void);
 
 int main(void)
 {
@@ -9,6 +11,8 @@ int main(void)
 
     RTC_RUN_TEST(rtc_test_build, result);
     RTC_RUN_TEST(rtc_test_memory, result);
+    RTC_RUN_TEST(rtc_test_executor_affinity, result);
+    RTC_RUN_TEST(rtc_test_peer_connection, result);
 
     if (result.failed != 0) {
         return 1;

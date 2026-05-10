@@ -11,6 +11,8 @@ option(RTC_BUILD_EXAMPLES "Build rtc examples" ON)
 
 add_library(rtc STATIC
     src/api/rtc.c
+    src/api/peer_connection.c
+    src/executor/executor.c
     src/memory/arena.c
     src/memory/allocator.c
 )
@@ -29,6 +31,8 @@ if(RTC_BUILD_TESTS)
         tests/test_main.c
         tests/test_build.c
         tests/test_memory.c
+        tests/test_executor_affinity.c
+        tests/test_peer_connection.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)

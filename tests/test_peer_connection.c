@@ -1,0 +1,109 @@
+#include "executor/executor.h"
+#include "rtc/rtc.h"
+#include "test_runner.h"
+
+static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
+                              void *task_user_data)
+{
+    (void)user_data;
+    if (task != 0) {
+        task(task_user_data);
+    }
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_schedule_timer(void *user_data, uint64_t delay_ms,
+                                        rtc_executor_task_fn task,
+                                        void *task_user_data,
+                                        uint64_t *out_timer_id)
+{
+    (void)user_data;
+    (void)delay_ms;
+    (void)task;
+    (void)task_user_data;
+    if (out_timer_id != 0) {
+        *out_timer_id = 1;
+    }
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_cancel_timer(void *user_data, uint64_t timer_id)
+{
+    (void)user_data;
+    (void)timer_id;
+    return RTC_STATUS_OK;
+}
+
+static rtc_executor_vtable_t test_executor(void)
+{
+    rtc_executor_vtable_t executor;
+    executor.post = test_post;
+    executor.schedule_timer = test_schedule_timer;
+    executor.cancel_timer = test_cancel_timer;
+    executor.user_data = 0;
+    return executor;
+}
+
+static rtc_peer_connection_config_t test_config(unsigned char *arena,
+                                                size_t arena_size)
+{
+    rtc_peer_connection_config_t config;
+    config.arena.data = arena;
+    config.arena.size = arena_size;
+    config.limits.sdp.max_description_bytes = 1024;
+    config.limits.ice.max_candidates = 8;
+    config.limits.ice.max_timer_slots = 8;
+    config.limits.dtls.max_sessions = 1;
+    config.limits.rtp.max_packet_cache = 16;
+    config.limits.rtcp.max_reports = 4;
+    config.limits.trace.max_events = 16;
+    config.platform = 0;
+    config.executors.signaling = test_executor();
+    config.executors.media = test_executor();
+    config.executors.network = test_executor();
+    config.observer = 0;
+    config.security_backend = 0;
+    return config;
+}
+
+int rtc_test_peer_connection(void)
+{
+    unsigned char arena[256];
+    unsigned char small_arena[1];
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(0, &diag, &pc));
+
+    config = test_config(small_arena, sizeof(small_arena));
+    RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ARENA,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_ARENA, diag.resource);
+
+    config = test_config(arena, sizeof(arena));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_ASSERT(pc != 0);
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+                    rtc_peer_connection_create_offer(pc, 0, 0));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+
+    config = test_config(arena, sizeof(arena));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
+    RTC_TEST_EQ_INT(RTC_STATUS_AFFINITY_VIOLATION,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+                    rtc_peer_connection_receive_datagram(pc, 0, 0));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+
+    return 0;
+}

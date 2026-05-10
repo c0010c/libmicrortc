@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "rtc/executor.h"
 #include "rtc/limits.h"
 
 #ifdef __cplusplus
@@ -33,7 +34,7 @@ typedef struct rtc_peer_connection_config_t {
     rtc_arena_t arena;
     rtc_peer_connection_limits_t limits;
     void *platform;
-    void *executors;
+    rtc_executors_t executors;
     void *observer;
     void *security_backend;
 } rtc_peer_connection_config_t;
