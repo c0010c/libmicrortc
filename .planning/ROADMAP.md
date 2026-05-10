@@ -11,7 +11,7 @@
 |------|------|------|------|------|
 | 1 | 核心骨架与边界契约 | 建立纯 C API、固定内存、执行器、observer、构建和基础可观测性 | API-01, API-02, API-03, API-05, MEM-01, MEM-02, MEM-03, EXE-01, EXE-02, EXE-03, OBS-01, OBS-02, OBS-03, BLD-01, BLD-02 | 已完成 |
 | 2 | SDP/JSEP 与 Offer/Answer | 生成和解析 Chrome 1v1 最小 SDP，并完成发起/接听信令 API | SDP-01, SDP-02, SDP-03, SDP-04, API-04 | 已完成 |
-| 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 待开始 |
+| 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 执行完成，待验证 |
 | 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 待开始 |
 | 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 待开始 |
 | 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | 待开始 |
@@ -92,6 +92,26 @@
 3. trickle ICE 本地候选通过 observer 输出，远端候选可增量输入。
 4. 用户输入 UDP datagram 后，库能区分 STUN、DTLS、RTP 和 RTCP 并路由到对应子系统。
 5. ICE 状态、candidate pair、STUN transaction 和失败原因都有 trace 或计数器输出。
+
+**计划：**
+
+**Wave 1**
+- `03-01-PLAN.md`：ICE/STUN 公共契约、固定容量与候选模型。已完成，见 `03-01-SUMMARY.md`。
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- `03-02-PLAN.md`：STUN 编解码、transaction 与 host/srflx gathering。已完成，见 `03-02-SUMMARY.md`。
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- `03-03-PLAN.md`：Full ICE checks、regular nomination 与 ICE 状态事件。已完成，见 `03-03-SUMMARY.md`。
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- `03-04-PLAN.md`：Datagram demux、占位路由、文档与阶段收口。已完成，见 `03-04-SUMMARY.md`。
+
+**跨计划约束：**
+- 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
+- 不引入 GPL/LGPL 依赖或第三方测试框架。
+- 第 3 阶段不得实现 DTLS 握手、SRTP/SRTCP protect/unprotect、RTP/RTCP 媒体解析、TURN、DNS/hostname STUN server 或 Chrome 端到端页面。
+- 所有执行计划必须保留 `03-CONTEXT.md` 中 D-01 到 D-19 的决策可追踪性。
 
 ### 第 4 阶段：DTLS-SRTP 安全传输
 
