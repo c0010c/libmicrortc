@@ -126,6 +126,26 @@
 4. RTP/RTCP protect 和 unprotect 通过 SRTP backend vtable 完成。
 5. backend 错误被映射为稳定 `rtc_status_t`、observer 错误和 trace 字段。
 
+**计划：**
+
+**Wave 1**
+- `04-01-PLAN.md`：安全 backend 契约、固定 storage、ICE connected 后自动启动 DTLS 和早到 DTLS 拒绝。
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- `04-02-PLAN.md`：backend 本地 fingerprint 写入 SDP、`sha-256` 限定和远端 fingerprint mismatch 硬失败。
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- `04-03-PLAN.md`：DTLS-SRTP key export、`srtp.ready` 和内部 SRTP/SRTCP protect/unprotect wrapper。
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- `04-04-PLAN.md`：安全后端错误映射、deterministic backend 全矩阵、文档与需求追踪收口。
+
+**跨计划约束：**
+- 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
+- 不引入 GPL/LGPL 依赖，不要求默认 OpenSSL/libsrtp 开发包。
+- 第 4 阶段不得实现 RTP/RTCP 媒体平面公共 API，也不要求 Chrome 真实 DTLS 端到端验收。
+- 所有执行计划必须保留 `04-CONTEXT.md` 中 D-01 到 D-24 的决策可追踪性。
+
 ### 第 5 阶段：RTP/RTCP 媒体平面
 
 **目标：** 完成 1 路 Opus 音频和 1 路 H264 视频的 RTP/RTCP 媒体平面，并把关键反馈事件暴露给用户。
