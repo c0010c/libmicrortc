@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 4 execution in progress; 04-04 complete
-last_updated: "2026-05-10T21:56:08+08:00"
+status: Phase 4 execution in progress; 04-05 complete
+last_updated: "2026-05-10T22:04:18+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 18
-  completed_plans: 16
-  percent: 66
+  completed_plans: 17
+  percent: 71
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 4 阶段执行中；04-04 已完成，04-05 待执行
+**当前状态：** 第 4 阶段执行中；04-05 已完成，04-06 待执行
 
 ## 项目引用
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 通过可插拔 backend vtable 建立 DTLS-SRTP 安全通道，不让核心 API 绑定特定第三方 TLS/SRTP 实现。
 
-**状态：** 执行中；04-04 已完成
+**状态：** 执行中；04-05 已完成
 
 **计划数量：** 6
 
@@ -118,6 +118,7 @@ $gsd-execute-phase 4
 - `.planning/phases/04-dtls-srtp-secure-transport/04-04-PLAN.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-04-SUMMARY.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-05-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-05-SUMMARY.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-06-PLAN.md`
 
 ---
@@ -127,6 +128,7 @@ $gsd-execute-phase 4
 - 2026-05-10T21:37:40+08:00：完成 `04-02-PLAN.md`，接入固定 DTLS session storage、ICE connected 自动启动 DTLS、早到 DTLS 拒绝和 backend outgoing datagram 转发。
 - 2026-05-10T21:47:27+08:00：完成 `04-03-PLAN.md`，本地 SDP fingerprint 改由 backend sha-256 fingerprint 提供，并实现 DTLS peer fingerprint mismatch 硬失败。
 - 2026-05-10T21:56:08+08:00：完成 `04-04-PLAN.md`，handshake complete 后导出 DTLS-SRTP key material、初始化单一 SRTP/SRTCP context，并新增内部 protect/unprotect wrapper。
+- 2026-05-10T22:04:18+08:00：完成 `04-05-PLAN.md`，新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定安全失败的 status、observer detail、trace reason 和 counter。
 
 ## 执行决策
 
@@ -137,6 +139,7 @@ $gsd-execute-phase 4
 - DTLS handshake complete 后必须先验证 peer certificate fingerprint；mismatch 进入 `dtls.failed`，阻断 key export 和 `srtp.ready`。
 - DTLS-SRTP key export 使用 `EXTRACTOR-dtls_srtp` 和固定 `RTC_DTLS_SRTP_KEY_MATERIAL_BYTES`，首版只初始化单一 BUNDLE SRTP/SRTCP context。
 - SRTP/SRTCP protect/unprotect 只通过内部 `src/srtp` wrapper 暴露，不新增 public `PeerConnection` protect/unprotect API。
+- 安全失败 public status 保持粗粒度；handshake/backend、fingerprint、key export、SRTP init/protect/unprotect/replay 细节通过 `RTC_SECURITY_DETAIL_*`、trace reason 和 counters 诊断。
 
 ---
-*最后更新：2026-05-10，04-04 执行完成后*
+*最后更新：2026-05-10，04-05 执行完成后*
