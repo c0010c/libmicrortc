@@ -1,4 +1,6 @@
 #include "executor/executor.h"
+#include "api/peer_connection.h"
+#include "observability/counters.h"
 #include "rtc/media.h"
 #include "rtc/rtc.h"
 #include "test_runner.h"
@@ -62,7 +64,13 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.limits.dtls.max_sessions = 1;
     config.limits.dtls.max_session_storage_bytes = 0;
     config.limits.rtp.max_packet_cache = 16;
+    config.limits.rtp.max_payload_bytes = 1200;
+    config.limits.rtp.max_packets_per_frame = 8;
+    config.limits.rtp.max_reassembly_bytes = 4096;
+    config.limits.rtp.max_media_queue_slots = 4;
     config.limits.rtcp.max_reports = 4;
+    config.limits.rtcp.max_feedback_packets = 4;
+    config.limits.rtcp.max_sdes_cname_bytes = 64;
     config.limits.trace.max_events = 16;
     config.sdp.ice_ufrag = "testufrag";
     config.sdp.ice_ufrag_len = strlen(config.sdp.ice_ufrag);
@@ -159,9 +167,71 @@ static int test_media_send_validation_and_affinity(void)
     return 0;
 }
 
+static int test_media_limits_counters_trace_and_fixed_slots(void)
+{
+    unsigned char arena[16384];
+    rtc_peer_connection_config_t config;
+    rtc_peer_connection_counters_t counters;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    rtc_counters_init(&counters);
+    RTC_TEST_EQ_INT(0, (int)counters.rtp.packets_sent);
+    RTC_TEST_EQ_INT(0, (int)counters.rtp.packets_received);
+    RTC_TEST_EQ_INT(0, (int)counters.rtp.packets_dropped);
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.rtcp_sr_sent);
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.rtcp_rr_received);
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.pli_sent);
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.pli_received);
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.nack_received);
+    RTC_TEST_EQ_INT(0, (int)counters.rtcp.nack_no_retransmit);
+    RTC_TEST_EQ_INT(0, (int)counters.media.frames_sent);
+    RTC_TEST_EQ_INT(0, (int)counters.media.frames_received);
+    RTC_TEST_EQ_INT(0, (int)counters.media.h264_reassembly_drops);
+    RTC_TEST_EQ_INT(0, (int)counters.media.media_queue_full);
+
+    RTC_TEST_ASSERT(RTC_TRACE_MEDIA_FRAME[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_RTP_PACKET[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_RTCP_PACKET[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_MEDIA_FEEDBACK[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_FIELD_MEDIA_KIND[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_FIELD_SSRC[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_FIELD_SEQUENCE[0] != '\0');
+    RTC_TEST_ASSERT(RTC_TRACE_FIELD_TIMESTAMP[0] != '\0');
+
+    config = test_config(arena, sizeof(arena));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_EQ_INT(4, (int)pc->media_queue_slot_count);
+    RTC_TEST_ASSERT(pc->media_queue_slots != 0);
+    RTC_TEST_EQ_INT(1200, (int)pc->media_max_payload_bytes);
+    RTC_TEST_EQ_INT(8, (int)pc->media_max_packets_per_frame);
+    RTC_TEST_EQ_INT(4096, (int)pc->media_max_reassembly_bytes);
+    RTC_TEST_ASSERT(pc->h264_reassembly_buffer != 0);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+
+    config = test_config(arena, sizeof(arena));
+    config.limits.rtp.max_media_queue_slots = 0;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
+    config = test_config(arena, sizeof(arena));
+    config.limits.rtp.max_payload_bytes = 0;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
+    config = test_config(arena, sizeof(arena));
+    config.limits.rtcp.max_feedback_packets = 0;
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_ARGUMENT,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    return 0;
+}
+
 int rtc_test_media_api(void)
 {
     RTC_TEST_EQ_INT(0, test_media_header_contract());
     RTC_TEST_EQ_INT(0, test_media_send_validation_and_affinity());
+    RTC_TEST_EQ_INT(0, test_media_limits_counters_trace_and_fixed_slots());
     return 0;
 }
