@@ -71,6 +71,8 @@ int rtc_test_sdp_writer(void)
 
     params = test_sdp_params("actpass");
     sdp_len = sizeof(sdp);
+    /* This low-level writer consumes the backend fingerprint snapshot that
+       createOffer/createAnswer prepare on rtc_sdp_parameters_t. */
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_sdp_write_offer(&params, RTC_SDP_DIRECTION_SENDRECV,
                                         RTC_SDP_DIRECTION_SENDRECV, sdp,

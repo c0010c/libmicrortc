@@ -1,6 +1,7 @@
 #include "executor/executor.h"
 #include "ice/ice.h"
 #include "rtc/rtc.h"
+#include "rtc/security.h"
 #include "stun/stun.h"
 #include "test_runner.h"
 
@@ -61,6 +62,82 @@ static rtc_executor_vtable_t test_executor(void)
     executor.cancel_timer = test_cancel_timer;
     executor.user_data = 0;
     return executor;
+}
+
+static rtc_status_t test_security_backend_create_session(
+    void *backend_user_data, void *storage, size_t storage_len,
+    rtc_security_backend_event_cb event_cb, void *event_user_data,
+    void **out_session)
+{
+    (void)storage;
+    (void)storage_len;
+    (void)event_cb;
+    (void)event_user_data;
+    *out_session = backend_user_data;
+    return RTC_STATUS_OK;
+}
+
+static void test_security_backend_destroy_session(void *session)
+{
+    (void)session;
+}
+
+static rtc_status_t test_security_backend_get_local_fingerprint(
+    void *session, char *out, size_t *inout_len)
+{
+    static const char backend_fingerprint[] =
+        "sha-256 24:68:AC:E0:24:68:AC:E0:24:68:AC:E0:24:68:AC:E0:"
+        "24:68:AC:E0:24:68:AC:E0:24:68:AC:E0:24:68:AC:E0";
+    size_t len = strlen(backend_fingerprint);
+    (void)session;
+    if (out == 0 || inout_len == 0 || *inout_len <= len) {
+        if (inout_len != 0) {
+            *inout_len = len + 1u;
+        }
+        return RTC_STATUS_CAPACITY;
+    }
+    memcpy(out, backend_fingerprint, len + 1u);
+    *inout_len = len;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_security_backend_start_dtls(
+    void *session, rtc_security_dtls_role_t role)
+{
+    (void)session;
+    (void)role;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_security_backend_handle_dtls_datagram(
+    void *session, const uint8_t *packet, size_t packet_len)
+{
+    (void)session;
+    (void)packet;
+    (void)packet_len;
+    return RTC_STATUS_OK;
+}
+
+static const rtc_security_backend_config_t *test_security_backend(void)
+{
+    static int state;
+    static rtc_security_backend_vtable_t vtable;
+    static rtc_security_backend_config_t backend;
+
+    if (backend.vtable == 0) {
+        memset(&vtable, 0, sizeof(vtable));
+        vtable.create_session = test_security_backend_create_session;
+        vtable.destroy_session = test_security_backend_destroy_session;
+        vtable.get_local_fingerprint =
+            test_security_backend_get_local_fingerprint;
+        vtable.start_dtls = test_security_backend_start_dtls;
+        vtable.handle_dtls_datagram =
+            test_security_backend_handle_dtls_datagram;
+        backend.vtable = &vtable;
+        backend.user_data = &state;
+        backend.session_storage_bytes = 64;
+    }
+    return &backend;
 }
 
 static void on_error(void *user_data, rtc_status_t status,
@@ -132,6 +209,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.limits.ice.max_transactions = 4;
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
+    config.limits.dtls.max_session_storage_bytes = 64;
     config.limits.rtp.max_packet_cache = 16;
     config.limits.rtcp.max_reports = 4;
     config.limits.trace.max_events = 16;
@@ -161,7 +239,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.observer.on_media_frame = 0;
     config.observer.on_datagram = on_datagram;
     config.observer.user_data = state;
-    config.security_backend = 0;
+    config.security_backend = test_security_backend();
     return config;
 }
 

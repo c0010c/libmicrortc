@@ -452,6 +452,7 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->security_session = 0;
     pc->security_session_storage = 0;
     pc->security_session_storage_bytes = 0;
+    pc->local_dtls_fingerprint[0] = '\0';
     pc->dtls_role = RTC_SECURITY_DTLS_ROLE_CLIENT;
     pc->dtls_state = RTC_SECURITY_DTLS_NEW;
     pc->srtp_ready = 0;
@@ -622,6 +623,11 @@ rtc_status_t rtc_peer_connection_create_offer(rtc_peer_connection_t *pc,
                           pc->signaling_state, RTC_SDP_TYPE_OFFER);
         return status;
     }
+    status = rtc_security_prepare_local_fingerprint(pc);
+    if (status != RTC_STATUS_OK) {
+        rtc_pc_trace(pc, RTC_TRACE_SDP_WRITE, "create_offer", status);
+        return status;
+    }
     status = rtc_sdp_write_offer(&pc->sdp, RTC_SDP_DIRECTION_SENDRECV,
                                  RTC_SDP_DIRECTION_SENDRECV, out_sdp,
                                  inout_sdp_len);
@@ -649,6 +655,11 @@ rtc_status_t rtc_peer_connection_create_answer(rtc_peer_connection_t *pc,
                                 0);
         rtc_pc_trace_jsep(pc, RTC_TRACE_JSEP_REJECT, "create_answer", status,
                           pc->signaling_state, RTC_SDP_TYPE_ANSWER);
+        return status;
+    }
+    status = rtc_security_prepare_local_fingerprint(pc);
+    if (status != RTC_STATUS_OK) {
+        rtc_pc_trace(pc, RTC_TRACE_SDP_WRITE, "create_answer", status);
         return status;
     }
     status = rtc_sdp_write_answer(&pc->sdp, RTC_SDP_DIRECTION_SENDRECV,

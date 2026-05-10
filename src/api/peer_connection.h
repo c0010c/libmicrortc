@@ -82,6 +82,7 @@ struct rtc_peer_connection_t {
     void *security_session;
     void *security_session_storage;
     size_t security_session_storage_bytes;
+    char local_dtls_fingerprint[128];
     rtc_security_dtls_role_t dtls_role;
     rtc_security_dtls_state_t dtls_state;
     int srtp_ready;

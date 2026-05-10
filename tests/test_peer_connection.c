@@ -1,8 +1,13 @@
 #include "executor/executor.h"
 #include "rtc/rtc.h"
+#include "rtc/security.h"
 #include "test_runner.h"
 
 #include <string.h>
+
+typedef struct test_security_backend_state_t {
+    int create_session_calls;
+} test_security_backend_state_t;
 
 static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
                               void *task_user_data)
@@ -46,6 +51,85 @@ static rtc_executor_vtable_t test_executor(void)
     return executor;
 }
 
+static rtc_status_t test_security_backend_create_session(
+    void *backend_user_data, void *storage, size_t storage_len,
+    rtc_security_backend_event_cb event_cb, void *event_user_data,
+    void **out_session)
+{
+    test_security_backend_state_t *state =
+        (test_security_backend_state_t *)backend_user_data;
+    (void)storage;
+    (void)storage_len;
+    (void)event_cb;
+    (void)event_user_data;
+    state->create_session_calls++;
+    *out_session = state;
+    return RTC_STATUS_OK;
+}
+
+static void test_security_backend_destroy_session(void *session)
+{
+    (void)session;
+}
+
+static rtc_status_t test_security_backend_get_local_fingerprint(
+    void *session, char *out, size_t *inout_len)
+{
+    static const char backend_fingerprint[] =
+        "sha-256 12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF:"
+        "12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF";
+    size_t len = strlen(backend_fingerprint);
+    (void)session;
+    if (out == 0 || inout_len == 0 || *inout_len <= len) {
+        if (inout_len != 0) {
+            *inout_len = len + 1u;
+        }
+        return RTC_STATUS_CAPACITY;
+    }
+    memcpy(out, backend_fingerprint, len + 1u);
+    *inout_len = len;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_security_backend_start_dtls(
+    void *session, rtc_security_dtls_role_t role)
+{
+    (void)session;
+    (void)role;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t test_security_backend_handle_dtls_datagram(
+    void *session, const uint8_t *packet, size_t packet_len)
+{
+    (void)session;
+    (void)packet;
+    (void)packet_len;
+    return RTC_STATUS_OK;
+}
+
+static const rtc_security_backend_config_t *test_security_backend(void)
+{
+    static test_security_backend_state_t state;
+    static rtc_security_backend_vtable_t vtable;
+    static rtc_security_backend_config_t backend;
+
+    if (backend.vtable == 0) {
+        memset(&vtable, 0, sizeof(vtable));
+        vtable.create_session = test_security_backend_create_session;
+        vtable.destroy_session = test_security_backend_destroy_session;
+        vtable.get_local_fingerprint =
+            test_security_backend_get_local_fingerprint;
+        vtable.start_dtls = test_security_backend_start_dtls;
+        vtable.handle_dtls_datagram =
+            test_security_backend_handle_dtls_datagram;
+        backend.vtable = &vtable;
+        backend.user_data = &state;
+        backend.session_storage_bytes = 64;
+    }
+    return &backend;
+}
+
 static rtc_peer_connection_config_t test_config(unsigned char *arena,
                                                 size_t arena_size)
 {
@@ -59,6 +143,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.limits.ice.max_transactions = 4;
     config.limits.ice.max_timer_slots = 8;
     config.limits.dtls.max_sessions = 1;
+    config.limits.dtls.max_session_storage_bytes = 64;
     config.limits.rtp.max_packet_cache = 16;
     config.limits.rtcp.max_reports = 4;
     config.limits.trace.max_events = 16;
@@ -88,7 +173,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.observer.on_media_frame = 0;
     config.observer.on_datagram = 0;
     config.observer.user_data = 0;
-    config.security_backend = 0;
+    config.security_backend = test_security_backend();
     return config;
 }
 
@@ -140,7 +225,7 @@ int rtc_test_peer_connection(void)
     RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_ARENA, diag.resource);
 
     {
-        unsigned char pair_arena[6600];
+        unsigned char pair_arena[6800];
         config = test_config(pair_arena, sizeof(pair_arena));
         config.limits.ice.max_candidates = 1;
         RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ICE_PAIRS,
@@ -149,7 +234,7 @@ int rtc_test_peer_connection(void)
     }
 
     {
-        unsigned char transaction_arena[6700];
+        unsigned char transaction_arena[6800];
         config = test_config(transaction_arena, sizeof(transaction_arena));
         config.limits.ice.max_candidates = 1;
         config.limits.ice.max_candidate_pairs = 1;

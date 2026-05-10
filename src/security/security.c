@@ -5,6 +5,8 @@
 #include "observability/observer.h"
 #include "observability/trace.h"
 
+#include <string.h>
+
 static const char *rtc_security_dtls_state_name(rtc_security_dtls_state_t state)
 {
     switch (state) {
@@ -60,6 +62,29 @@ static void rtc_security_emit_state(rtc_peer_connection_t *pc,
                        reason);
 }
 
+static int rtc_security_is_sha256_fingerprint(const char *fingerprint,
+                                              size_t fingerprint_len)
+{
+    static const char prefix[] = "sha-256 ";
+    size_t prefix_len = sizeof(prefix) - 1u;
+
+    return fingerprint != 0 && fingerprint_len > prefix_len &&
+           strncmp(fingerprint, prefix, prefix_len) == 0;
+}
+
+static rtc_status_t rtc_security_fail_fingerprint(
+    rtc_peer_connection_t *pc, const char *operation, rtc_status_t status,
+    const char *reason, int detail_code)
+{
+    if (pc != 0) {
+        rtc_observer_emit_error(&pc->observer, status, "dtls", operation,
+                                detail_code);
+        rtc_security_trace(pc, RTC_TRACE_DTLS_STATE, operation, status,
+                           reason);
+    }
+    return status;
+}
+
 static void rtc_security_handle_handshake_complete(rtc_peer_connection_t *pc)
 {
     pc->counters.dtls.handshake_completed++;
@@ -111,6 +136,7 @@ static int rtc_security_backend_valid(
     return backend != 0 && backend->vtable != 0 &&
            backend->vtable->create_session != 0 &&
            backend->vtable->destroy_session != 0 &&
+           backend->vtable->get_local_fingerprint != 0 &&
            backend->vtable->start_dtls != 0 &&
            backend->vtable->handle_dtls_datagram != 0;
 }
@@ -124,6 +150,7 @@ rtc_status_t rtc_security_init(
 
     pc->security_backend = backend;
     pc->security_session = 0;
+    pc->local_dtls_fingerprint[0] = '\0';
     pc->dtls_role = RTC_SECURITY_DTLS_ROLE_CLIENT;
     pc->dtls_state = RTC_SECURITY_DTLS_NEW;
     pc->srtp_ready = 0;
@@ -157,6 +184,49 @@ rtc_status_t rtc_security_init(
 
     pc->security_session = session;
     rtc_security_trace(pc, RTC_TRACE_DTLS_STATE, "create_session",
+                       RTC_STATUS_OK, 0);
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_security_prepare_local_fingerprint(rtc_peer_connection_t *pc)
+{
+    rtc_status_t status;
+    size_t fingerprint_len;
+
+    if (pc == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (pc->security_backend == 0 || pc->security_backend->vtable == 0 ||
+        pc->security_backend->vtable->get_local_fingerprint == 0 ||
+        pc->security_session == 0) {
+        return rtc_security_fail_fingerprint(
+            pc, "local_fingerprint", RTC_STATUS_BACKEND_ERROR,
+            "local_fingerprint_failed", 0);
+    }
+
+    fingerprint_len = sizeof(pc->local_dtls_fingerprint);
+    status = pc->security_backend->vtable->get_local_fingerprint(
+        pc->security_session, pc->local_dtls_fingerprint, &fingerprint_len);
+    if (status != RTC_STATUS_OK || fingerprint_len == 0 ||
+        fingerprint_len >= sizeof(pc->local_dtls_fingerprint)) {
+        pc->local_dtls_fingerprint[0] = '\0';
+        return rtc_security_fail_fingerprint(
+            pc, "local_fingerprint", RTC_STATUS_BACKEND_ERROR,
+            "local_fingerprint_failed", 0);
+    }
+
+    pc->local_dtls_fingerprint[fingerprint_len] = '\0';
+    if (!rtc_security_is_sha256_fingerprint(pc->local_dtls_fingerprint,
+                                            fingerprint_len)) {
+        pc->local_dtls_fingerprint[0] = '\0';
+        return rtc_security_fail_fingerprint(
+            pc, "local_fingerprint", RTC_STATUS_PROTOCOL_ERROR,
+            "unsupported_fingerprint_algorithm", 0);
+    }
+
+    pc->sdp.dtls_fingerprint = pc->local_dtls_fingerprint;
+    pc->sdp.dtls_fingerprint_len = fingerprint_len;
+    rtc_security_trace(pc, RTC_TRACE_DTLS_STATE, "local_fingerprint",
                        RTC_STATUS_OK, 0);
     return RTC_STATUS_OK;
 }

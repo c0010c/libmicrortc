@@ -414,7 +414,7 @@ static int test_security_create_time_session_storage(void)
 
 static int test_security_session_storage_capacity(void)
 {
-    unsigned char arena[9000];
+    unsigned char arena[16384];
     security_test_state_t state;
     rtc_security_backend_config_t backend;
     rtc_security_backend_vtable_t vtable;
@@ -424,8 +424,8 @@ static int test_security_session_storage_capacity(void)
 
     memset(&state, 0, sizeof(state));
     config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
-    config.limits.dtls.max_session_storage_bytes = 8192;
-    backend.session_storage_bytes = 8192;
+    config.limits.dtls.max_session_storage_bytes = 20000;
+    backend.session_storage_bytes = 20000;
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY,
