@@ -167,6 +167,28 @@ static int test_media_send_validation_and_affinity(void)
     return 0;
 }
 
+static int test_request_keyframe_rejects_opus_kind(void)
+{
+    unsigned char arena[32768];
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    config = test_config(arena, sizeof(arena));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+                    rtc_peer_connection_request_keyframe(
+                        pc, RTC_MEDIA_KIND_AUDIO_OPUS));
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 static int test_media_limits_counters_trace_and_fixed_slots(void)
 {
     unsigned char arena[32768];
@@ -232,6 +254,7 @@ int rtc_test_media_api(void)
 {
     RTC_TEST_EQ_INT(0, test_media_header_contract());
     RTC_TEST_EQ_INT(0, test_media_send_validation_and_affinity());
+    RTC_TEST_EQ_INT(0, test_request_keyframe_rejects_opus_kind());
     RTC_TEST_EQ_INT(0, test_media_limits_counters_trace_and_fixed_slots());
     return 0;
 }

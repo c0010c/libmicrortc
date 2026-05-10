@@ -16,8 +16,10 @@ typedef struct rtcp_test_state_t {
     int srtcp_protect_calls;
     int srtcp_unprotect_calls;
     int datagram_count;
+    int feedback_count;
     rtc_status_t srtcp_protect_status;
     rtc_status_t srtcp_unprotect_status;
+    rtc_media_feedback_t last_feedback;
     uint8_t datagrams[4][256];
     size_t datagram_lens[4];
 } rtcp_test_state_t;
@@ -78,6 +80,17 @@ static void on_datagram(void *user_data, const uint8_t *data, size_t data_len)
     }
     memcpy(state->datagrams[index], data, data_len);
     state->datagram_lens[index] = data_len;
+}
+
+static void on_media_feedback(void *user_data,
+                              const rtc_media_feedback_t *feedback)
+{
+    rtcp_test_state_t *state = (rtcp_test_state_t *)user_data;
+
+    state->feedback_count++;
+    if (feedback != 0) {
+        state->last_feedback = *feedback;
+    }
 }
 
 static rtc_status_t test_create_session(
@@ -241,6 +254,7 @@ static rtc_peer_connection_config_t test_config(
     config.executors.media = test_executor(state);
     config.executors.network = test_executor(state);
     config.observer.on_datagram = on_datagram;
+    config.observer.on_media_feedback = on_media_feedback;
     config.observer.user_data = state;
     config.security_backend = backend;
     return config;
@@ -479,6 +493,88 @@ static int test_rtcp_protect_failure_does_not_output_datagram(void)
     return 0;
 }
 
+static int test_rtcp_request_keyframe_sends_protected_pli_datagram(void)
+{
+    unsigned char arena[32768];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_request_keyframe(
+                        pc, RTC_MEDIA_KIND_VIDEO_H264));
+    RTC_TEST_EQ_INT(1, state.srtcp_protect_calls);
+    RTC_TEST_EQ_INT(1, state.datagram_count);
+    RTC_TEST_EQ_INT(0x81, state.datagrams[0][0]);
+    RTC_TEST_EQ_INT(206, state.datagrams[0][1]);
+    RTC_TEST_EQ_INT(0xAA, state.datagrams[0][state.datagram_lens[0] - 4]);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.pli_sent);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_rtcp_receive_pli_reports_media_feedback(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet[16];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+    size_t packet_len = 0;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_rtcp_write_pli(0x11111111u, pc->rtcp_video.ssrc,
+                                       packet, sizeof(packet), &packet_len));
+    packet[packet_len++] = 0xAA;
+    packet[packet_len++] = 0xBB;
+    packet[packet_len++] = 0xCC;
+    packet[packet_len++] = 0xDD;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_receive_datagram(pc, packet,
+                                                         packet_len));
+    RTC_TEST_EQ_INT(1, state.srtcp_unprotect_calls);
+    RTC_TEST_EQ_INT(1, state.feedback_count);
+    RTC_TEST_EQ_INT(RTC_MEDIA_FEEDBACK_PLI, state.last_feedback.type);
+    RTC_TEST_EQ_INT(RTC_MEDIA_KIND_VIDEO_H264, state.last_feedback.kind);
+    RTC_TEST_EQ_INT(0, state.last_feedback.retransmit_performed);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.pli_received);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 int rtc_test_rtcp(void)
 {
     int status;
@@ -503,5 +599,13 @@ int rtc_test_rtcp(void)
     if (status != 0) {
         return status;
     }
-    return test_rtcp_protect_failure_does_not_output_datagram();
+    status = test_rtcp_protect_failure_does_not_output_datagram();
+    if (status != 0) {
+        return status;
+    }
+    status = test_rtcp_request_keyframe_sends_protected_pli_datagram();
+    if (status != 0) {
+        return status;
+    }
+    return test_rtcp_receive_pli_reports_media_feedback();
 }
