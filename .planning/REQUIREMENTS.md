@@ -10,7 +10,7 @@
 - [x] **API-01**: 用户可以通过纯 C 不透明句柄创建和销毁 `PeerConnection`。
 - [x] **API-02**: 用户可以通过 `rtc_peer_connection_config_t` 提供 arena、limits、platform vtable、executor vtable、observer vtable 和安全 backend。
 - [x] **API-03**: 所有公开 API 使用 `rtc_status_t` 返回码表达成功、可恢复错误、配置错误、容量不足和协议错误。
-- [ ] **API-04**: 用户可以调用 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription` 和 `addIceCandidate` 完成发起和接听流程。
+- [x] **API-04**: 用户可以调用 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription` 和 `addIceCandidate` 完成发起和接听流程。
 - [x] **API-05**: API 文档明确每个函数、observer 回调和 datagram 回调的执行器亲和规则。
 
 ### 固定内存与执行器
@@ -24,10 +24,10 @@
 
 ### SDP/JSEP
 
-- [ ] **SDP-01**: 库可以生成 Chrome 可接受的 1v1 音视频 offer SDP。
-- [ ] **SDP-02**: 库可以生成 Chrome 可接受的 1v1 音视频 answer SDP。
-- [ ] **SDP-03**: 库可以解析 Chrome 1v1 音视频 offer/answer 中的 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus 和媒体方向。
-- [ ] **SDP-04**: 库支持 `sendrecv` 和 `recvonly` 媒体方向。
+- [x] **SDP-01**: 库可以生成 Chrome 可接受的 1v1 音视频 offer SDP。
+- [x] **SDP-02**: 库可以生成 Chrome 可接受的 1v1 音视频 answer SDP。
+- [x] **SDP-03**: 库可以解析 Chrome 1v1 音视频 offer/answer 中的 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus 和媒体方向。
+- [x] **SDP-04**: 库支持 `sendrecv` 和 `recvonly` 媒体方向。
 - [ ] **SDP-05**: 库支持 trickle ICE 所需的本地候选输出和远端候选输入。
 
 ### ICE 与网络 datagram
@@ -128,11 +128,11 @@
 | OBS-03 | 第 1 阶段 | 已完成 |
 | BLD-01 | 第 1 阶段 | 已完成 |
 | BLD-02 | 第 1 阶段 | 已完成 |
-| SDP-01 | 第 2 阶段 | 待开始 |
-| SDP-02 | 第 2 阶段 | 待开始 |
-| SDP-03 | 第 2 阶段 | 待开始 |
-| SDP-04 | 第 2 阶段 | 待开始 |
-| API-04 | 第 2 阶段 | 待开始 |
+| SDP-01 | 第 2 阶段 | 已完成 |
+| SDP-02 | 第 2 阶段 | 已完成 |
+| SDP-03 | 第 2 阶段 | 已完成 |
+| SDP-04 | 第 2 阶段 | 已完成 |
+| API-04 | 第 2 阶段 | 已完成 |
 | SDP-05 | 第 3 阶段 | 待开始 |
 | ICE-01 | 第 3 阶段 | 待开始 |
 | ICE-02 | 第 3 阶段 | 待开始 |
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-10，第 1 阶段执行完成后*
+*最后更新：2026-05-10，第 2 阶段执行完成后*

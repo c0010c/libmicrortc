@@ -15,11 +15,12 @@
 ### 已验证
 
 - 第 1 阶段验证：纯 C CMake 静态库骨架、公共 `rtc_status_t`、不透明 `PeerConnection` create/destroy、固定 arena/limits、三执行器 vtable、亲和检查、observer、trace、计数器、最小 create/destroy 示例和中文 API 契约文档已通过本地构建与测试。
+- 第 2 阶段验证：固定 Chrome 1v1 SDP/JSEP profile、create-time SDP 参数、offer/answer writer、Chrome SDP parser、最小 JSEP 状态机、`addIceCandidate` 远端 candidate 固定槽保存和相关 golden/API 测试已通过本地构建与测试。
 
 ### 当前范围
 
-- [ ] 提供完整 `PeerConnection` 生命周期，支持发起和接听，即 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription`、`addIceCandidate` 等核心流程。
-- [ ] 支持 Chrome 1v1 最小 SDP/JSEP 画像，包括 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus 和 trickle ICE。
+- [x] 提供 SDP/JSEP 层面的 `PeerConnection` 发起和接听流程，即 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription`、`addIceCandidate` 等核心信令 API。
+- [x] 支持 Chrome 1v1 最小 SDP/JSEP 画像中的 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus、`sendrecv`/`recvonly` 和 trickle ICE candidate 保存。
 - [ ] 实现 Full ICE + STUN，支持 host/srflx candidate，不支持 TURN。
 - [ ] 通过可插拔 backend vtable 集成 DTLS、SRTP 和 crypto 能力。
 - [ ] 支持 RTP/RTCP 音视频传输，覆盖 H264 access unit、Opus frame、SR/RR、SDES、PLI，并解析上报 NACK。
@@ -74,6 +75,7 @@
 | 三执行器亲和模型 | 保留无线程库边界，同时允许用户映射到多线程、单线程或 superloop | 第 1 阶段已建立 vtable 和亲和检查 |
 | 用户负责 UDP/socket 收发 | 避免平台 I/O 假设，保持跨平台边界清晰 | — 待验证 |
 | Chrome 最小 SDP/JSEP 画像 | 首版聚焦可验收互通，不追求泛化 SDP 兼容 | — 待验证 |
+| 固定 Chrome 1v1 SDP/JSEP profile | 避免通用 SDP builder/parser 扩大范围，先锁定 Chrome 互通画像 | 第 2 阶段已建立 writer/parser、golden fixtures 和最小 JSEP 状态机 |
 | Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | — 待验证 |
 | DTLS/SRTP/crypto 使用 backend vtable | 保持依赖和许可策略可替换 | — 待验证 |
 | 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — 待验证 |
@@ -97,4 +99,4 @@
 4. 使用当前状态更新背景
 
 ---
-*最后更新：2026-05-10，第 1 阶段执行完成后*
+*最后更新：2026-05-10，第 2 阶段执行完成后*

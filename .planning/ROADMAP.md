@@ -10,7 +10,7 @@
 | 阶段 | 名称 | 目标 | 需求 | 状态 |
 |------|------|------|------|------|
 | 1 | 核心骨架与边界契约 | 建立纯 C API、固定内存、执行器、observer、构建和基础可观测性 | API-01, API-02, API-03, API-05, MEM-01, MEM-02, MEM-03, EXE-01, EXE-02, EXE-03, OBS-01, OBS-02, OBS-03, BLD-01, BLD-02 | 已完成 |
-| 2 | SDP/JSEP 与 Offer/Answer | 生成和解析 Chrome 1v1 最小 SDP，并完成发起/接听信令 API | SDP-01, SDP-02, SDP-03, SDP-04, API-04 | 待开始 |
+| 2 | SDP/JSEP 与 Offer/Answer | 生成和解析 Chrome 1v1 最小 SDP，并完成发起/接听信令 API | SDP-01, SDP-02, SDP-03, SDP-04, API-04 | 已完成 |
 | 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 待开始 |
 | 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 待开始 |
 | 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 待开始 |
@@ -65,14 +65,14 @@
 **计划：**
 
 **Wave 1**
-- `02-01-PLAN.md`：SDP/JSEP 公共契约、create-time SDP 参数、固定 arena 切分、CMake/test 骨架。
+- `02-01-PLAN.md`：SDP/JSEP 公共契约、create-time SDP 参数、固定 arena 切分、CMake/test 骨架。已完成，见 `02-01-SUMMARY.md`。
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- `02-02-PLAN.md`：固定 Chrome 1v1 SDP writer、本地 offer/answer golden 输出和 buffer 错误路径。
-- `02-03-PLAN.md`：Chrome SDP parser、profile validator、成功 fixture 和错误字段 fixture。
+- `02-02-PLAN.md`：固定 Chrome 1v1 SDP writer、本地 offer/answer golden 输出和 buffer 错误路径。已完成，见 `02-02-SUMMARY.md`。
+- `02-03-PLAN.md`：Chrome SDP parser、profile validator、成功 fixture 和错误字段 fixture。已完成，见 `02-03-SUMMARY.md`。
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- `02-04-PLAN.md`：Offer/Answer API 接入、最小 JSEP 状态机、`addIceCandidate` 保存和文档更新。
+- `02-04-PLAN.md`：Offer/Answer API 接入、最小 JSEP 状态机、`addIceCandidate` 保存和文档更新。已完成，见 `02-04-SUMMARY.md`。
 
 **跨计划约束：**
 - 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
@@ -142,4 +142,4 @@
 | 阶段总数 | 6 |
 
 ---
-*最后更新：2026-05-10，第 2 阶段规划后*
+*最后更新：2026-05-10，第 2 阶段执行完成后*
