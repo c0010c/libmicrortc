@@ -15,6 +15,7 @@ rtc_status_t rtc_security_init(
 void rtc_security_shutdown(rtc_peer_connection_t *pc);
 rtc_status_t rtc_security_on_ice_connected(rtc_peer_connection_t *pc);
 rtc_status_t rtc_security_prepare_local_fingerprint(rtc_peer_connection_t *pc);
+rtc_status_t rtc_security_verify_peer_fingerprint(rtc_peer_connection_t *pc);
 rtc_status_t rtc_security_handle_dtls_datagram(rtc_peer_connection_t *pc,
                                                const uint8_t *data,
                                                size_t data_len);

@@ -7,6 +7,8 @@
 
 #include <string.h>
 
+#define RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH 4001
+
 static const char *rtc_security_dtls_state_name(rtc_security_dtls_state_t state)
 {
     switch (state) {
@@ -87,6 +89,14 @@ static rtc_status_t rtc_security_fail_fingerprint(
 
 static void rtc_security_handle_handshake_complete(rtc_peer_connection_t *pc)
 {
+    rtc_status_t status;
+
+    status = rtc_security_verify_peer_fingerprint(pc);
+    if (status != RTC_STATUS_OK) {
+        /* fingerprint_mismatch must stop before export_keying_material. */
+        return;
+    }
+
     pc->counters.dtls.handshake_completed++;
     rtc_security_emit_state(pc, RTC_SECURITY_DTLS_CONNECTED, 0);
 }
@@ -227,6 +237,70 @@ rtc_status_t rtc_security_prepare_local_fingerprint(rtc_peer_connection_t *pc)
     pc->sdp.dtls_fingerprint = pc->local_dtls_fingerprint;
     pc->sdp.dtls_fingerprint_len = fingerprint_len;
     rtc_security_trace(pc, RTC_TRACE_DTLS_STATE, "local_fingerprint",
+                       RTC_STATUS_OK, 0);
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_security_verify_peer_fingerprint(rtc_peer_connection_t *pc)
+{
+    rtc_status_t status;
+    char peer_fingerprint[128];
+    size_t peer_fingerprint_len;
+    size_t remote_fingerprint_len;
+
+    if (pc == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (pc->security_backend == 0 || pc->security_backend->vtable == 0 ||
+        pc->security_backend->vtable->get_peer_fingerprint == 0 ||
+        pc->security_session == 0) {
+        pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
+        pc->counters.dtls.handshake_failed++;
+        rtc_observer_emit_state(&pc->observer, "dtls.failed");
+        return rtc_security_fail_fingerprint(
+            pc, "fingerprint_verify", RTC_STATUS_BACKEND_ERROR,
+            "fingerprint_verify_failed", 0);
+    }
+
+    peer_fingerprint_len = sizeof(peer_fingerprint);
+    status = pc->security_backend->vtable->get_peer_fingerprint(
+        pc->security_session, peer_fingerprint, &peer_fingerprint_len);
+    if (status != RTC_STATUS_OK || peer_fingerprint_len == 0 ||
+        peer_fingerprint_len >= sizeof(peer_fingerprint)) {
+        pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
+        pc->counters.dtls.handshake_failed++;
+        rtc_observer_emit_state(&pc->observer, "dtls.failed");
+        return rtc_security_fail_fingerprint(
+            pc, "fingerprint_verify", RTC_STATUS_BACKEND_ERROR,
+            "fingerprint_verify_failed", 0);
+    }
+    peer_fingerprint[peer_fingerprint_len] = '\0';
+
+    if (!rtc_security_is_sha256_fingerprint(peer_fingerprint,
+                                            peer_fingerprint_len)) {
+        pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
+        pc->counters.dtls.handshake_failed++;
+        rtc_observer_emit_state(&pc->observer, "dtls.failed");
+        return rtc_security_fail_fingerprint(
+            pc, "fingerprint_verify", RTC_STATUS_PROTOCOL_ERROR,
+            "unsupported_fingerprint_algorithm", 0);
+    }
+
+    remote_fingerprint_len = strlen(pc->remote_summary.dtls_fingerprint);
+    if (remote_fingerprint_len != peer_fingerprint_len ||
+        memcmp(pc->remote_summary.dtls_fingerprint, peer_fingerprint,
+               peer_fingerprint_len) != 0) {
+        pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
+        pc->counters.dtls.fingerprint_mismatch++;
+        pc->counters.dtls.handshake_failed++;
+        rtc_observer_emit_state(&pc->observer, "dtls.failed");
+        return rtc_security_fail_fingerprint(
+            pc, "fingerprint_verify", RTC_STATUS_PROTOCOL_ERROR,
+            "fingerprint_mismatch",
+            RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH);
+    }
+
+    rtc_security_trace(pc, RTC_TRACE_DTLS_STATE, "fingerprint_verify",
                        RTC_STATUS_OK, 0);
     return RTC_STATUS_OK;
 }
