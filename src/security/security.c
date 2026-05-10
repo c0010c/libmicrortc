@@ -7,10 +7,6 @@
 
 #include <string.h>
 
-#define RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH 4001
-#define RTC_SECURITY_DETAIL_KEY_EXPORT_FAILED 4002
-#define RTC_SECURITY_DETAIL_SRTP_INIT_FAILED 4003
-
 static const char RTC_DTLS_SRTP_EXPORTER_LABEL[] = "EXTRACTOR-dtls_srtp";
 
 static const char *rtc_security_dtls_state_name(rtc_security_dtls_state_t state)
@@ -204,13 +200,15 @@ static void rtc_security_backend_event_cb_dispatch(
     default:
         pc->counters.dtls.handshake_failed++;
         rtc_security_emit_state(pc, RTC_SECURITY_DTLS_FAILED,
-                                "backend_event_error");
+                                "handshake_failed");
         rtc_observer_emit_error(&pc->observer,
                                 event->status == RTC_STATUS_OK
                                     ? RTC_STATUS_BACKEND_ERROR
                                     : event->status,
                                 "security", "backend_event",
-                                event->detail_code);
+                                event->detail_code != 0
+                                    ? event->detail_code
+                                    : RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
         break;
     }
 }
@@ -260,10 +258,11 @@ rtc_status_t rtc_security_init(
         rtc_security_backend_event_cb_dispatch, pc, &session);
     if (status != RTC_STATUS_OK || session == 0) {
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_BACKEND_ERROR,
-                                "security", "create_session", 0);
+                                "security", "create_session",
+                                RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
         rtc_security_trace(pc, RTC_TRACE_DTLS_STATE, "create_session",
                            RTC_STATUS_BACKEND_ERROR,
-                           "backend_create_failed");
+                           "handshake_failed");
         return RTC_STATUS_BACKEND_ERROR;
     }
 
@@ -438,9 +437,10 @@ rtc_status_t rtc_security_on_ice_connected(rtc_peer_connection_t *pc)
         pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
         pc->counters.dtls.handshake_failed++;
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_BACKEND_ERROR,
-                                "security", "start_dtls", 0);
+                                "security", "start_dtls",
+                                RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
         rtc_security_trace(pc, RTC_TRACE_DTLS_HANDSHAKE, "start_dtls",
-                           RTC_STATUS_BACKEND_ERROR, "start_dtls_failed");
+                           RTC_STATUS_BACKEND_ERROR, "handshake_failed");
         return RTC_STATUS_BACKEND_ERROR;
     }
 
@@ -475,10 +475,11 @@ rtc_status_t rtc_security_handle_dtls_datagram(rtc_peer_connection_t *pc,
         pc->dtls_state = RTC_SECURITY_DTLS_FAILED;
         pc->counters.dtls.handshake_failed++;
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_BACKEND_ERROR,
-                                "security", "handle_dtls_datagram", 0);
+                                "security", "handle_dtls_datagram",
+                                RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
         rtc_security_trace(pc, RTC_TRACE_DTLS_HANDSHAKE,
                            "handle_dtls_datagram", RTC_STATUS_BACKEND_ERROR,
-                           "backend_input_failed");
+                           "handshake_failed");
         return RTC_STATUS_BACKEND_ERROR;
     }
 

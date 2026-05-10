@@ -358,6 +358,9 @@ static rtc_status_t test_srtcp_unprotect(void *session, uint8_t *packet,
     security_test_state_t *state = (security_test_state_t *)session;
 
     state->srtcp_unprotect_calls++;
+    if (state->srtcp_unprotect_status != RTC_STATUS_OK) {
+        return state->srtcp_unprotect_status;
+    }
     return test_srtp_unprotect_rtp(session, packet, inout_len);
 }
 

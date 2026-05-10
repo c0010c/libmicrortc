@@ -44,10 +44,12 @@ static void rtc_srtp_trace(rtc_peer_connection_t *pc, const char *operation,
 static rtc_status_t rtc_srtp_fail(rtc_peer_connection_t *pc,
                                   const char *operation,
                                   rtc_status_t status,
-                                  const char *reason)
+                                  const char *reason,
+                                  int detail_code)
 {
     if (pc != 0) {
-        rtc_observer_emit_error(&pc->observer, status, "srtp", operation, 0);
+        rtc_observer_emit_error(&pc->observer, status, "srtp", operation,
+                                detail_code);
         rtc_srtp_trace(pc, operation, status, reason);
     }
     return status;
@@ -61,12 +63,12 @@ static rtc_status_t rtc_srtp_require_ready(rtc_peer_connection_t *pc,
     }
     if (!pc->srtp_ready) {
         return rtc_srtp_fail(pc, operation, RTC_STATUS_INVALID_STATE,
-                             "srtp_not_ready");
+                             "srtp_not_ready", 0);
     }
     if (pc->security_backend == 0 || pc->security_backend->vtable == 0 ||
         pc->security_session == 0) {
         return rtc_srtp_fail(pc, operation, RTC_STATUS_BACKEND_ERROR,
-                             "srtp_backend_unavailable");
+                             "srtp_backend_unavailable", 0);
     }
     return RTC_STATUS_OK;
 }
@@ -77,7 +79,8 @@ static rtc_status_t rtc_srtp_protect_common(rtc_peer_connection_t *pc,
                                             size_t capacity,
                                             rtc_srtp_protect_fn protect,
                                             const char *operation,
-                                            const char *failure_reason)
+                                            const char *failure_reason,
+                                            int detail_code)
 {
     rtc_status_t status;
 
@@ -93,14 +96,14 @@ static rtc_status_t rtc_srtp_protect_common(rtc_peer_connection_t *pc,
     if (protect == 0) {
         pc->counters.srtp.protect_failed++;
         return rtc_srtp_fail(pc, operation, RTC_STATUS_BACKEND_ERROR,
-                             failure_reason);
+                             failure_reason, detail_code);
     }
 
     status = protect(pc->security_session, packet, inout_len, capacity);
     if (status != RTC_STATUS_OK) {
         pc->counters.srtp.protect_failed++;
         return rtc_srtp_fail(pc, operation, RTC_STATUS_BACKEND_ERROR,
-                             failure_reason);
+                             failure_reason, detail_code);
     }
 
     rtc_srtp_trace(pc, operation, RTC_STATUS_OK, 0);
@@ -114,6 +117,7 @@ static rtc_status_t rtc_srtp_unprotect_common(
 {
     rtc_status_t status;
     const char *reason = failure_reason;
+    int detail_code = RTC_SECURITY_DETAIL_SRTP_UNPROTECT_FAILED;
 
     if (packet == 0 || inout_len == 0 || *inout_len == 0) {
         return RTC_STATUS_INVALID_ARGUMENT;
@@ -126,7 +130,7 @@ static rtc_status_t rtc_srtp_unprotect_common(
     if (unprotect == 0) {
         pc->counters.srtp.unprotect_failed++;
         return rtc_srtp_fail(pc, operation, RTC_STATUS_BACKEND_ERROR,
-                             failure_reason);
+                             failure_reason, detail_code);
     }
 
     status = unprotect(pc->security_session, packet, inout_len);
@@ -135,10 +139,11 @@ static rtc_status_t rtc_srtp_unprotect_common(
         if (status == RTC_STATUS_PROTOCOL_ERROR) {
             pc->counters.srtp.replay_failed++;
             reason = "srtp_replay_failed";
+            detail_code = RTC_SECURITY_DETAIL_SRTP_REPLAY_FAILED;
         } else {
             status = RTC_STATUS_BACKEND_ERROR;
         }
-        return rtc_srtp_fail(pc, operation, status, reason);
+        return rtc_srtp_fail(pc, operation, status, reason, detail_code);
     }
 
     rtc_srtp_trace(pc, operation, RTC_STATUS_OK, 0);
@@ -157,7 +162,8 @@ rtc_status_t rtc_srtp_protect_rtp(rtc_peer_connection_t *pc,
         protect = pc->security_backend->vtable->srtp_protect_rtp;
     }
     return rtc_srtp_protect_common(pc, packet, inout_len, capacity, protect,
-                                   "protect_rtp", "srtp_protect_failed");
+                                   "protect_rtp", "srtp_protect_failed",
+                                   RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED);
 }
 
 rtc_status_t rtc_srtp_unprotect_rtp(rtc_peer_connection_t *pc,
@@ -187,7 +193,8 @@ rtc_status_t rtc_srtp_protect_rtcp(rtc_peer_connection_t *pc,
         protect = pc->security_backend->vtable->srtcp_protect;
     }
     return rtc_srtp_protect_common(pc, packet, inout_len, capacity, protect,
-                                   "protect_rtcp", "srtp_protect_failed");
+                                   "protect_rtcp", "srtp_protect_failed",
+                                   RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED);
 }
 
 rtc_status_t rtc_srtp_unprotect_rtcp(rtc_peer_connection_t *pc,
@@ -202,5 +209,5 @@ rtc_status_t rtc_srtp_unprotect_rtcp(rtc_peer_connection_t *pc,
     }
     return rtc_srtp_unprotect_common(pc, packet, inout_len, unprotect,
                                      "unprotect_rtcp",
-                                     "srtcp_unprotect_failed");
+                                     "srtp_unprotect_failed");
 }

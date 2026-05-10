@@ -21,6 +21,16 @@ typedef enum rtc_security_backend_event_type_t {
     RTC_SECURITY_BACKEND_EVENT_ERROR
 } rtc_security_backend_event_type_t;
 
+typedef enum rtc_security_detail_code_t {
+    RTC_SECURITY_DETAIL_HANDSHAKE_FAILED = 4001,
+    RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH = 4002,
+    RTC_SECURITY_DETAIL_KEY_EXPORT_FAILED = 4003,
+    RTC_SECURITY_DETAIL_SRTP_INIT_FAILED = 4004,
+    RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED = 4005,
+    RTC_SECURITY_DETAIL_SRTP_UNPROTECT_FAILED = 4006,
+    RTC_SECURITY_DETAIL_SRTP_REPLAY_FAILED = 4007
+} rtc_security_detail_code_t;
+
 typedef struct rtc_security_backend_event_t {
     rtc_security_backend_event_type_t type;
     const uint8_t *datagram;
