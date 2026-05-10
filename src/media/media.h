@@ -6,5 +6,8 @@
 
 rtc_status_t rtc_media_send_frame(rtc_peer_connection_t *pc,
                                   const rtc_media_frame_t *frame);
+rtc_status_t rtc_media_handle_rtp_datagram(rtc_peer_connection_t *pc,
+                                           const uint8_t *data,
+                                           size_t data_len);
 
 #endif

@@ -72,6 +72,10 @@ typedef struct rtc_media_queue_slot_t {
     uint8_t *payload;
     size_t payload_len;
     size_t payload_capacity;
+    uint8_t payload_type;
+    uint16_t sequence;
+    uint32_t timestamp;
+    int marker;
     rtc_status_t dispatch_status;
     int in_use;
 } rtc_media_queue_slot_t;

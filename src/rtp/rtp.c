@@ -16,6 +16,17 @@ static void rtc_write_u32(uint8_t *out, uint32_t value)
     out[3] = (uint8_t)(value & 0xffu);
 }
 
+static uint16_t rtc_read_u16(const uint8_t *in)
+{
+    return (uint16_t)(((uint16_t)in[0] << 8) | in[1]);
+}
+
+static uint32_t rtc_read_u32(const uint8_t *in)
+{
+    return ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) |
+           ((uint32_t)in[2] << 8) | in[3];
+}
+
 rtc_status_t rtc_rtp_write_header(uint8_t *out, size_t capacity, int marker,
                                   uint8_t payload_type, uint16_t sequence,
                                   uint32_t timestamp, uint32_t ssrc)
@@ -30,6 +41,37 @@ rtc_status_t rtc_rtp_write_header(uint8_t *out, size_t capacity, int marker,
     rtc_write_u16(out + 2, sequence);
     rtc_write_u32(out + 4, timestamp);
     rtc_write_u32(out + 8, ssrc);
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_rtp_parse_header(const uint8_t *packet, size_t packet_len,
+                                  rtc_rtp_header_t *out_header)
+{
+    size_t csrc_count;
+    size_t header_len;
+
+    if (packet == 0 || out_header == 0 ||
+        packet_len < RTC_RTP_HEADER_BYTES) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((packet[0] >> 6) != RTC_RTP_VERSION) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    if ((packet[0] & 0x10u) != 0u) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+    csrc_count = packet[0] & 0x0fu;
+    header_len = RTC_RTP_HEADER_BYTES + csrc_count * 4u;
+    if (packet_len < header_len || packet_len == header_len) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    out_header->payload_type = (uint8_t)(packet[1] & 0x7fu);
+    out_header->marker = (packet[1] & 0x80u) != 0u;
+    out_header->sequence = rtc_read_u16(packet + 2);
+    out_header->timestamp = rtc_read_u32(packet + 4);
+    out_header->ssrc = rtc_read_u32(packet + 8);
+    out_header->header_len = header_len;
     return RTC_STATUS_OK;
 }
 

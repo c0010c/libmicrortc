@@ -29,9 +29,20 @@ typedef struct rtc_rtp_packet_buffer_t {
     int marker;
 } rtc_rtp_packet_buffer_t;
 
+typedef struct rtc_rtp_header_t {
+    uint8_t payload_type;
+    uint16_t sequence;
+    uint32_t timestamp;
+    uint32_t ssrc;
+    size_t header_len;
+    int marker;
+} rtc_rtp_header_t;
+
 rtc_status_t rtc_rtp_write_header(uint8_t *out, size_t capacity, int marker,
                                   uint8_t payload_type, uint16_t sequence,
                                   uint32_t timestamp, uint32_t ssrc);
+rtc_status_t rtc_rtp_parse_header(const uint8_t *packet, size_t packet_len,
+                                  rtc_rtp_header_t *out_header);
 rtc_status_t rtc_rtp_packetize_opus(const rtc_media_frame_t *frame,
                                     rtc_rtp_packetizer_state_t *state,
                                     size_t max_payload_bytes, uint8_t *out,

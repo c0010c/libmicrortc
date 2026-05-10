@@ -6,6 +6,8 @@
 #include "rtp/rtp.h"
 #include "srtp/srtp.h"
 
+#include <string.h>
+
 static void rtc_media_trace_packet(rtc_peer_connection_t *pc,
                                    rtc_media_kind_t kind, uint16_t sequence,
                                    uint32_t timestamp, rtc_status_t status,
@@ -62,6 +64,10 @@ static rtc_media_queue_slot_t *rtc_media_acquire_slot(rtc_peer_connection_t *pc)
 static void rtc_media_release_slot(rtc_media_queue_slot_t *slot)
 {
     slot->payload_len = 0;
+    slot->payload_type = 0;
+    slot->sequence = 0;
+    slot->timestamp = 0;
+    slot->marker = 0;
     slot->in_use = 0;
 }
 
@@ -108,6 +114,108 @@ static rtc_status_t rtc_media_dispatch_slot(rtc_peer_connection_t *pc,
     rtc_media_trace_packet(pc, kind, sequence, timestamp, status,
                            status == RTC_STATUS_OK ? 0 : "protect_failed");
     return status;
+}
+
+static void rtc_media_emit_typed_frame(rtc_peer_connection_t *pc,
+                                       rtc_media_queue_slot_t *slot)
+{
+    rtc_media_frame_t frame;
+
+    memset(&frame, 0, sizeof(frame));
+    frame.kind = slot->kind;
+    frame.data = slot->payload;
+    frame.data_len = slot->payload_len;
+    frame.timestamp = slot->timestamp;
+    if (pc->observer.on_media_frame_typed != 0) {
+        pc->observer.on_media_frame_typed(pc->observer.user_data, &frame);
+    }
+    if (pc->observer.on_media_frame != 0) {
+        pc->observer.on_media_frame(pc->observer.user_data, slot->payload,
+                                    slot->payload_len);
+    }
+    pc->counters.media.frames_received++;
+}
+
+static void rtc_media_receive_task(void *user_data)
+{
+    rtc_media_queue_slot_t *slot = (rtc_media_queue_slot_t *)user_data;
+    rtc_peer_connection_t *pc = slot->pc;
+
+    if (slot->payload_type == RTC_RTP_PAYLOAD_TYPE_OPUS) {
+        slot->kind = RTC_MEDIA_KIND_AUDIO_OPUS;
+        rtc_media_emit_typed_frame(pc, slot);
+    } else {
+        pc->counters.rtp.packets_dropped++;
+        slot->dispatch_status = RTC_STATUS_UNSUPPORTED;
+    }
+    rtc_media_release_slot(slot);
+}
+
+static rtc_status_t rtc_media_dispatch_received_slot(
+    rtc_peer_connection_t *pc, rtc_media_queue_slot_t *slot)
+{
+    rtc_status_t status;
+
+    status = pc->executors.media.post(pc->executors.media.user_data,
+                                      rtc_media_receive_task, slot);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        return status;
+    }
+    return slot->dispatch_status;
+}
+
+rtc_status_t rtc_media_handle_rtp_datagram(rtc_peer_connection_t *pc,
+                                           const uint8_t *data,
+                                           size_t data_len)
+{
+    rtc_media_queue_slot_t *slot;
+    rtc_rtp_header_t header;
+    rtc_status_t status;
+    size_t packet_len;
+
+    if (pc == 0 || data == 0 || data_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (data_len > pc->media_packet_capacity) {
+        pc->counters.rtp.packets_dropped++;
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+
+    slot = rtc_media_acquire_slot(pc);
+    if (slot == 0) {
+        return RTC_STATUS_CAPACITY;
+    }
+    slot->kind = RTC_MEDIA_KIND_AUDIO_OPUS;
+    memcpy(slot->payload, data, data_len);
+    slot->payload_len = data_len;
+    packet_len = slot->payload_len;
+
+    status = rtc_srtp_unprotect_rtp(pc, slot->payload, &packet_len);
+    if (status != RTC_STATUS_OK) {
+        pc->counters.rtp.packets_dropped++;
+        rtc_media_release_slot(slot);
+        return status;
+    }
+
+    status = rtc_rtp_parse_header(slot->payload, packet_len, &header);
+    if (status != RTC_STATUS_OK) {
+        pc->counters.rtp.packets_dropped++;
+        rtc_media_release_slot(slot);
+        return status;
+    }
+
+    memmove(slot->payload, slot->payload + header.header_len,
+            packet_len - header.header_len);
+    slot->payload_len = packet_len - header.header_len;
+    slot->payload_type = header.payload_type;
+    slot->sequence = header.sequence;
+    slot->timestamp = header.timestamp;
+    slot->marker = header.marker;
+    slot->dispatch_status = RTC_STATUS_OK;
+    pc->counters.rtp.packets_received++;
+
+    return rtc_media_dispatch_received_slot(pc, slot);
 }
 
 static rtc_status_t rtc_media_send_opus(rtc_peer_connection_t *pc,
