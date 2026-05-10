@@ -18,6 +18,9 @@ typedef enum rtc_ice_state_t {
 } rtc_ice_state_t;
 
 rtc_status_t rtc_ice_gather_candidates(rtc_peer_connection_t *pc);
+rtc_status_t rtc_ice_start_connectivity_checks(rtc_peer_connection_t *pc);
+rtc_status_t rtc_ice_add_remote_candidate_pairs(rtc_peer_connection_t *pc,
+                                                size_t remote_candidate_id);
 rtc_status_t rtc_ice_handle_stun_response(rtc_peer_connection_t *pc,
                                           const uint8_t *data,
                                           size_t data_len);

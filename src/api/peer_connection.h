@@ -16,6 +16,22 @@ typedef enum rtc_ice_candidate_type_t {
     RTC_ICE_CANDIDATE_TYPE_SRFLX
 } rtc_ice_candidate_type_t;
 
+typedef enum rtc_ice_pair_state_t {
+    RTC_ICE_PAIR_FROZEN = 0,
+    RTC_ICE_PAIR_WAITING,
+    RTC_ICE_PAIR_IN_PROGRESS,
+    RTC_ICE_PAIR_SUCCEEDED,
+    RTC_ICE_PAIR_FAILED,
+    RTC_ICE_PAIR_NOMINATED,
+    RTC_ICE_PAIR_SELECTED
+} rtc_ice_pair_state_t;
+
+typedef enum rtc_ice_role_t {
+    RTC_ICE_ROLE_UNKNOWN = 0,
+    RTC_ICE_ROLE_CONTROLLING,
+    RTC_ICE_ROLE_CONTROLLED
+} rtc_ice_role_t;
+
 typedef struct rtc_ice_candidate_summary_t {
     rtc_ice_candidate_type_t type;
     char foundation[32];
@@ -30,12 +46,15 @@ typedef struct rtc_ice_candidate_pair_t {
     size_t local_candidate_id;
     size_t remote_candidate_id;
     uint64_t priority;
+    rtc_ice_pair_state_t state;
     int selected;
 } rtc_ice_candidate_pair_t;
 
 typedef struct rtc_stun_transaction_t {
     uint8_t transaction_id[12];
     uint64_t timer_id;
+    size_t pair_id;
+    int purpose;
     int in_use;
 } rtc_stun_transaction_t;
 
@@ -69,6 +88,7 @@ struct rtc_peer_connection_t {
     size_t candidate_pair_count;
     size_t stun_transaction_count;
     rtc_ice_state_t ice_state;
+    rtc_ice_role_t ice_role;
     uint32_t stun_transaction_nonce;
     int srflx_candidate_gathered;
     int connectivity_checks_started;

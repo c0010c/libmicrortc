@@ -10,6 +10,7 @@ typedef struct ice_observer_state_t {
     int local_candidate_count;
     int datagram_count;
     int state_count;
+    int error_count;
     char last_candidate[256];
     uint8_t last_datagram[64];
     size_t last_datagram_len;
@@ -90,6 +91,18 @@ static void on_datagram(void *user_data, const uint8_t *data, size_t data_len)
     state->datagram_count++;
 }
 
+static void on_error(void *user_data, rtc_status_t status,
+                     const char *subsystem, const char *operation,
+                     int detail_code)
+{
+    ice_observer_state_t *state = (ice_observer_state_t *)user_data;
+    (void)status;
+    (void)subsystem;
+    (void)operation;
+    (void)detail_code;
+    state->error_count++;
+}
+
 static rtc_peer_connection_config_t test_config(unsigned char *arena,
                                                 size_t arena_size,
                                                 ice_observer_state_t *state)
@@ -126,6 +139,7 @@ static rtc_peer_connection_config_t test_config(unsigned char *arena,
     config.executors.media = test_executor(state);
     config.executors.network = test_executor(state);
     config.observer.on_state = on_state;
+    config.observer.on_error = on_error;
     config.observer.on_local_candidate = on_local_candidate;
     config.observer.on_datagram = on_datagram;
     config.observer.user_data = state;
@@ -304,11 +318,216 @@ static int test_transaction_capacity(void)
     return 0;
 }
 
+static rtc_status_t add_remote_candidate(rtc_peer_connection_t *pc,
+                                         const char *candidate)
+{
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    return rtc_peer_connection_add_ice_candidate(pc, candidate,
+                                                 strlen(candidate));
+}
+
+static int test_start_connectivity_checks_requires_local_candidate(void)
+{
+    unsigned char arena[16384];
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.failed") == 0);
+    RTC_TEST_EQ_INT(1, state.error_count);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_start_connectivity_checks_requires_remote_candidate(void)
+{
+    unsigned char arena[16384];
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_INVALID_STATE,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.failed") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_controlling_regular_nomination_selects_pair(void)
+{
+    unsigned char arena[16384];
+    uint8_t response[32];
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.checking") == 0);
+    RTC_TEST_EQ_INT(1, state.datagram_count);
+
+    write_success_response(response, state.last_datagram, 0xc0000201u, 5000);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_ice_handle_stun_response(pc, response,
+                                                 sizeof(response)));
+    RTC_TEST_EQ_INT(2, state.datagram_count);
+    write_success_response(response, state.last_datagram, 0xc0000201u, 5000);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_ice_handle_stun_response(pc, response,
+                                                 sizeof(response)));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.connected") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.ice.selected_pairs);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_controlled_nominated_request_selects_pair(void)
+{
+    unsigned char arena[16384];
+    uint8_t request[48];
+    uint8_t txid[RTC_STUN_TRANSACTION_ID_BYTES];
+    size_t request_len;
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    memset(txid, 0x44, sizeof(txid));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLED;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_stun_write_ice_binding_request(
+                        request, sizeof(request), txid, 1, 1, 99,
+                        &request_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_ice_handle_stun_response(pc, request, request_len));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.connected") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_candidate_pair_capacity_and_trickle_pairs(void)
+{
+    unsigned char arena[16384];
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+    config.limits.ice.max_candidate_pairs = 1;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_EQ_INT(1, (int)pc->candidate_pair_count);
+    RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ICE_PAIRS,
+                    add_remote_candidate(
+                        pc, "candidate:2 1 udp 1 192.0.2.2 5001 typ host"));
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:2 1 udp 1 192.0.2.2 5001 typ host"));
+    RTC_TEST_EQ_INT(2, (int)pc->candidate_pair_count);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 int rtc_test_ice(void)
 {
     RTC_TEST_EQ_INT(0, test_host_only_gathering());
     RTC_TEST_EQ_INT(0, test_srflx_response_gathering());
     RTC_TEST_EQ_INT(0, test_stun_timeout());
     RTC_TEST_EQ_INT(0, test_transaction_capacity());
+    RTC_TEST_EQ_INT(0, test_start_connectivity_checks_requires_local_candidate());
+    RTC_TEST_EQ_INT(0, test_start_connectivity_checks_requires_remote_candidate());
+    RTC_TEST_EQ_INT(0, test_controlling_regular_nomination_selects_pair());
+    RTC_TEST_EQ_INT(0, test_controlled_nominated_request_selects_pair());
+    RTC_TEST_EQ_INT(0, test_candidate_pair_capacity_and_trickle_pairs());
     return 0;
 }

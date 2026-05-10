@@ -350,6 +350,7 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->candidate_pair_count = 0;
     pc->stun_transaction_count = 0;
     pc->ice_state = RTC_ICE_NEW;
+    pc->ice_role = RTC_ICE_ROLE_UNKNOWN;
     pc->stun_transaction_nonce = 1;
     pc->srflx_candidate_gathered = 0;
     pc->connectivity_checks_started = 0;
@@ -454,7 +455,19 @@ rtc_status_t rtc_peer_connection_gather_candidates(rtc_peer_connection_t *pc)
 rtc_status_t rtc_peer_connection_start_connectivity_checks(
     rtc_peer_connection_t *pc)
 {
-    return rtc_unsupported_network(pc, "start_connectivity_checks");
+    rtc_status_t status;
+
+    status = rtc_require_pc(pc);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    status = rtc_executor_require(RTC_EXECUTOR_NETWORK);
+    if (status != RTC_STATUS_OK) {
+        return rtc_pc_affinity_violation(pc, "start_connectivity_checks");
+    }
+
+    return rtc_ice_start_connectivity_checks(pc);
 }
 
 rtc_status_t rtc_peer_connection_destroy(rtc_peer_connection_t *pc)
@@ -574,11 +587,17 @@ static rtc_status_t rtc_pc_store_description(rtc_peer_connection_t *pc,
         pc->local_description[sdp_len] = '\0';
         pc->local_description_len = sdp_len;
         pc->local_summary = parsed;
+        if (parsed.type == RTC_SDP_TYPE_OFFER) {
+            pc->ice_role = RTC_ICE_ROLE_CONTROLLING;
+        }
     } else {
         memcpy(pc->remote_description, sdp, sdp_len);
         pc->remote_description[sdp_len] = '\0';
         pc->remote_description_len = sdp_len;
         pc->remote_summary = parsed;
+        if (parsed.type == RTC_SDP_TYPE_OFFER) {
+            pc->ice_role = RTC_ICE_ROLE_CONTROLLED;
+        }
     }
     pc->signaling_state = next_state;
     rtc_pc_trace_jsep(pc, RTC_TRACE_JSEP_TRANSITION, operation, RTC_STATUS_OK,
@@ -849,7 +868,12 @@ rtc_status_t rtc_peer_connection_add_ice_candidate(rtc_peer_connection_t *pc,
     pc->remote_candidate_count++;
     pc->counters.ice.remote_candidates++;
     if (pc->connectivity_checks_started) {
-        pc->remote_candidate_pending_pairs = 1;
+        status = rtc_ice_add_remote_candidate_pairs(pc, candidate_id);
+        if (status != RTC_STATUS_OK) {
+            pc->remote_candidate_count--;
+            return status;
+        }
+        pc->remote_candidate_pending_pairs = 0;
     }
     rtc_pc_trace_remote_candidate(pc, &parsed, candidate_id);
     return RTC_STATUS_OK;
