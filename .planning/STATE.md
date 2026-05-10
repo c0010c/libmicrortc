@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 5 in progress; 05-04 complete; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T00:31:46+08:00"
+status: Phase 5 in progress; 05-05 complete; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T00:41:48+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 24
-  completed_plans: 22
-  percent: 92
+  completed_plans: 23
+  percent: 96
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段执行中；`05-04` 已完成 RTCP SR/RR/SDES stats、parse/write 与 SRTCP protect/unprotect 集成；第 4 阶段计划执行完成后仍等待阶段级验证；Chrome 真实端到端验收仍属于第 6 阶段范围
+**当前状态：** 第 5 阶段执行中；`05-05` 已完成 PLI 显式请求、远端 PLI/NACK 上报和 NACK no-retransmit 可观测性；第 4 阶段计划执行完成后仍等待阶段级验证；Chrome 真实端到端验收仍属于第 6 阶段范围
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 5: RTP/RTCP 媒体平面；下一步执行 `05-05` PLI 显式请求、远端 PLI/NACK 上报和 NACK no-retransmit 可观测性，或先回到第 4 阶段做阶段级验证
+**当前焦点：** Phase 5: RTP/RTCP 媒体平面；下一步执行 `05-06` 媒体 API 文档、UAT、需求追踪和项目状态收口，或先回到第 4 阶段做阶段级验证
 
 ## 工作流配置
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 完成 1 路 Opus 音频和 1 路 H264 视频的 RTP/RTCP 媒体平面，并把关键反馈事件暴露给用户。
 
-**状态：** 4/6 plans 已完成，2/6 plans 待执行；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 5/6 plans 已完成，1/6 plans 待执行；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 6
 
@@ -141,6 +141,7 @@ $gsd-verify-work 4
 - `.planning/phases/05-rtp-rtcp-media-plane/05-04-PLAN.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-04-SUMMARY.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-05-PLAN.md`
+- `.planning/phases/05-rtp-rtcp-media-plane/05-05-SUMMARY.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-06-PLAN.md`
 
 ---
@@ -157,6 +158,7 @@ $gsd-verify-work 4
 - 2026-05-11T00:10:53+08:00：完成 `05-02-PLAN.md`，打通 Opus/H264 RTP 发送 packetize、SRTP protect 和 `observer.on_datagram` 受保护输出，protect 失败不泄漏明文 RTP。
 - 2026-05-11T00:21:34+08:00：完成 `05-03-PLAN.md`，打通受保护 RTP datagram 到 SRTP unprotect、Opus typed frame 输出和 H264 single NALU/FU-A/STAP-A 接收重组，unprotect/gap/capacity 失败不输出媒体帧。
 - 2026-05-11T00:31:46+08:00：完成 `05-04-PLAN.md`，新增 RTCP SR/RR/SDES 固定 buffer codec、基础 sender/receiver stats，并将 RTCP receive/send 接入 SRTCP unprotect/protect 安全门。
+- 2026-05-11T00:41:48+08:00：完成 `05-05-PLAN.md`，实现显式 PLI 请求、远端 PLI/NACK typed feedback 上报，以及 NACK `nack_no_retransmit` counter/trace；未引入重传缓存、RTX 或 resend 逻辑。
 
 ## 执行决策
 
@@ -175,6 +177,8 @@ $gsd-verify-work 4
 - `05-02` RTP 发送路径固定为 media executor packetize、network executor `rtc_srtp_protect_rtp`、成功后复用 `observer.on_datagram`；Opus 使用 PT 111，H264 使用 PT 103，H264 v1 发送只支持 Annex B single NALU 与 FU-A。
 - `05-03` RTP 接收路径固定为 network executor 复制 datagram 到固定 slot、调用 `rtc_srtp_unprotect_rtp`，成功后解析 RTP header 并投递 media executor；Opus 输出 typed frame，H264 支持 single NALU、FU-A 和有限 STAP-A 重组。
 - `05-04` RTCP codec 保持 internal API；RTCP receive 必须先 `rtc_srtp_unprotect_rtcp` 成功后 parse，RTCP report send 必须先 `rtc_srtp_protect_rtcp` 成功后才通过 `observer.on_datagram` 输出。
+- `05-05` PLI 发送固定为 media executor 显式 `request_keyframe(video)`，network executor 进行 SRTCP protect 后输出 datagram；远端 PLI/NACK 只通过 `observer.on_media_feedback`、counter 和 trace 上报。
+- `05-05` NACK 首版只解析 PID/BLP 并展开到固定 17 项 lost sequence 数组，`retransmit_performed = 0`，trace reason 固定为 `nack_no_retransmit`，不得引入重传缓存、RTX、resend 或发送节奏逻辑。
 
 ---
-*最后更新：2026-05-11，05-04 RTCP SR/RR/SDES 计划完成后*
+*最后更新：2026-05-11，05-05 PLI/NACK 媒体反馈计划完成后*

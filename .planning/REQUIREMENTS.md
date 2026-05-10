@@ -58,8 +58,8 @@
 - [x] **RTP-05**: 单个 `PeerConnection` 最多支持 1 路音频和 1 路视频。
 - [x] **RTCP-01**: 库支持 RTCP Sender Report 和 Receiver Report。
 - [x] **RTCP-02**: 库支持 RTCP SDES。
-- [ ] **RTCP-03**: 库支持发送和接收 PLI。
-- [ ] **RTCP-04**: 库解析 NACK 并通过 observer 上报，但不执行重传。
+- [x] **RTCP-03**: 库支持发送和接收 PLI。
+- [x] **RTCP-04**: 库解析 NACK 并通过 observer 上报，但不执行重传。
 
 ### 可观测性
 
@@ -154,9 +154,9 @@
 | RTP-05 | 第 5 阶段 | 已完成：05-01 建立 typed media kind，v1 只公开 1 路 Opus audio 和 1 路 H264 video 的 public contract 与固定容量基线 |
 | RTCP-01 | 第 5 阶段 | 已完成：05-04 实现 RTCP Sender Report / Receiver Report 固定 buffer codec、compound parser、基础 stats 和 SRTCP receive/send 集成 |
 | RTCP-02 | 第 5 阶段 | 已完成：05-04 实现 RTCP SDES CNAME 写入/解析，CNAME 长度受 `limits.rtcp.max_sdes_cname_bytes` 限制 |
-| RTCP-03 | 第 5 阶段 | 待开始 |
-| RTCP-04 | 第 5 阶段 | 待开始 |
-| OBS-04 | 第 5 阶段 | 部分完成：05-01 建立 media feedback 类型、observer、counter 和 trace 基线；PLI/NACK 实际收发上报留给 05-05 |
+| RTCP-03 | 第 5 阶段 | 已完成：05-05 实现 `rtc_peer_connection_request_keyframe(video)` 生成受保护 PLI datagram，并在远端 PLI 后通过 `on_media_feedback` 上报 |
+| RTCP-04 | 第 5 阶段 | 已完成：05-05 实现 Generic NACK PID/BLP 固定数组展开和 observer 上报，`retransmit_performed = 0` 且不执行重传 |
+| OBS-04 | 第 5 阶段 | 已完成：05-05 为 PLI/NACK 输出 typed feedback、counter 和 trace；NACK reason 固定为 `nack_no_retransmit` |
 | TST-01 | 第 6 阶段 | 待开始 |
 | EXM-01 | 第 6 阶段 | 待开始 |
 | EXM-02 | 第 6 阶段 | 待开始 |
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-10，04-06 文档和需求追踪收口后*
+*最后更新：2026-05-11，05-05 PLI/NACK 媒体反馈计划完成后*
