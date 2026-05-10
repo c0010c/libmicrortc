@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 4 execution in progress; 04-01 complete
-last_updated: "2026-05-10T21:26:05+08:00"
+status: Phase 4 execution in progress; 04-02 complete
+last_updated: "2026-05-10T21:37:40+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 18
-  completed_plans: 13
-  percent: 54
+  completed_plans: 14
+  percent: 56
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 4 阶段执行中；04-01 已完成，04-02 待执行
+**当前状态：** 第 4 阶段执行中；04-02 已完成，04-03 待执行
 
 ## 项目引用
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 通过可插拔 backend vtable 建立 DTLS-SRTP 安全通道，不让核心 API 绑定特定第三方 TLS/SRTP 实现。
 
-**状态：** 执行中；04-01 已完成
+**状态：** 执行中；04-02 已完成
 
 **计划数量：** 6
 
@@ -112,6 +112,7 @@ $gsd-execute-phase 4
 - `.planning/phases/04-dtls-srtp-secure-transport/04-01-PLAN.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-01-SUMMARY.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-02-PLAN.md`
+- `.planning/phases/04-dtls-srtp-secure-transport/04-02-SUMMARY.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-03-PLAN.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-04-PLAN.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-05-PLAN.md`
@@ -121,10 +122,13 @@ $gsd-execute-phase 4
 ## 最近会话
 
 - 2026-05-10T21:26:05+08:00：完成 `04-01-PLAN.md`，建立 security backend 公共契约、DTLS/SRTP counters/trace 和 deterministic backend 测试入口。
+- 2026-05-10T21:37:40+08:00：完成 `04-02-PLAN.md`，接入固定 DTLS session storage、ICE connected 自动启动 DTLS、早到 DTLS 拒绝和 backend outgoing datagram 转发。
 
 ## 执行决策
 
 - 第 4 阶段 security backend 以单一 `rtc_security_backend_vtable_t` 暴露，不拆分 DTLS/SRTP/crypto 多个 public backend。
+- DTLS backend outgoing datagram 统一通过既有 `observer.on_datagram` 输出，不新增 `on_dtls_datagram` 分叉。
+- ICE 未 connected 时 DTLS datagram 由 security 层拒绝并记录 reason `ice_not_connected`，不缓存早到 DTLS。
 
 ---
-*最后更新：2026-05-10，04-01 执行完成后*
+*最后更新：2026-05-10，04-02 执行完成后*

@@ -43,7 +43,7 @@
 
 ### DTLS/SRTP 与安全后端
 
-- [ ] **SEC-01**: 库通过 backend vtable 驱动 DTLS 握手，不在核心 API 中绑定特定 TLS 库。
+- [x] **SEC-01**: 库通过 backend vtable 驱动 DTLS 握手，不在核心 API 中绑定特定 TLS 库。
 - [ ] **SEC-02**: 库校验远端 SDP fingerprint 与 DTLS 证书一致。
 - [ ] **SEC-03**: 库从 DTLS 握手导出 SRTP keying material。
 - [ ] **SEC-04**: 库通过 backend vtable 对 RTP/RTCP 执行 SRTP/SRTCP protect 和 unprotect。
@@ -142,7 +142,7 @@
 | NET-01 | 第 3 阶段 | 已规划 |
 | NET-02 | 第 3 阶段 | 已规划 |
 | NET-03 | 第 3 阶段 | 已规划 |
-| SEC-01 | 第 4 阶段 | 部分完成：04-01 已建立 backend 公共契约，运行时握手接入待 04-02 |
+| SEC-01 | 第 4 阶段 | 已完成：04-01 建立 backend 公共契约，04-02 完成固定 storage runtime、ICE connected 自动启动 DTLS 和 DTLS datagram/event 接入 |
 | SEC-02 | 第 4 阶段 | 已规划 |
 | SEC-03 | 第 4 阶段 | 已规划 |
 | SEC-04 | 第 4 阶段 | 已规划 |
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-10，04-01 执行完成后*
+*最后更新：2026-05-10，04-02 执行完成后*
