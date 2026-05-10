@@ -12,10 +12,15 @@ typedef struct rtp_test_state_t {
     int create_session_calls;
     int destroy_session_calls;
     int srtp_protect_rtp_calls;
+    int srtp_unprotect_rtp_calls;
     int datagram_count;
+    int typed_frame_count;
     rtc_status_t srtp_protect_rtp_status;
+    rtc_status_t srtp_unprotect_rtp_status;
     uint8_t datagrams[8][256];
     size_t datagram_lens[8];
+    rtc_media_frame_t last_typed_frame;
+    uint8_t last_frame_data[256];
 } rtp_test_state_t;
 
 static rtc_status_t test_post(void *user_data, rtc_executor_task_fn task,
@@ -74,6 +79,23 @@ static void on_datagram(void *user_data, const uint8_t *data, size_t data_len)
     }
     memcpy(state->datagrams[index], data, data_len);
     state->datagram_lens[index] = data_len;
+}
+
+static void on_media_frame_typed(void *user_data,
+                                 const rtc_media_frame_t *frame)
+{
+    rtp_test_state_t *state = (rtp_test_state_t *)user_data;
+    size_t data_len;
+
+    state->typed_frame_count++;
+    state->last_typed_frame = *frame;
+    data_len = frame->data_len;
+    if (data_len > sizeof(state->last_frame_data)) {
+        data_len = sizeof(state->last_frame_data);
+    }
+    memcpy(state->last_frame_data, frame->data, data_len);
+    state->last_typed_frame.data = state->last_frame_data;
+    state->last_typed_frame.data_len = data_len;
 }
 
 static rtc_status_t test_create_session(
@@ -157,6 +179,22 @@ static rtc_status_t test_srtp_protect_rtp(void *session, uint8_t *packet,
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t test_srtp_unprotect_rtp(void *session, uint8_t *packet,
+                                            size_t *inout_len)
+{
+    rtp_test_state_t *state = (rtp_test_state_t *)session;
+
+    state->srtp_unprotect_rtp_calls++;
+    if (state->srtp_unprotect_rtp_status != RTC_STATUS_OK) {
+        return state->srtp_unprotect_rtp_status;
+    }
+    if (packet == 0 || inout_len == 0 || *inout_len < 16u) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    *inout_len -= 4u;
+    return RTC_STATUS_OK;
+}
+
 static rtc_security_backend_vtable_t test_backend_vtable(void)
 {
     rtc_security_backend_vtable_t vtable;
@@ -167,6 +205,7 @@ static rtc_security_backend_vtable_t test_backend_vtable(void)
     vtable.start_dtls = test_start_dtls;
     vtable.handle_dtls_datagram = test_handle_dtls_datagram;
     vtable.srtp_protect_rtp = test_srtp_protect_rtp;
+    vtable.srtp_unprotect_rtp = test_srtp_unprotect_rtp;
     return vtable;
 }
 
@@ -220,9 +259,82 @@ static rtc_peer_connection_config_t test_config(
     config.executors.media = test_executor(state);
     config.executors.network = test_executor(state);
     config.observer.on_datagram = on_datagram;
+    config.observer.on_media_frame_typed = on_media_frame_typed;
     config.observer.user_data = state;
     config.security_backend = backend;
     return config;
+}
+
+static int test_opus_receive_unprotect_outputs_typed_frame(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet[] = {0x80, 111, 0x00, 0x21, 0x00, 0x00, 0x12, 0x34,
+                        0x01, 0x02, 0x03, 0x04, 0x51, 0x52, 0x53,
+                        0xAA, 0xBB, 0xCC, 0xDD};
+    uint8_t expected_payload[] = {0x51, 0x52, 0x53};
+    rtp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_receive_datagram(pc, packet,
+                                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtp_unprotect_rtp_calls);
+    RTC_TEST_EQ_INT(1, state.typed_frame_count);
+    RTC_TEST_EQ_INT(RTC_MEDIA_KIND_AUDIO_OPUS, state.last_typed_frame.kind);
+    RTC_TEST_EQ_INT((int)sizeof(expected_payload),
+                    (int)state.last_typed_frame.data_len);
+    RTC_TEST_EQ_INT(0x00001234u, state.last_typed_frame.timestamp);
+    RTC_TEST_ASSERT(memcmp(state.last_typed_frame.data, expected_payload,
+                           sizeof(expected_payload)) == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
+static int test_opus_unprotect_failure_does_not_output_frame(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet[] = {0x80, 111, 0x00, 0x22, 0x00, 0x00, 0x12, 0x35,
+                        0x01, 0x02, 0x03, 0x04, 0x61, 0x62,
+                        0xAA, 0xBB, 0xCC, 0xDD};
+    rtp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+
+    memset(&state, 0, sizeof(state));
+    state.srtp_unprotect_rtp_status = RTC_STATUS_PROTOCOL_ERROR;
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_peer_connection_receive_datagram(pc, packet,
+                                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtp_unprotect_rtp_calls);
+    RTC_TEST_EQ_INT(0, state.typed_frame_count);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
 }
 
 static int test_opus_send_outputs_protected_rtp_datagram(void)
@@ -472,6 +584,8 @@ static int test_h264_protect_failure_does_not_output_plaintext(void)
 
 int rtc_test_rtp(void)
 {
+    RTC_TEST_EQ_INT(0, test_opus_receive_unprotect_outputs_typed_frame());
+    RTC_TEST_EQ_INT(0, test_opus_unprotect_failure_does_not_output_frame());
     RTC_TEST_EQ_INT(0, test_opus_send_outputs_protected_rtp_datagram());
     RTC_TEST_EQ_INT(0, test_opus_protect_failure_does_not_output_plaintext());
     RTC_TEST_EQ_INT(0, test_h264_single_nalu_outputs_marker_packet());
