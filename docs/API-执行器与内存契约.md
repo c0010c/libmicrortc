@@ -7,7 +7,7 @@
 - 用户通过 `rtc_peer_connection_config_t.arena` 提供总 arena。
 - 用户通过 `rtc_peer_connection_config_t.limits` 提供按子系统分组的容量限制。
 - 用户通过 `rtc_peer_connection_config_t.sdp` 提供 create-time SDP 参数，包括 ICE ufrag/pwd、DTLS fingerprint/setup 和 session id/version；库不会生成随机 ICE 参数或证书。
-- 创建阶段从 arena 中分配 `PeerConnection`、local/remote SDP buffer 和远端 candidate 固定槽。
+- 创建阶段从 arena 中分配 `PeerConnection`、local/remote SDP buffer、远端 candidate 原始字符串固定槽、candidate 摘要、candidate pair 和 STUN transaction 固定槽。
 - 容量不足通过 `rtc_status_t` 与 `rtc_capacity_diagnostics_t` 返回，诊断中包含资源类别、required 和 used。
 - 核心源码必须通过内部 arena/allocator 入口申请内存，不能绕过固定内存边界。
 
@@ -51,10 +51,16 @@
 
 非法状态转换返回 `RTC_STATUS_INVALID_STATE`，结构缺失返回 `RTC_STATUS_PROTOCOL_ERROR`，不支持的方向或 codec 返回 `RTC_STATUS_UNSUPPORTED`。失败路径不会保存 description，也不会推进 JSEP 状态。
 
-`addIceCandidate` 仅接受 `candidate:` 或 `a=candidate:` 开头的远端 candidate 字符串，并复制到创建阶段分配的固定槽。槽数量受 `limits.ice.max_candidates` 限制，超限返回 `RTC_STATUS_CAPACITY_ICE_CANDIDATES`。本阶段 `addIceCandidate` 只保存远端 candidate，不做 ICE checks，不创建 candidate pair，不执行 STUN，不计算 priority/foundation，也不触发 `on_local_candidate`。
+第 3 阶段新增 `rtc_peer_connection_gather_candidates` 和 `rtc_peer_connection_start_connectivity_checks`，二者必须在 `RTC_EXECUTOR_NETWORK` 上调用。前者后续负责 host/srflx gathering，后者后续负责 candidate pair checks；`createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription` 和 `addIceCandidate` 不会隐式启动 checks、STUN transaction、socket 或 datagram 输出。
+
+`rtc_peer_connection_config_t.stun_server_count` 只接受 `0` 或 `1`。为 `1` 时，`stun_server.ip` 必须是 IPv4/IPv6 字面量字符，`stun_server.port` 必须大于 0；hostname/DNS 和多个 STUN server 不属于首版边界。
+
+`addIceCandidate` 仅接受 `candidate:` 或 `a=candidate:` 开头的远端 candidate 字符串，并复制到创建阶段分配的固定槽。第 3 阶段会解析 foundation、component、transport、priority、address、port 和 type，当前只支持 `host/srflx`，要求 component 为 `1`、transport 为 UDP、port 在 `1..65535`。原始字符串和结构化摘要都会复制到内部 arena，不保存调用方 buffer；调用返回后用户可以立即复用或释放输入 buffer。槽数量受 `limits.ice.max_candidates` 限制，超限返回 `RTC_STATUS_CAPACITY_ICE_CANDIDATES`。本计划中 `addIceCandidate` 不创建 candidate pair、不执行 STUN、不触发 `on_local_candidate`，也不会产生任何 socket 或 datagram 副作用。
 
 ## 当前占位 API
 
 第 2 阶段仍不实现 ICE、DTLS-SRTP 或 RTP/RTCP。以下 API 当前返回 `RTC_STATUS_UNSUPPORTED`：
 
 - `rtc_peer_connection_receive_datagram`
+- `rtc_peer_connection_gather_candidates`
+- `rtc_peer_connection_start_connectivity_checks`

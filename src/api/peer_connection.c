@@ -1,5 +1,6 @@
 #include "api/peer_connection.h"
 
+#include <stdint.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -53,6 +54,43 @@ static void rtc_pc_trace_jsep(rtc_peer_connection_t *pc, const char *event,
 
     rtc_counters_note_trace(&pc->counters);
     rtc_trace_emit(&pc->observer, event, fields, 5);
+}
+
+static const char *rtc_ice_candidate_type_name(rtc_ice_candidate_type_t type)
+{
+    return type == RTC_ICE_CANDIDATE_TYPE_SRFLX ? "srflx" : "host";
+}
+
+static void rtc_pc_trace_remote_candidate(
+    rtc_peer_connection_t *pc, const rtc_ice_candidate_summary_t *candidate,
+    size_t candidate_id)
+{
+    rtc_trace_field_t fields[7];
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "ice";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = "add_ice_candidate";
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_CANDIDATE_TYPE;
+    fields[2].value = rtc_ice_candidate_type_name(candidate->type);
+    fields[2].number = 0;
+    fields[3].key = RTC_TRACE_FIELD_REMOTE_ADDRESS;
+    fields[3].value = candidate->address;
+    fields[3].number = 0;
+    fields[4].key = RTC_TRACE_FIELD_PORT;
+    fields[4].value = 0;
+    fields[4].number = candidate->port;
+    fields[5].key = RTC_TRACE_FIELD_CANDIDATE_ID;
+    fields[5].value = 0;
+    fields[5].number = candidate_id;
+    fields[6].key = RTC_TRACE_FIELD_STATUS;
+    fields[6].value = 0;
+    fields[6].number = RTC_STATUS_OK;
+
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_ICE_CANDIDATE_REMOTE, fields, 7);
 }
 
 static rtc_status_t rtc_pc_affinity_violation(rtc_peer_connection_t *pc,
@@ -528,12 +566,196 @@ rtc_status_t rtc_peer_connection_set_remote_description(rtc_peer_connection_t *p
                                     0);
 }
 
+typedef struct rtc_candidate_token_t {
+    const char *ptr;
+    size_t len;
+} rtc_candidate_token_t;
+
+static int rtc_token_equals(rtc_candidate_token_t token, const char *literal)
+{
+    return token.len == strlen(literal) &&
+           memcmp(token.ptr, literal, token.len) == 0;
+}
+
+static int rtc_token_equals_ci(rtc_candidate_token_t token, const char *literal)
+{
+    size_t i;
+
+    if (token.len != strlen(literal)) {
+        return 0;
+    }
+
+    for (i = 0; i < token.len; ++i) {
+        char left = token.ptr[i];
+        char right = literal[i];
+        if (left >= 'A' && left <= 'Z') {
+            left = (char)(left - 'A' + 'a');
+        }
+        if (right >= 'A' && right <= 'Z') {
+            right = (char)(right - 'A' + 'a');
+        }
+        if (left != right) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int rtc_token_copy(char *dest, size_t dest_size,
+                          rtc_candidate_token_t token)
+{
+    if (dest == 0 || dest_size == 0 || token.len >= dest_size) {
+        return 0;
+    }
+
+    memcpy(dest, token.ptr, token.len);
+    dest[token.len] = '\0';
+    return 1;
+}
+
+static int rtc_token_parse_u64(rtc_candidate_token_t token, uint64_t max_value,
+                               uint64_t *out_value)
+{
+    size_t i;
+    uint64_t value;
+
+    if (token.len == 0 || out_value == 0) {
+        return 0;
+    }
+
+    value = 0;
+    for (i = 0; i < token.len; ++i) {
+        uint64_t digit;
+
+        if (token.ptr[i] < '0' || token.ptr[i] > '9') {
+            return 0;
+        }
+        digit = (uint64_t)(token.ptr[i] - '0');
+        if (value > (max_value - digit) / 10u) {
+            return 0;
+        }
+        value = value * 10u + digit;
+    }
+
+    *out_value = value;
+    return 1;
+}
+
+static int rtc_next_candidate_token(const char *text, size_t len,
+                                    size_t *offset,
+                                    rtc_candidate_token_t *out_token)
+{
+    size_t start;
+
+    while (*offset < len && text[*offset] == ' ') {
+        (*offset)++;
+    }
+    if (*offset >= len) {
+        return 0;
+    }
+
+    start = *offset;
+    while (*offset < len && text[*offset] != ' ') {
+        (*offset)++;
+    }
+
+    out_token->ptr = text + start;
+    out_token->len = *offset - start;
+    return 1;
+}
+
+static rtc_status_t rtc_parse_remote_candidate(
+    const char *candidate, size_t candidate_len,
+    rtc_ice_candidate_summary_t *out_candidate)
+{
+    rtc_candidate_token_t foundation;
+    rtc_candidate_token_t component;
+    rtc_candidate_token_t transport;
+    rtc_candidate_token_t priority;
+    rtc_candidate_token_t address;
+    rtc_candidate_token_t port;
+    rtc_candidate_token_t typ;
+    rtc_candidate_token_t type;
+    size_t offset;
+    uint64_t value;
+
+    if (candidate_len >= 12u && memcmp(candidate, "a=candidate:", 12u) == 0) {
+        offset = 12u;
+    } else if (candidate_len >= 10u &&
+               memcmp(candidate, "candidate:", 10u) == 0) {
+        offset = 10u;
+    } else {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    if (!rtc_next_candidate_token(candidate, candidate_len, &offset,
+                                  &foundation) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset,
+                                  &component) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset,
+                                  &transport) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset,
+                                  &priority) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset,
+                                  &address) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset, &port) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset, &typ) ||
+        !rtc_next_candidate_token(candidate, candidate_len, &offset, &type)) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    if (!rtc_token_copy(out_candidate->foundation,
+                        sizeof(out_candidate->foundation), foundation) ||
+        !rtc_token_copy(out_candidate->transport,
+                        sizeof(out_candidate->transport), transport) ||
+        !rtc_token_copy(out_candidate->address, sizeof(out_candidate->address),
+                        address)) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    if (!rtc_token_parse_u64(component, 1u, &value) || value != 1u) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    out_candidate->component = (uint16_t)value;
+
+    if (!rtc_token_equals_ci(transport, "udp")) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    if (!rtc_token_parse_u64(priority, UINT32_MAX, &value)) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    out_candidate->priority = (uint32_t)value;
+
+    if (!rtc_token_parse_u64(port, 65535u, &value) || value == 0u) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    out_candidate->port = (uint16_t)value;
+
+    if (!rtc_token_equals(typ, "typ")) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    if (rtc_token_equals(type, "host")) {
+        out_candidate->type = RTC_ICE_CANDIDATE_TYPE_HOST;
+    } else if (rtc_token_equals(type, "srflx")) {
+        out_candidate->type = RTC_ICE_CANDIDATE_TYPE_SRFLX;
+    } else {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    return RTC_STATUS_OK;
+}
+
 rtc_status_t rtc_peer_connection_add_ice_candidate(rtc_peer_connection_t *pc,
                                                    const char *candidate,
                                                    size_t candidate_len)
 {
     rtc_status_t status;
+    rtc_ice_candidate_summary_t parsed;
     char *slot;
+    size_t candidate_id;
 
     status = rtc_require_pc(pc);
     if (status != RTC_STATUS_OK) {
@@ -547,23 +769,33 @@ rtc_status_t rtc_peer_connection_add_ice_candidate(rtc_peer_connection_t *pc,
         candidate_len >= pc->remote_candidate_slot_bytes) {
         return RTC_STATUS_INVALID_ARGUMENT;
     }
-    if (!(candidate_len >= 10u && memcmp(candidate, "candidate:", 10u) == 0) &&
-        !(candidate_len >= 12u && memcmp(candidate, "a=candidate:", 12u) == 0)) {
+    status = rtc_parse_remote_candidate(candidate, candidate_len, &parsed);
+    if (status == RTC_STATUS_PROTOCOL_ERROR) {
         rtc_observer_emit_error(&pc->observer, RTC_STATUS_PROTOCOL_ERROR, "ice",
                                 "add_ice_candidate", 0);
         return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    if (status != RTC_STATUS_OK) {
+        rtc_observer_emit_error(&pc->observer, status, "ice",
+                                "add_ice_candidate", 0);
+        return status;
     }
     if (pc->remote_candidate_count >= pc->limits.ice.max_candidates) {
         return RTC_STATUS_CAPACITY_ICE_CANDIDATES;
     }
 
+    candidate_id = pc->remote_candidate_count;
     slot = pc->remote_candidates +
-           pc->remote_candidate_count * pc->remote_candidate_slot_bytes;
+           candidate_id * pc->remote_candidate_slot_bytes;
     memcpy(slot, candidate, candidate_len);
     slot[candidate_len] = '\0';
+    pc->remote_candidate_summaries[candidate_id] = parsed;
     pc->remote_candidate_count++;
-    rtc_pc_trace(pc, RTC_TRACE_ICE_CANDIDATE_STORED, "add_ice_candidate",
-                 RTC_STATUS_OK);
+    pc->counters.ice.remote_candidates++;
+    if (pc->connectivity_checks_started) {
+        pc->remote_candidate_pending_pairs = 1;
+    }
+    rtc_pc_trace_remote_candidate(pc, &parsed, candidate_id);
     return RTC_STATUS_OK;
 }
 

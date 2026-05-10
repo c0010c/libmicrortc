@@ -145,12 +145,28 @@ int rtc_test_jsep(void)
     candidate[10] = '9';
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_add_ice_candidate(
-                        pc, "a=candidate:2 1 udp 1 192.0.2.2 5000 typ host",
-                        strlen("a=candidate:2 1 udp 1 192.0.2.2 5000 typ host")));
+                        pc, "a=candidate:2 1 udp 2 192.0.2.2 5001 typ srflx",
+                        strlen("a=candidate:2 1 udp 2 192.0.2.2 5001 typ srflx")));
     RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_ICE_CANDIDATES,
                     rtc_peer_connection_add_ice_candidate(
                         pc, "candidate:3 1 udp 1 192.0.2.3 5000 typ host",
                         strlen("candidate:3 1 udp 1 192.0.2.3 5000 typ host")));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_peer_connection_add_ice_candidate(
+                        pc, "candidate:4 1 tcp 1 192.0.2.4 5000 typ host",
+                        strlen("candidate:4 1 tcp 1 192.0.2.4 5000 typ host")));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_peer_connection_add_ice_candidate(
+                        pc, "candidate:5 2 udp 1 192.0.2.5 5000 typ host",
+                        strlen("candidate:5 2 udp 1 192.0.2.5 5000 typ host")));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_peer_connection_add_ice_candidate(
+                        pc, "candidate:6 1 udp 1 192.0.2.6 70000 typ host",
+                        strlen("candidate:6 1 udp 1 192.0.2.6 70000 typ host")));
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
+                    rtc_peer_connection_add_ice_candidate(
+                        pc, "candidate:7 1 udp 1 192.0.2.7 5000 typ relay",
+                        strlen("candidate:7 1 udp 1 192.0.2.7 5000 typ relay")));
     RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
                     rtc_peer_connection_add_ice_candidate(pc, "bad", 3));
     RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));

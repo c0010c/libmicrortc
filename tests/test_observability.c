@@ -155,6 +155,17 @@ int rtc_test_observability(void)
     RTC_TEST_EQ_INT(RTC_STATUS_OK,
                     rtc_peer_connection_get_counters(pc, &counters));
     RTC_TEST_EQ_INT(0, (int)counters.api.unsupported_api_calls);
+    RTC_TEST_EQ_INT(0, (int)counters.ice.remote_candidates);
+
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_add_ice_candidate(
+                        pc, "candidate:1 1 udp 1 192.0.2.1 5000 typ host",
+                        strlen("candidate:1 1 udp 1 192.0.2.1 5000 typ host")));
+    RTC_TEST_ASSERT(strcmp(state.last_trace,
+                           RTC_TRACE_ICE_CANDIDATE_REMOTE) == 0);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.ice.remote_candidates);
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
     RTC_TEST_EQ_INT(RTC_STATUS_AFFINITY_VIOLATION,
