@@ -74,14 +74,23 @@
 - selected pair 通过 `RTC_TRACE_ICE_SELECTED_PAIR` 输出，字段包含 `pair_id`、`role`、`local_address`、`remote_address`、`candidate_type` 和 `port`。
 - pair check timeout 会释放 STUN transaction 槽、递增 timeout counter，并尝试下一个 pair；所有 pair exhausted 后进入 `ice.failed`，reason 为 `pair_check_exhausted`，`checks_failed` counter 递增。
 - STUN role conflict error response 映射为 `role_conflict`，通过 observer error 和 `RTC_TRACE_ICE_STATE` reason 暴露。当前实现不能安全调整 role 时进入 `ice.failed`。
-- 畸形 STUN datagram 映射为 `malformed_stun`。非 STUN/未知 datagram 在后续 demux 入口中应映射为 `unknown_datagram`。
+- 畸形 STUN datagram 映射为 `malformed_stun`。非 STUN/未知 datagram 在 demux 入口中映射为 `unknown_datagram`。
+
+## 第 3 阶段 Datagram 输入输出
+
+第 3 阶段已经实现 ICE/STUN 与 datagram demux 的公共边界，所有网络入口都保持用户负责 UDP/socket I/O 的模型。
+
+- `rtc_peer_connection_gather_candidates` 在 `RTC_EXECUTOR_NETWORK` 上显式启动 gathering；它不会由 offer/answer 或 description API 隐式触发。
+- `rtc_peer_connection_start_connectivity_checks` 在 `RTC_EXECUTOR_NETWORK` 上显式启动 pair checks；它不会创建 socket，也不会隐式发送 UDP。
+- `rtc_peer_connection_receive_datagram` 在 `RTC_EXECUTOR_NETWORK` 上输入用户收到的 UDP payload。库只在调用期间读取用户 `data` buffer，不保存指针，也不在返回后访问该 buffer。
+- `observer.on_datagram` 输出待发送 UDP payload，用户负责 socket 发送；回调返回后库不要求用户继续保留该回调中的 payload 指针。
+- STUN 被真实处理：srflx gathering response、pair check response、regular nomination response 和 controlled 角色的 nominated Binding request 都会路由到 ICE/STUN handler。
+- DTLS/RTP/RTCP 在第 3 阶段只 demux、trace、counter 和占位路由；库不解析 DTLS payload，不调用 security backend，不解析 RTP/RTCP 媒体内容，也不调用 media observer。
+- unknown datagram 返回 `RTC_STATUS_PROTOCOL_ERROR`，observer error 的 subsystem 为 `net`，operation 为 `receive_datagram`，trace reason 为 `unknown_datagram`。
+- 首字节像 STUN 但 magic cookie、header length 或 attribute framing 不合法的 datagram 返回 `RTC_STATUS_PROTOCOL_ERROR`，trace reason 为 `malformed_stun`，与 `unknown_datagram` 区分。
 
 `rtc_peer_connection_config_t.local_host_ip` 必须是 IP 字面量字符，`local_host_port` 必须大于 0。`rtc_peer_connection_config_t.stun_server_count` 只接受 `0` 或 `1`。为 `1` 时，`stun_server.ip` 必须是 IPv4/IPv6 字面量字符，`stun_server.port` 必须大于 0；hostname/DNS 和多个 STUN server 不属于首版边界。
 
+首版 STUN server 只支持 0/1 个 IP:port，不支持 hostname、DNS、TURN。`0` 表示只生成 host candidate；`1` 表示 host + srflx gathering。TURN relay candidate、DNS 解析和多个 STUN server fallback 属于后续扩展。
+
 `addIceCandidate` 仅接受 `candidate:` 或 `a=candidate:` 开头的远端 candidate 字符串，并复制到创建阶段分配的固定槽。第 3 阶段会解析 foundation、component、transport、priority、address、port 和 type，当前只支持 `host/srflx`，要求 component 为 `1`、transport 为 UDP、port 在 `1..65535`。原始字符串和结构化摘要都会复制到内部 arena，不保存调用方 buffer；调用返回后用户可以立即复用或释放输入 buffer。槽数量受 `limits.ice.max_candidates` 限制，超限返回 `RTC_STATUS_CAPACITY_ICE_CANDIDATES`。如果 checks 已经启动，`addIceCandidate` 会为新增远端 candidate 与现有本地 candidates 增量创建 pair；pair table 超限返回 `RTC_STATUS_CAPACITY_ICE_PAIRS`。该增量路径仍不创建 socket，不触发 `on_local_candidate`。
-
-## 当前占位 API
-
-第 3 阶段已经实现 host/srflx gathering 和 ICE connectivity checks，但尚未实现 DTLS-SRTP 或 RTP/RTCP。以下 API 当前返回 `RTC_STATUS_UNSUPPORTED`：
-
-- `rtc_peer_connection_receive_datagram`

@@ -30,6 +30,10 @@
 - [ ] 提供事件、计数器和 trace hook，首版即可支撑生产排障。
 - [ ] 使用 CMake 交付静态库，并提供本地 Chrome 页面和信令示例完成端到端验收。
 
+### 阶段规划记录
+
+- 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
+
 ### 不在范围内
 
 - 音视频编解码 — 用户输入和接收 H264 access unit 与 Opus frame，库只负责 RTP payload format、时间戳、序列号和 SRTP。
@@ -76,7 +80,7 @@
 | 用户负责 UDP/socket 收发 | 避免平台 I/O 假设，保持跨平台边界清晰 | — 待验证 |
 | Chrome 最小 SDP/JSEP 画像 | 首版聚焦可验收互通，不追求泛化 SDP 兼容 | — 待验证 |
 | 固定 Chrome 1v1 SDP/JSEP profile | 避免通用 SDP builder/parser 扩大范围，先锁定 Chrome 互通画像 | 第 2 阶段已建立 writer/parser、golden fixtures 和最小 JSEP 状态机 |
-| Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | — 待验证 |
+| Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | 第 3 阶段已规划，待执行验证 |
 | DTLS/SRTP/crypto 使用 backend vtable | 保持依赖和许可策略可替换 | — 待验证 |
 | 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — 待验证 |
 | NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | — 待验证 |

@@ -415,6 +415,7 @@ static int test_start_connectivity_checks_requires_remote_candidate(void)
 
 static int test_controlling_regular_nomination_selects_pair(void)
 {
+    /* Covers regular nomination: first success triggers USE-CANDIDATE. */
     unsigned char arena[16384];
     uint8_t response[32];
     ice_observer_state_t state;
