@@ -53,6 +53,7 @@ if(RTC_BUILD_TESTS)
         tests/test_datagram.c
         tests/test_security.c
         tests/test_media_api.c
+        tests/test_rtp.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
