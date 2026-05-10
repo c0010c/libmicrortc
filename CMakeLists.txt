@@ -15,6 +15,9 @@ add_library(rtc STATIC
     src/executor/executor.c
     src/memory/arena.c
     src/memory/allocator.c
+    src/observability/observer.c
+    src/observability/trace.c
+    src/observability/counters.c
 )
 
 target_include_directories(rtc
@@ -33,10 +36,16 @@ if(RTC_BUILD_TESTS)
         tests/test_memory.c
         tests/test_executor_affinity.c
         tests/test_peer_connection.c
+        tests/test_observability.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
     add_test(NAME rtc_tests COMMAND rtc_tests)
+endif()
+
+if(RTC_BUILD_EXAMPLES)
+    add_executable(rtc_create_destroy examples/create_destroy.c)
+    target_link_libraries(rtc_create_destroy PRIVATE rtc)
 endif()
 
 install(TARGETS rtc ARCHIVE DESTINATION lib)

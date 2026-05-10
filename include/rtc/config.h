@@ -5,6 +5,7 @@
 
 #include "rtc/executor.h"
 #include "rtc/limits.h"
+#include "rtc/observer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +36,7 @@ typedef struct rtc_peer_connection_config_t {
     rtc_peer_connection_limits_t limits;
     void *platform;
     rtc_executors_t executors;
-    void *observer;
+    rtc_observer_vtable_t observer;
     void *security_backend;
 } rtc_peer_connection_config_t;
 

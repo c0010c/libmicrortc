@@ -8,6 +8,8 @@ struct rtc_peer_connection_t {
     rtc_arena_view_t arena;
     rtc_peer_connection_limits_t limits;
     rtc_executors_t executors;
+    rtc_observer_vtable_t observer;
+    rtc_peer_connection_counters_t counters;
     int is_closed;
 };
 

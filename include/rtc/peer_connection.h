@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "rtc/config.h"
+#include "rtc/counters.h"
 #include "rtc/status.h"
 
 #ifdef __cplusplus
@@ -36,6 +37,9 @@ rtc_status_t rtc_peer_connection_add_ice_candidate(rtc_peer_connection_t *pc,
 rtc_status_t rtc_peer_connection_receive_datagram(rtc_peer_connection_t *pc,
                                                   const uint8_t *data,
                                                   size_t data_len);
+rtc_status_t rtc_peer_connection_get_counters(
+    rtc_peer_connection_t *pc,
+    rtc_peer_connection_counters_t *out_counters);
 
 #ifdef __cplusplus
 }
