@@ -138,7 +138,7 @@ None - no external service configuration required.
 - 文件存在性检查通过：API 契约、设计边界、05-UAT、REQUIREMENTS、PROJECT、ROADMAP、STATE 和本 SUMMARY 均存在。
 - 提交存在性检查通过：`0866cb4`、`c46a2a3` 均可在 git log 中找到。
 - 计划级验证通过：`cmake --build build && ctest --test-dir build --output-on-failure`。
-- 边界检查通过：未发现“Chrome 端到端已完成”错误宣称。
+- 边界检查通过：未发现 Chrome E2E 完成类错误宣称。
 
 ---
 *Phase: 05-rtp-rtcp-media-plane*
