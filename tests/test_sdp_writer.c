@@ -87,6 +87,14 @@ int rtc_test_sdp_writer(void)
     RTC_TEST_EQ_INT((int)fixture_len, (int)sdp_len);
     RTC_TEST_ASSERT(memcmp(sdp, fixture, sdp_len) == 0);
 
+    sdp_len = sizeof(sdp);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_sdp_write_offer(&params, RTC_SDP_DIRECTION_RECVONLY,
+                                        RTC_SDP_DIRECTION_RECVONLY, sdp,
+                                        &sdp_len));
+    RTC_TEST_ASSERT(contains_text(sdp, "a=recvonly"));
+    RTC_TEST_ASSERT(!contains_text(sdp, "a=sendonly"));
+
     params = test_sdp_params("active");
     sdp_len = sizeof(sdp);
     RTC_TEST_EQ_INT(RTC_STATUS_OK,

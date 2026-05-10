@@ -153,5 +153,14 @@ int rtc_test_jsep(void)
                     rtc_peer_connection_add_ice_candidate(pc, "bad", 3));
     RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
 
+    config = test_config(arena, sizeof(arena));
+    config.limits.sdp.max_description_bytes = 16;
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_SDP_BUFFER,
+                    rtc_peer_connection_set_remote_description(pc, offer,
+                                                               offer_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+
     return 0;
 }

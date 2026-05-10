@@ -55,9 +55,38 @@ int rtc_test_sdp_parser(void)
                     rtc_sdp_parse(sdp, sdp_len, &description));
     RTC_TEST_EQ_INT(RTC_SDP_TYPE_ANSWER, description.type);
 
+    RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/chrome-recvonly-audio-video.sdp",
+                                    sdp, sizeof(sdp), &sdp_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_sdp_parse(sdp, sdp_len, &description));
+    RTC_TEST_EQ_INT(RTC_SDP_DIRECTION_RECVONLY,
+                    description.audio.direction);
+    RTC_TEST_EQ_INT(RTC_SDP_DIRECTION_RECVONLY,
+                    description.video.direction);
+
     RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/invalid-missing-bundle.sdp",
                                     sdp, sizeof(sdp), &sdp_len));
     RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_sdp_parse(sdp, sdp_len, &description));
+
+    RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/invalid-missing-rtcp-mux.sdp",
+                                    sdp, sizeof(sdp), &sdp_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_sdp_parse(sdp, sdp_len, &description));
+
+    RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/invalid-missing-ice.sdp",
+                                    sdp, sizeof(sdp), &sdp_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_sdp_parse(sdp, sdp_len, &description));
+
+    RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/invalid-missing-fingerprint.sdp",
+                                    sdp, sizeof(sdp), &sdp_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_PROTOCOL_ERROR,
+                    rtc_sdp_parse(sdp, sdp_len, &description));
+
+    RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/invalid-unknown-codec.sdp",
+                                    sdp, sizeof(sdp), &sdp_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_UNSUPPORTED,
                     rtc_sdp_parse(sdp, sdp_len, &description));
 
     RTC_TEST_EQ_INT(0, read_fixture("tests/fixtures/invalid-sendonly.sdp",
