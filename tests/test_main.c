@@ -12,6 +12,7 @@ int rtc_test_stun(void);
 int rtc_test_ice(void);
 int rtc_test_datagram(void);
 int rtc_test_security(void);
+int rtc_test_media_api(void);
 
 int main(void)
 {
@@ -29,6 +30,7 @@ int main(void)
     RTC_RUN_TEST(rtc_test_ice, result);
     RTC_RUN_TEST(rtc_test_datagram, result);
     RTC_RUN_TEST(rtc_test_security, result);
+    RTC_RUN_TEST(rtc_test_media_api, result);
 
     if (result.failed != 0) {
         return 1;
