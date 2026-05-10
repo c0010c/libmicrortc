@@ -2,7 +2,7 @@
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 1 阶段上下文已收集，准备进入规划
+**当前状态：** 第 1 阶段已规划，准备执行
 
 ## 项目引用
 
@@ -28,15 +28,17 @@
 
 **目标：** 建立所有后续协议层必须遵守的公共边界：纯 C API、固定内存、执行器亲和、observer、构建目标和基础 trace/计数器。
 
-**状态：** 上下文已收集
+**状态：** 已规划
+
+**计划数量：** 4 个计划，3 个 wave
 
 **下一步：**
 
 ```bash
-$gsd-plan-phase 1
+$gsd-execute-phase 1
 ```
 
-**恢复文件：** `.planning/phases/01-core-skeleton-boundary-contract/01-CONTEXT.md`
+**恢复文件：** `.planning/phases/01-core-skeleton-boundary-contract/01-01-PLAN.md`
 
 ## 已创建工件
 
@@ -51,6 +53,13 @@ $gsd-plan-phase 1
 - `.planning/ROADMAP.md`
 - `.planning/phases/01-core-skeleton-boundary-contract/01-CONTEXT.md`
 - `.planning/phases/01-core-skeleton-boundary-contract/01-DISCUSSION-LOG.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-RESEARCH.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-VALIDATION.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-PATTERNS.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-01-PLAN.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-02-PLAN.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-03-PLAN.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-04-PLAN.md`
 
 ---
-*最后更新：2026-05-10，第 1 阶段上下文收集后*
+*最后更新：2026-05-10，第 1 阶段规划后*

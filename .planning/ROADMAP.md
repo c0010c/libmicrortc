@@ -9,7 +9,7 @@
 
 | 阶段 | 名称 | 目标 | 需求 | 状态 |
 |------|------|------|------|------|
-| 1 | 核心骨架与边界契约 | 建立纯 C API、固定内存、执行器、observer、构建和基础可观测性 | API-01, API-02, API-03, API-05, MEM-01, MEM-02, MEM-03, EXE-01, EXE-02, EXE-03, OBS-01, OBS-02, OBS-03, BLD-01, BLD-02 | 待开始 |
+| 1 | 核心骨架与边界契约 | 建立纯 C API、固定内存、执行器、observer、构建和基础可观测性 | API-01, API-02, API-03, API-05, MEM-01, MEM-02, MEM-03, EXE-01, EXE-02, EXE-03, OBS-01, OBS-02, OBS-03, BLD-01, BLD-02 | 已规划 |
 | 2 | SDP/JSEP 与 Offer/Answer | 生成和解析 Chrome 1v1 最小 SDP，并完成发起/接听信令 API | SDP-01, SDP-02, SDP-03, SDP-04, API-04 | 待开始 |
 | 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 待开始 |
 | 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 待开始 |
@@ -30,6 +30,24 @@
 3. 三类 executor vtable 可以被测试 executor 驱动，库内部没有线程创建行为。
 4. observer、计数器和 trace hook 能输出生命周期、错误和基础状态事件。
 5. 公共 API 文档明确所有函数和回调的执行器亲和规则。
+
+**计划：**
+
+**Wave 1**
+- `01-01-PLAN.md`：构建骨架、公共头入口与测试基础。
+- `01-02-PLAN.md`：固定 arena、limits、容量诊断与 allocator 防线。
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- `01-03-PLAN.md`：执行器亲和、`PeerConnection` 生命周期与未支持 API 占位。
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- `01-04-PLAN.md`：observer、trace、计数器、文档与最小示例。
+
+**跨计划约束：**
+- 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
+- 不引入 GPL/LGPL 依赖或第三方测试框架。
+- 第 1 阶段不得提前实现 SDP、ICE、DTLS-SRTP、RTP/RTCP 或 Chrome 页面。
+- 所有执行计划必须保留 CONTEXT.md 中 D-01 到 D-20 的决策可追踪性。
 
 ### 第 2 阶段：SDP/JSEP 与 Offer/Answer
 
@@ -106,4 +124,4 @@
 | 阶段总数 | 6 |
 
 ---
-*最后更新：2026-05-10，初始路线图创建后*
+*最后更新：2026-05-10，第 1 阶段规划后*
