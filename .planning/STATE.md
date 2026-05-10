@@ -2,7 +2,7 @@
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 已初始化，准备进入第 1 阶段
+**当前状态：** 第 1 阶段上下文已收集，准备进入规划
 
 ## 项目引用
 
@@ -28,13 +28,15 @@
 
 **目标：** 建立所有后续协议层必须遵守的公共边界：纯 C API、固定内存、执行器亲和、observer、构建目标和基础 trace/计数器。
 
-**状态：** 待开始
+**状态：** 上下文已收集
 
 **下一步：**
 
 ```bash
-$gsd-discuss-phase 1
+$gsd-plan-phase 1
 ```
+
+**恢复文件：** `.planning/phases/01-core-skeleton-boundary-contract/01-CONTEXT.md`
 
 ## 已创建工件
 
@@ -47,6 +49,8 @@ $gsd-discuss-phase 1
 - `.planning/research/SUMMARY.md`
 - `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-CONTEXT.md`
+- `.planning/phases/01-core-skeleton-boundary-contract/01-DISCUSSION-LOG.md`
 
 ---
-*最后更新：2026-05-10，项目初始化后*
+*最后更新：2026-05-10，第 1 阶段上下文收集后*
