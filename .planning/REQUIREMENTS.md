@@ -51,9 +51,9 @@
 
 ### RTP/RTCP 与媒体帧
 
-- [ ] **RTP-01**: 用户可以提交 Opus frame，库负责 RTP packetize、时间戳、序列号和 SRTP 保护。
+- [x] **RTP-01**: 用户可以提交 Opus frame，库负责 RTP packetize、时间戳、序列号和 SRTP 保护。
 - [ ] **RTP-02**: 用户可以接收从 RTP depacketize 得到的 Opus frame。
-- [ ] **RTP-03**: 用户可以提交 H264 access unit，库支持 single NALU 和 FU-A 发送。
+- [x] **RTP-03**: 用户可以提交 H264 access unit，库支持 single NALU 和 FU-A 发送。
 - [ ] **RTP-04**: 用户可以接收从 RTP depacketize 得到的 H264 access unit，接收方向有限支持 STAP-A。
 - [x] **RTP-05**: 单个 `PeerConnection` 最多支持 1 路音频和 1 路视频。
 - [ ] **RTCP-01**: 库支持 RTCP Sender Report 和 Receiver Report。
@@ -147,9 +147,9 @@
 | SEC-03 | 第 4 阶段 | 已完成：04-04 在 handshake complete + fingerprint verification 后导出 `EXTRACTOR-dtls_srtp` keying material，并初始化单一 BUNDLE SRTP/SRTCP context |
 | SEC-04 | 第 4 阶段 | 已完成：04-04 新增内部 SRTP/SRTCP protect/unprotect wrapper，失败路径阻断明文或未认证数据输出 |
 | SEC-05 | 第 4 阶段 | 已完成：04-05 新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定 status、observer detail、trace reason 和 counter，04-06 文档收口确认默认构建不要求 OpenSSL/libsrtp |
-| RTP-01 | 第 5 阶段 | 待开始 |
+| RTP-01 | 第 5 阶段 | 已完成：05-02 实现 Opus frame 到 RTP packetize、timestamp/sequence 更新、SRTP protect 和受保护 datagram 输出 |
 | RTP-02 | 第 5 阶段 | 待开始 |
-| RTP-03 | 第 5 阶段 | 待开始 |
+| RTP-03 | 第 5 阶段 | 已完成：05-02 实现 H264 Annex B access unit single NALU 与 FU-A 发送，覆盖 marker、容量和 protect 失败不输出明文 |
 | RTP-04 | 第 5 阶段 | 待开始 |
 | RTP-05 | 第 5 阶段 | 已完成：05-01 建立 typed media kind，v1 只公开 1 路 Opus audio 和 1 路 H264 video 的 public contract 与固定容量基线 |
 | RTCP-01 | 第 5 阶段 | 待开始 |

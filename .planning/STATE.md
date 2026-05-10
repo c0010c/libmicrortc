@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 5 in progress; 05-01 complete; Phase 4 still pending phase-level verification
-last_updated: "2026-05-10T23:58:10+08:00"
+status: Phase 5 in progress; 05-02 complete; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T00:10:53+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 24
-  completed_plans: 19
-  percent: 79
+  completed_plans: 20
+  percent: 83
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段执行中；`05-01` 已完成 typed media API、observer、limits、counters、trace 和固定槽初始化；第 4 阶段计划执行完成后仍等待阶段级验证；Chrome 真实端到端验收仍属于第 6 阶段范围
+**当前状态：** 第 5 阶段执行中；`05-02` 已完成 Opus/H264 RTP 发送 packetize、SRTP protect 和受保护 datagram 输出；第 4 阶段计划执行完成后仍等待阶段级验证；Chrome 真实端到端验收仍属于第 6 阶段范围
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 5: RTP/RTCP 媒体平面；下一步执行 `05-02` RTP 发送 packetize、SRTP protect 和 datagram 输出，或先回到第 4 阶段做阶段级验证
+**当前焦点：** Phase 5: RTP/RTCP 媒体平面；下一步执行 `05-03` RTP 接收、SRTP unprotect、Opus/H264 depacketize/reassembly 和 typed frame 输出，或先回到第 4 阶段做阶段级验证
 
 ## 工作流配置
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 完成 1 路 Opus 音频和 1 路 H264 视频的 RTP/RTCP 媒体平面，并把关键反馈事件暴露给用户。
 
-**状态：** 1/6 plans 已完成，5/6 plans 待执行；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 2/6 plans 已完成，4/6 plans 待执行；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 6
 
@@ -135,6 +135,7 @@ $gsd-verify-work 4
 - `.planning/phases/05-rtp-rtcp-media-plane/05-01-PLAN.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-01-SUMMARY.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-02-PLAN.md`
+- `.planning/phases/05-rtp-rtcp-media-plane/05-02-SUMMARY.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-03-PLAN.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-04-PLAN.md`
 - `.planning/phases/05-rtp-rtcp-media-plane/05-05-PLAN.md`
@@ -151,6 +152,7 @@ $gsd-verify-work 4
 - 2026-05-10T22:10:11+08:00：完成 `04-06-PLAN.md`，收口中文契约文档、SEC-01..SEC-05 需求追踪和项目状态，明确默认构建不要求 OpenSSL/libsrtp，Chrome 真实 DTLS E2E 仍属于第 6 阶段验收范围。
 - 2026-05-10T23:45:00+08:00：完成第 5 阶段规划，生成 `05-RESEARCH.md`、`05-VALIDATION.md`、`05-PATTERNS.md` 和 `05-01` 到 `05-06` 六个执行计划。
 - 2026-05-10T23:58:10+08:00：完成 `05-01-PLAN.md`，建立 typed media frame/feedback API、typed observer、media/RTP/RTCP limits、counters、trace 和 create-time 固定媒体槽。
+- 2026-05-11T00:10:53+08:00：完成 `05-02-PLAN.md`，打通 Opus/H264 RTP 发送 packetize、SRTP protect 和 `observer.on_datagram` 受保护输出，protect 失败不泄漏明文 RTP。
 
 ## 执行决策
 
@@ -166,6 +168,7 @@ $gsd-verify-work 4
 - PLI 采用用户显式请求模型；收到远端 PLI/NACK 只通过 feedback observer 上报，NACK 不触发重传。
 - media frame 输入输出保持 `RTC_EXECUTOR_MEDIA` 亲和；datagram、SRTP/SRTCP protect/unprotect 和 `observer.on_datagram` 保持 `RTC_EXECUTOR_NETWORK` 亲和。
 - `05-01` 只固定媒体 public contract、亲和、输入校验和固定容量基线；有效 `send_media_frame` RTP 发送路径留给 `05-02`，有效 `request_keyframe` PLI 路径留给 `05-05`。
+- `05-02` RTP 发送路径固定为 media executor packetize、network executor `rtc_srtp_protect_rtp`、成功后复用 `observer.on_datagram`；Opus 使用 PT 111，H264 使用 PT 103，H264 v1 发送只支持 Annex B single NALU 与 FU-A。
 
 ---
-*最后更新：2026-05-10，第 5 阶段规划完成后*
+*最后更新：2026-05-11，05-02 RTP 发送计划完成后*
