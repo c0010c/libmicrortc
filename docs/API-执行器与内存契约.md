@@ -6,9 +6,9 @@
 
 - 用户通过 `rtc_peer_connection_config_t.arena` 提供总 arena。
 - 用户通过 `rtc_peer_connection_config_t.limits` 提供按子系统分组的容量限制。
-- 用户通过 `rtc_peer_connection_config_t.sdp` 提供 create-time SDP 参数，包括 ICE ufrag/pwd、DTLS fingerprint/setup 和 session id/version；库不会生成随机 ICE 参数或证书。
+- 用户通过 `rtc_peer_connection_config_t.sdp` 提供 create-time SDP 参数，包括 ICE ufrag/pwd、DTLS setup 和 session id/version；第 4 阶段起本地 DTLS fingerprint 来自 `security_backend` 的 `sha-256` 本地证书 fingerprint，不再信任 create-time 临时 fingerprint 字符串。
 - 用户通过 `rtc_peer_connection_config_t.local_host_ip`、`local_host_ip_len` 和 `local_host_port` 提供 host candidate 来源。库不枚举网卡、不绑定端口，也不探测本机地址。
-- 创建阶段从 arena 中分配 `PeerConnection`、local/remote SDP buffer、远端 candidate 原始字符串固定槽、candidate 摘要、candidate pair 和 STUN transaction 固定槽。
+- 创建阶段从 arena 中分配 `PeerConnection`、local/remote SDP buffer、远端 candidate 原始字符串固定槽、candidate 摘要、candidate pair、STUN transaction 固定槽、DTLS session storage、SRTP/SRTCP context 和 key material buffer。
 - 容量不足通过 `rtc_status_t` 与 `rtc_capacity_diagnostics_t` 返回，诊断中包含资源类别、required 和 used。
 - 核心源码必须通过内部 arena/allocator 入口申请内存，不能绕过固定内存边界。
 
@@ -41,7 +41,7 @@
 - `rtc_peer_connection_set_remote_description`
 - `rtc_peer_connection_add_ice_candidate`
 
-`createOffer` 和 `createAnswer` 输出固定 Chrome 1v1 SDP profile：BUNDLE、rtcp-mux、trickle ICE capability、ICE 参数、DTLS fingerprint/setup、Opus 111、H264 103 和 `sendrecv`/`recvonly` 方向。SDP writer 只消费 `rtc_peer_connection_config_t.sdp` 中的参数，不枚举本机网络接口，不创建 socket，也不输出本地 candidate。
+`createOffer` 和 `createAnswer` 输出固定 Chrome 1v1 SDP profile：BUNDLE、rtcp-mux、trickle ICE capability、ICE 参数、DTLS fingerprint/setup、Opus 111、H264 103 和 `sendrecv`/`recvonly` 方向。SDP writer 消费 `rtc_peer_connection_config_t.sdp` 中的 ICE/setup/session 参数，并从 `security_backend` 查询本地 `sha-256` DTLS fingerprint；它不枚举本机网络接口，不创建 socket，也不输出本地 candidate。
 
 `setLocalDescription` 和 `setRemoteDescription` 会解析 SDP、校验 Chrome 1v1 profile，并推进最小 JSEP 状态机：
 
@@ -85,7 +85,7 @@
 - `rtc_peer_connection_receive_datagram` 在 `RTC_EXECUTOR_NETWORK` 上输入用户收到的 UDP payload。库只在调用期间读取用户 `data` buffer，不保存指针，也不在返回后访问该 buffer。
 - `observer.on_datagram` 输出待发送 UDP payload，用户负责 socket 发送；回调返回后库不要求用户继续保留该回调中的 payload 指针。
 - STUN 被真实处理：srflx gathering response、pair check response、regular nomination response 和 controlled 角色的 nominated Binding request 都会路由到 ICE/STUN handler。
-- DTLS/RTP/RTCP 在第 3 阶段只 demux、trace、counter 和占位路由；库不解析 DTLS payload，不调用 security backend，不解析 RTP/RTCP 媒体内容，也不调用 media observer。
+- DTLS 在第 4 阶段进入 security 层；RTP/RTCP 仍留给第 5 阶段媒体平面。库不直接操作 socket，也不把 DTLS/SRTP 绑定到默认第三方库。
 - unknown datagram 返回 `RTC_STATUS_PROTOCOL_ERROR`，observer error 的 subsystem 为 `net`，operation 为 `receive_datagram`，trace reason 为 `unknown_datagram`。
 - 首字节像 STUN 但 magic cookie、header length 或 attribute framing 不合法的 datagram 返回 `RTC_STATUS_PROTOCOL_ERROR`，trace reason 为 `malformed_stun`，与 `unknown_datagram` 区分。
 
@@ -94,3 +94,36 @@
 首版 STUN server 只支持 0/1 个 IP:port，不支持 hostname、DNS、TURN。`0` 表示只生成 host candidate；`1` 表示 host + srflx gathering。TURN relay candidate、DNS 解析和多个 STUN server fallback 属于后续扩展。
 
 `addIceCandidate` 仅接受 `candidate:` 或 `a=candidate:` 开头的远端 candidate 字符串，并复制到创建阶段分配的固定槽。第 3 阶段会解析 foundation、component、transport、priority、address、port 和 type，当前只支持 `host/srflx`，要求 component 为 `1`、transport 为 UDP、port 在 `1..65535`。原始字符串和结构化摘要都会复制到内部 arena，不保存调用方 buffer；调用返回后用户可以立即复用或释放输入 buffer。槽数量受 `limits.ice.max_candidates` 限制，超限返回 `RTC_STATUS_CAPACITY_ICE_CANDIDATES`。如果 checks 已经启动，`addIceCandidate` 会为新增远端 candidate 与现有本地 candidates 增量创建 pair；pair table 超限返回 `RTC_STATUS_CAPACITY_ICE_PAIRS`。该增量路径仍不创建 socket，不触发 `on_local_candidate`。
+
+## 第 4 阶段 DTLS-SRTP 安全传输
+
+第 4 阶段使用单一 `security_backend` vtable 覆盖 DTLS、fingerprint、key export、SRTP/SRTCP protect/unprotect 和相关 crypto 能力。核心 API 不拆分多个 public DTLS/SRTP/crypto backend，也不要求用户直接编排 DTLS handshake 或 SRTP context。
+
+安全 backend 的运行边界如下：
+
+- `rtc_peer_connection_config_t.security_backend` 指向固定的 backend 配置和 `rtc_security_backend_vtable_t`；backend session storage 在 `PeerConnection` 创建阶段从用户 arena 中切分。
+- 默认构建不要求 OpenSSL/libsrtp 开发包。真实 OpenSSL/libsrtp 或同类宽松许可适配只能作为可选编译开关启用，并且必须说明如何满足固定 storage 契约；deterministic backend 是第 4 阶段默认验证入口。
+- backend 不拥有 socket，不直接发送 UDP datagram，不保存用户输入 datagram 指针，也不得在核心运行期偷偷依赖动态内存增长。
+- backend 产生的 `RTC_SECURITY_BACKEND_EVENT_OUTGOING_DATAGRAM` 由核心转成既有 `observer.on_datagram` 回调输出；回调返回后 payload 指针失效，用户负责实际 UDP/socket 发送。
+
+DTLS 启动和 datagram 输入语义：
+
+- DTLS handshake 在 ICE selected pair / `ice.connected` 后由核心自动启动，用户不需要公共 `start_dtls` API。
+- `rtc_peer_connection_receive_datagram` 在 `RTC_EXECUTOR_NETWORK` 上接收 DTLS payload。若 ICE 尚未 connected/selected，DTLS datagram 被拒绝且不缓存，返回 `RTC_STATUS_INVALID_STATE`，trace reason 为 `ice_not_connected`。
+- ICE connected 后，DTLS datagram 进入 `security_backend` 输入函数；backend 可以通过 event callback 产生 outgoing datagram、handshake complete 或 backend error。
+- DTLS close/error 只改变安全状态，不回滚 ICE selected pair；失败通过 `dtls.failed`、observer error、trace reason 和 counter 暴露。
+
+Fingerprint 和 key export 语义：
+
+- 本地 SDP fingerprint 必须来自 backend local certificate fingerprint，首版只接受 `sha-256`。
+- backend 通过 `RTC_SECURITY_BACKEND_EVENT_HANDSHAKE_COMPLETE` 通知核心握手完成后，核心先查询 peer certificate fingerprint 并与远端 SDP fingerprint 比对。
+- `fingerprint_mismatch` 是安全硬失败：核心进入 `dtls.failed`，返回或记录 `RTC_STATUS_PROTOCOL_ERROR`，不得执行 key export，也不得进入 `srtp.ready`。
+- fingerprint 验证通过后，核心调用 backend 使用 label `EXTRACTOR-dtls_srtp` 导出固定长度 keying material，并初始化单一 BUNDLE SRTP/SRTCP context。
+- key export 或 SRTP/SRTCP 初始化失败会进入安全失败状态；不得让后续媒体路径发送未保护 RTP/RTCP。
+
+SRTP/SRTCP wrapper 语义：
+
+- 第 4 阶段只提供内部 `src/srtp` wrapper，供第 5 阶段 RTP/RTCP 媒体平面调用；不新增 public `PeerConnection` protect/unprotect API。
+- SRTP/SRTCP protect 成功后才允许输出受保护 datagram；protect 失败不得调用 `observer.on_datagram` 输出明文 RTP/RTCP。
+- SRTP/SRTCP unprotect 成功后才允许把包交给媒体层；unprotect、认证或 replay 失败不得输出未认证媒体数据。
+- 安全失败 public status 保持粗粒度：backend 失败主要映射为 `RTC_STATUS_BACKEND_ERROR`，fingerprint/replay 等协议安全失败映射为 `RTC_STATUS_PROTOCOL_ERROR`，状态顺序错误映射为 `RTC_STATUS_INVALID_STATE`。细节通过 `RTC_SECURITY_DETAIL_*`、trace reason（例如 `handshake_failed`、`fingerprint_mismatch`、`key_export_failed`、`srtp_protect_failed`、`srtp_unprotect_failed`、`srtp_replay_failed`）和 counters 表达。

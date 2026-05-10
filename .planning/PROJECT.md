@@ -33,7 +33,7 @@
 ### 阶段规划记录
 
 - 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
-- 第 4 阶段已规划：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；执行完成并验证后再移入“已验证”。
+- 第 4 阶段已规划：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；默认构建不要求 OpenSSL/libsrtp 开发包，真实 Chrome DTLS 端到端验收留到第 6 阶段。
 
 ### 不在范围内
 
@@ -82,7 +82,7 @@
 | Chrome 最小 SDP/JSEP 画像 | 首版聚焦可验收互通，不追求泛化 SDP 兼容 | — 待验证 |
 | 固定 Chrome 1v1 SDP/JSEP profile | 避免通用 SDP builder/parser 扩大范围，先锁定 Chrome 互通画像 | 第 2 阶段已建立 writer/parser、golden fixtures 和最小 JSEP 状态机 |
 | Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | 第 3 阶段已规划，待执行验证 |
-| DTLS/SRTP/crypto 使用 backend vtable | 保持依赖和许可策略可替换 | — 待验证 |
+| DTLS/SRTP/crypto 使用单一 `security_backend` vtable | 保持依赖和许可策略可替换；默认构建不强制 OpenSSL/libsrtp，真实适配必须可选 | 第 4 阶段已规划，准备执行阶段收口 |
 | 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — 待验证 |
 | NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | — 待验证 |
 
