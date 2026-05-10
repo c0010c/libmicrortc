@@ -240,10 +240,11 @@ int rtc_test_peer_connection(void)
     }
 
     {
-        unsigned char transaction_arena[7000];
+        unsigned char transaction_arena[10000];
         config = test_config(transaction_arena, sizeof(transaction_arena));
         config.limits.ice.max_candidates = 1;
         config.limits.ice.max_candidate_pairs = 1;
+        config.limits.ice.max_transactions = 512;
         RTC_TEST_EQ_INT(RTC_STATUS_CAPACITY_STUN_TRANSACTIONS,
                         rtc_peer_connection_create(&config, &diag, &pc));
         RTC_TEST_EQ_INT(RTC_CAPACITY_RESOURCE_STUN_TRANSACTIONS,

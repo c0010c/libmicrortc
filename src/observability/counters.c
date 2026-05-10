@@ -40,7 +40,11 @@ void rtc_counters_init(rtc_peer_connection_counters_t *counters)
     counters->rtp.packets_received = 0;
     counters->rtp.packets_dropped = 0;
     counters->rtcp.rtcp_sr_sent = 0;
+    counters->rtcp.rtcp_sr_received = 0;
+    counters->rtcp.rtcp_rr_sent = 0;
     counters->rtcp.rtcp_rr_received = 0;
+    counters->rtcp.rtcp_sdes_sent = 0;
+    counters->rtcp.rtcp_sdes_received = 0;
     counters->rtcp.pli_sent = 0;
     counters->rtcp.pli_received = 0;
     counters->rtcp.nack_received = 0;

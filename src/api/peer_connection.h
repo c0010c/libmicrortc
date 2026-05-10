@@ -8,6 +8,7 @@
 #include "memory/arena.h"
 #include "rtc/peer_connection.h"
 #include "rtc/security.h"
+#include "rtcp/rtcp.h"
 #include "sdp/sdp.h"
 
 #define RTC_PC_REMOTE_CANDIDATE_SLOT_BYTES 512u
@@ -127,6 +128,8 @@ struct rtc_peer_connection_t {
     uint16_t video_rtp_sequence;
     uint32_t video_rtp_timestamp;
     uint32_t video_rtp_ssrc;
+    rtc_rtcp_media_stats_t rtcp_audio;
+    rtc_rtcp_media_stats_t rtcp_video;
     size_t h264_reassembly_len;
     uint16_t h264_reassembly_expected_sequence;
     uint32_t h264_reassembly_timestamp;

@@ -514,6 +514,10 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->video_rtp_sequence = 1;
     pc->video_rtp_timestamp = 0;
     pc->video_rtp_ssrc = 0x22222222u;
+    memset(&pc->rtcp_audio, 0, sizeof(pc->rtcp_audio));
+    memset(&pc->rtcp_video, 0, sizeof(pc->rtcp_video));
+    pc->rtcp_audio.ssrc = pc->audio_rtp_ssrc;
+    pc->rtcp_video.ssrc = pc->video_rtp_ssrc;
     pc->h264_reassembly_len = 0;
     pc->h264_reassembly_expected_sequence = 0;
     pc->h264_reassembly_timestamp = 0;

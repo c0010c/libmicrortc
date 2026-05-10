@@ -69,7 +69,11 @@ typedef struct rtc_rtp_counters_t {
 
 typedef struct rtc_rtcp_counters_t {
     uint64_t rtcp_sr_sent;
+    uint64_t rtcp_sr_received;
+    uint64_t rtcp_rr_sent;
     uint64_t rtcp_rr_received;
+    uint64_t rtcp_sdes_sent;
+    uint64_t rtcp_sdes_received;
     uint64_t pli_sent;
     uint64_t pli_received;
     uint64_t nack_received;
