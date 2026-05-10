@@ -17,6 +17,7 @@ typedef struct rtcp_test_state_t {
     int srtcp_unprotect_calls;
     int datagram_count;
     int feedback_count;
+    const char *last_trace_reason;
     rtc_status_t srtcp_protect_status;
     rtc_status_t srtcp_unprotect_status;
     rtc_media_feedback_t last_feedback;
@@ -90,6 +91,20 @@ static void on_media_feedback(void *user_data,
     state->feedback_count++;
     if (feedback != 0) {
         state->last_feedback = *feedback;
+    }
+}
+
+static void on_trace(void *user_data, const char *event,
+                     const rtc_trace_field_t *fields, size_t field_count)
+{
+    rtcp_test_state_t *state = (rtcp_test_state_t *)user_data;
+    size_t i;
+
+    (void)event;
+    for (i = 0; i < field_count; ++i) {
+        if (strcmp(fields[i].key, RTC_TRACE_FIELD_REASON) == 0) {
+            state->last_trace_reason = fields[i].value;
+        }
     }
 }
 
@@ -255,6 +270,7 @@ static rtc_peer_connection_config_t test_config(
     config.executors.network = test_executor(state);
     config.observer.on_datagram = on_datagram;
     config.observer.on_media_feedback = on_media_feedback;
+    config.observer.on_trace = on_trace;
     config.observer.user_data = state;
     config.security_backend = backend;
     return config;
@@ -575,6 +591,113 @@ static int test_rtcp_receive_pli_reports_media_feedback(void)
     return 0;
 }
 
+static int test_rtcp_parse_nack_expands_pid_only(void)
+{
+    rtc_media_feedback_t feedback;
+    uint8_t fci[] = {0x12, 0x34, 0x00, 0x00};
+
+    memset(&feedback, 0, sizeof(feedback));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_rtcp_parse_nack(fci, sizeof(fci), &feedback));
+    RTC_TEST_EQ_INT(RTC_MEDIA_FEEDBACK_NACK, feedback.type);
+    RTC_TEST_EQ_INT(0x1234, feedback.pid);
+    RTC_TEST_EQ_INT(0, feedback.blp);
+    RTC_TEST_EQ_INT(1, (int)feedback.lost_sequence_number_count);
+    RTC_TEST_EQ_INT(0x1234,
+                    (int)feedback.lost_sequence_numbers[0]);
+    RTC_TEST_EQ_INT(0, feedback.retransmit_performed);
+    return 0;
+}
+
+static int test_rtcp_parse_nack_expands_pid_and_blp(void)
+{
+    rtc_media_feedback_t feedback;
+    uint8_t fci[] = {0x01, 0x2C, 0x00, 0x05};
+
+    memset(&feedback, 0, sizeof(feedback));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_rtcp_parse_nack(fci, sizeof(fci), &feedback));
+    RTC_TEST_EQ_INT(0x012C, feedback.pid);
+    RTC_TEST_EQ_INT(0x0005, feedback.blp);
+    RTC_TEST_EQ_INT(3, (int)feedback.lost_sequence_number_count);
+    RTC_TEST_EQ_INT(300, (int)feedback.lost_sequence_numbers[0]);
+    RTC_TEST_EQ_INT(301, (int)feedback.lost_sequence_numbers[1]);
+    RTC_TEST_EQ_INT(303, (int)feedback.lost_sequence_numbers[2]);
+    RTC_TEST_EQ_INT(0, feedback.retransmit_performed);
+    return 0;
+}
+
+static void write_nack(uint8_t *packet, uint32_t sender_ssrc,
+                       uint32_t media_ssrc, uint16_t pid, uint16_t blp)
+{
+    packet[0] = 0x81;
+    packet[1] = 205;
+    packet[2] = 0;
+    packet[3] = 3;
+    packet[4] = (uint8_t)(sender_ssrc >> 24);
+    packet[5] = (uint8_t)((sender_ssrc >> 16) & 0xffu);
+    packet[6] = (uint8_t)((sender_ssrc >> 8) & 0xffu);
+    packet[7] = (uint8_t)(sender_ssrc & 0xffu);
+    packet[8] = (uint8_t)(media_ssrc >> 24);
+    packet[9] = (uint8_t)((media_ssrc >> 16) & 0xffu);
+    packet[10] = (uint8_t)((media_ssrc >> 8) & 0xffu);
+    packet[11] = (uint8_t)(media_ssrc & 0xffu);
+    packet[12] = (uint8_t)(pid >> 8);
+    packet[13] = (uint8_t)(pid & 0xffu);
+    packet[14] = (uint8_t)(blp >> 8);
+    packet[15] = (uint8_t)(blp & 0xffu);
+    packet[16] = 0xAA;
+    packet[17] = 0xBB;
+    packet[18] = 0xCC;
+    packet[19] = 0xDD;
+}
+
+static int test_rtcp_receive_nack_reports_no_retransmit_feedback(void)
+{
+    unsigned char arena[32768];
+    uint8_t packet[20];
+    rtcp_test_state_t state;
+    rtc_security_backend_config_t backend;
+    rtc_security_backend_vtable_t vtable;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_peer_connection_counters_t counters;
+
+    memset(&state, 0, sizeof(state));
+    config = test_config(arena, sizeof(arena), &state, &backend, &vtable);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->srtp_ready = 1;
+
+    write_nack(packet, 0x11111111u, pc->rtcp_video.ssrc, 300, 0x0005);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_receive_datagram(pc, packet,
+                                                         sizeof(packet)));
+    RTC_TEST_EQ_INT(1, state.srtcp_unprotect_calls);
+    RTC_TEST_EQ_INT(1, state.feedback_count);
+    RTC_TEST_EQ_INT(RTC_MEDIA_FEEDBACK_NACK, state.last_feedback.type);
+    RTC_TEST_EQ_INT(RTC_MEDIA_KIND_VIDEO_H264, state.last_feedback.kind);
+    RTC_TEST_EQ_INT(3, (int)state.last_feedback.lost_sequence_number_count);
+    RTC_TEST_EQ_INT(300, (int)state.last_feedback.lost_sequence_numbers[0]);
+    RTC_TEST_EQ_INT(301, (int)state.last_feedback.lost_sequence_numbers[1]);
+    RTC_TEST_EQ_INT(303, (int)state.last_feedback.lost_sequence_numbers[2]);
+    RTC_TEST_EQ_INT(0, state.last_feedback.retransmit_performed);
+    RTC_TEST_ASSERT(state.last_trace_reason != 0);
+    RTC_TEST_ASSERT(strcmp(state.last_trace_reason, "nack_no_retransmit") ==
+                    0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_get_counters(pc, &counters));
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.nack_received);
+    RTC_TEST_EQ_INT(1, (int)counters.rtcp.nack_no_retransmit);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 int rtc_test_rtcp(void)
 {
     int status;
@@ -607,5 +730,17 @@ int rtc_test_rtcp(void)
     if (status != 0) {
         return status;
     }
-    return test_rtcp_receive_pli_reports_media_feedback();
+    status = test_rtcp_receive_pli_reports_media_feedback();
+    if (status != 0) {
+        return status;
+    }
+    status = test_rtcp_parse_nack_expands_pid_only();
+    if (status != 0) {
+        return status;
+    }
+    status = test_rtcp_parse_nack_expands_pid_and_blp();
+    if (status != 0) {
+        return status;
+    }
+    return test_rtcp_receive_nack_reports_no_retransmit_feedback();
 }
