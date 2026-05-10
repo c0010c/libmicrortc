@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 4 planned and ready for execution closeout; 04-06 in progress
-last_updated: "2026-05-10T22:06:51+08:00"
+status: Phase 4 plan execution complete; pending phase-level verification
+last_updated: "2026-05-10T22:10:11+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 18
-  completed_plans: 17
-  percent: 71
+  completed_plans: 18
+  percent: 75
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 4 阶段已规划，准备执行文档、需求追踪和项目状态收口；04-05 已完成，04-06 正在执行
+**当前状态：** 第 4 阶段计划执行完成，等待阶段级验证；Chrome 真实 DTLS E2E 仍属于第 6 阶段验收范围
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 4: DTLS-SRTP 安全传输；第 4 阶段已规划，准备执行收口
+**当前焦点：** Phase 4: DTLS-SRTP 安全传输；第 4 阶段已规划，准备执行阶段级验证
 
 ## 工作流配置
 
@@ -42,14 +42,14 @@ progress:
 
 **目标：** 通过可插拔 backend vtable 建立 DTLS-SRTP 安全通道，不让核心 API 绑定特定第三方 TLS/SRTP 实现。
 
-**状态：** 第 4 阶段已规划，准备执行文档、需求追踪和项目状态收口；04-05 已完成，04-06 正在执行
+**状态：** 6/6 plans 执行完成，等待阶段级验证；默认构建不要求 OpenSSL/libsrtp，真实 Chrome DTLS E2E 留到第 6 阶段
 
 **计划数量：** 6
 
 **下一步：**
 
 ```bash
-$gsd-execute-phase 4
+$gsd-verify-work 4
 ```
 
 **计划入口：** `.planning/phases/04-dtls-srtp-secure-transport/`
@@ -129,6 +129,7 @@ $gsd-execute-phase 4
 - 2026-05-10T21:47:27+08:00：完成 `04-03-PLAN.md`，本地 SDP fingerprint 改由 backend sha-256 fingerprint 提供，并实现 DTLS peer fingerprint mismatch 硬失败。
 - 2026-05-10T21:56:08+08:00：完成 `04-04-PLAN.md`，handshake complete 后导出 DTLS-SRTP key material、初始化单一 SRTP/SRTCP context，并新增内部 protect/unprotect wrapper。
 - 2026-05-10T22:04:18+08:00：完成 `04-05-PLAN.md`，新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定安全失败的 status、observer detail、trace reason 和 counter。
+- 2026-05-10T22:10:11+08:00：完成 `04-06-PLAN.md`，收口中文契约文档、SEC-01..SEC-05 需求追踪和项目状态，明确默认构建不要求 OpenSSL/libsrtp，Chrome 真实 DTLS E2E 仍属于第 6 阶段验收范围。
 
 ## 执行决策
 
@@ -142,4 +143,4 @@ $gsd-execute-phase 4
 - 安全失败 public status 保持粗粒度；handshake/backend、fingerprint、key export、SRTP init/protect/unprotect/replay 细节通过 `RTC_SECURITY_DETAIL_*`、trace reason 和 counters 诊断。
 
 ---
-*最后更新：2026-05-10，04-05 执行完成后*
+*最后更新：2026-05-10，04-06 执行完成后*
