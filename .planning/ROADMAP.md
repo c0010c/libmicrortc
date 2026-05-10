@@ -62,6 +62,24 @@
 4. SDP golden tests 覆盖 Chrome offer、Chrome answer、本地 offer、本地 answer 和错误字段。
 5. `sendrecv` 和 `recvonly` 方向被正确解析、保存和输出。
 
+**计划：**
+
+**Wave 1**
+- `02-01-PLAN.md`：SDP/JSEP 公共契约、create-time SDP 参数、固定 arena 切分、CMake/test 骨架。
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- `02-02-PLAN.md`：固定 Chrome 1v1 SDP writer、本地 offer/answer golden 输出和 buffer 错误路径。
+- `02-03-PLAN.md`：Chrome SDP parser、profile validator、成功 fixture 和错误字段 fixture。
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- `02-04-PLAN.md`：Offer/Answer API 接入、最小 JSEP 状态机、`addIceCandidate` 保存和文档更新。
+
+**跨计划约束：**
+- 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
+- 不引入 GPL/LGPL 依赖或第三方测试框架。
+- 第 2 阶段不得实现 ICE connectivity checks、STUN、candidate gathering、DTLS 握手、SRTP、RTP/RTCP 或 Chrome 端到端通话。
+- 所有执行计划必须保留 `02-CONTEXT.md` 中 D-01 到 D-16 的决策可追踪性。
+
 ### 第 3 阶段：ICE/STUN 与 Datagram 网络层
 
 **目标：** 实现网络连通性基础，让库可以通过用户提供的 UDP datagram 完成 ICE gathering、connectivity checks、trickle candidate 和协议 demux。
@@ -124,4 +142,4 @@
 | 阶段总数 | 6 |
 
 ---
-*最后更新：2026-05-10，第 1 阶段规划后*
+*最后更新：2026-05-10，第 2 阶段规划后*

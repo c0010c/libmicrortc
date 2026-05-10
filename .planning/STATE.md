@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 1 complete
-last_updated: "2026-05-10T16:33:38+08:00"
+status: Phase 2 planned
+last_updated: "2026-05-10T17:25:00+08:00"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 4
+  total_plans: 8
   completed_plans: 4
   percent: 17
 ---
@@ -16,7 +16,7 @@ progress:
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 1 阶段已完成，准备规划第 2 阶段
+**当前状态：** 第 2 阶段已完成规划，准备执行
 
 ## 项目引用
 
@@ -38,21 +38,21 @@ progress:
 
 ## 当前阶段
 
-### 第 1 阶段：核心骨架与边界契约
+### 第 2 阶段：SDP/JSEP 与 Offer/Answer
 
-**目标：** 建立所有后续协议层必须遵守的公共边界：纯 C API、固定内存、执行器亲和、observer、构建目标和基础 trace/计数器。
+**目标：** 完成 Chrome 1v1 最小 SDP/JSEP 模型，让用户可以通过接近浏览器 WebRTC 的 API 完成 offer/answer 描述生成和设置。
 
-**状态：** 已完成
+**状态：** 已规划，准备执行
 
-**计划数量：** 4 个计划，4 个依赖 wave，全部完成
+**计划数量：** 4 个计划，3 个依赖 wave，0 个完成
 
 **下一步：**
 
 ```bash
-$gsd-plan-phase 2
+$gsd-execute-phase 2
 ```
 
-**完成摘要：** `.planning/phases/01-core-skeleton-boundary-contract/01-04-SUMMARY.md`
+**计划入口：** `.planning/phases/02-sdp-jsep-offer-answer/02-01-PLAN.md`
 
 ## 已创建工件
 
@@ -78,6 +78,15 @@ $gsd-plan-phase 2
 - `.planning/phases/01-core-skeleton-boundary-contract/01-02-SUMMARY.md`
 - `.planning/phases/01-core-skeleton-boundary-contract/01-03-SUMMARY.md`
 - `.planning/phases/01-core-skeleton-boundary-contract/01-04-SUMMARY.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-CONTEXT.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-DISCUSSION-LOG.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-RESEARCH.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-VALIDATION.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-PATTERNS.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-01-PLAN.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-02-PLAN.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-03-PLAN.md`
+- `.planning/phases/02-sdp-jsep-offer-answer/02-04-PLAN.md`
 
 ---
-*最后更新：2026-05-10，第 1 阶段执行完成后*
+*最后更新：2026-05-10，第 2 阶段规划后*
