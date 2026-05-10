@@ -55,7 +55,7 @@
 - [ ] **RTP-02**: 用户可以接收从 RTP depacketize 得到的 Opus frame。
 - [ ] **RTP-03**: 用户可以提交 H264 access unit，库支持 single NALU 和 FU-A 发送。
 - [ ] **RTP-04**: 用户可以接收从 RTP depacketize 得到的 H264 access unit，接收方向有限支持 STAP-A。
-- [ ] **RTP-05**: 单个 `PeerConnection` 最多支持 1 路音频和 1 路视频。
+- [x] **RTP-05**: 单个 `PeerConnection` 最多支持 1 路音频和 1 路视频。
 - [ ] **RTCP-01**: 库支持 RTCP Sender Report 和 Receiver Report。
 - [ ] **RTCP-02**: 库支持 RTCP SDES。
 - [ ] **RTCP-03**: 库支持发送和接收 PLI。
@@ -66,7 +66,7 @@
 - [x] **OBS-01**: 库提供统一 observer vtable 输出状态事件、错误事件、本地候选、远端媒体帧和待发送 datagram。
 - [x] **OBS-02**: 库提供关键计数器，覆盖 ICE、DTLS、SRTP、RTP、RTCP、媒体帧和容量错误。
 - [x] **OBS-03**: 库提供 trace hook，能关联 PeerConnection、子系统、状态转换、错误码和关键字段。
-- [ ] **OBS-04**: NACK、PLI、ICE 失败、DTLS 失败、SRTP 解保护失败等未自动修复事件都有可观测输出。
+- [x] **OBS-04**: NACK、PLI、ICE 失败、DTLS 失败、SRTP 解保护失败等未自动修复事件都有可观测输出。
 
 ### 构建、示例与验收
 
@@ -151,12 +151,12 @@
 | RTP-02 | 第 5 阶段 | 待开始 |
 | RTP-03 | 第 5 阶段 | 待开始 |
 | RTP-04 | 第 5 阶段 | 待开始 |
-| RTP-05 | 第 5 阶段 | 待开始 |
+| RTP-05 | 第 5 阶段 | 已完成：05-01 建立 typed media kind，v1 只公开 1 路 Opus audio 和 1 路 H264 video 的 public contract 与固定容量基线 |
 | RTCP-01 | 第 5 阶段 | 待开始 |
 | RTCP-02 | 第 5 阶段 | 待开始 |
 | RTCP-03 | 第 5 阶段 | 待开始 |
 | RTCP-04 | 第 5 阶段 | 待开始 |
-| OBS-04 | 第 5 阶段 | 待开始 |
+| OBS-04 | 第 5 阶段 | 部分完成：05-01 建立 media feedback 类型、observer、counter 和 trace 基线；PLI/NACK 实际收发上报留给 05-05 |
 | TST-01 | 第 6 阶段 | 待开始 |
 | EXM-01 | 第 6 阶段 | 待开始 |
 | EXM-02 | 第 6 阶段 | 待开始 |
