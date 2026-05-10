@@ -34,6 +34,7 @@
 
 - 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
 - 第 4 阶段已规划：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；默认构建不要求 OpenSSL/libsrtp 开发包，真实 Chrome DTLS 端到端验收留到第 6 阶段。
+- 第 5 阶段已规划：范围覆盖 typed media frame API、Opus/H264 RTP packetize/depacketize、H264 FU-A/STAP-A、RTCP SR/RR/SDES、PLI 显式请求、NACK 只上报不重传、media/network executor 分层和媒体可观测性；Chrome 页面、信令示例和真实音视频端到端验收留到第 6 阶段。
 
 ### 不在范围内
 
@@ -104,4 +105,4 @@
 4. 使用当前状态更新背景
 
 ---
-*最后更新：2026-05-10，第 4 阶段规划修订后*
+*最后更新：2026-05-10，第 5 阶段规划完成后*
