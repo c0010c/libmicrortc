@@ -7,20 +7,20 @@
 
 ### 公共 API 与生命周期
 
-- [ ] **API-01**: 用户可以通过纯 C 不透明句柄创建和销毁 `PeerConnection`。
-- [ ] **API-02**: 用户可以通过 `rtc_peer_connection_config_t` 提供 arena、limits、platform vtable、executor vtable、observer vtable 和安全 backend。
-- [ ] **API-03**: 所有公开 API 使用 `rtc_status_t` 返回码表达成功、可恢复错误、配置错误、容量不足和协议错误。
+- [x] **API-01**: 用户可以通过纯 C 不透明句柄创建和销毁 `PeerConnection`。
+- [x] **API-02**: 用户可以通过 `rtc_peer_connection_config_t` 提供 arena、limits、platform vtable、executor vtable、observer vtable 和安全 backend。
+- [x] **API-03**: 所有公开 API 使用 `rtc_status_t` 返回码表达成功、可恢复错误、配置错误、容量不足和协议错误。
 - [ ] **API-04**: 用户可以调用 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription` 和 `addIceCandidate` 完成发起和接听流程。
-- [ ] **API-05**: API 文档明确每个函数、observer 回调和 datagram 回调的执行器亲和规则。
+- [x] **API-05**: API 文档明确每个函数、observer 回调和 datagram 回调的执行器亲和规则。
 
 ### 固定内存与执行器
 
-- [ ] **MEM-01**: 用户传入总 arena 和 limits 后，库在创建阶段完成对象、队列、候选、包缓存和 SDP 缓冲区切分。
-- [ ] **MEM-02**: 创建成功后，核心库运行期不依赖动态内存增长。
-- [ ] **MEM-03**: 当 limits 不足时，库返回可诊断的容量错误，指出不足的资源类别。
-- [ ] **EXE-01**: 用户可以提供 `signaling`、`media`、`network` 三类 `post + timer` 执行器。
-- [ ] **EXE-02**: 库内部不创建线程，不拥有平台事件循环。
-- [ ] **EXE-03**: 用户可以把三个执行器映射到三个线程、同一线程或 superloop。
+- [x] **MEM-01**: 用户传入总 arena 和 limits 后，库在创建阶段完成对象、队列、候选、包缓存和 SDP 缓冲区切分。
+- [x] **MEM-02**: 创建成功后，核心库运行期不依赖动态内存增长。
+- [x] **MEM-03**: 当 limits 不足时，库返回可诊断的容量错误，指出不足的资源类别。
+- [x] **EXE-01**: 用户可以提供 `signaling`、`media`、`network` 三类 `post + timer` 执行器。
+- [x] **EXE-02**: 库内部不创建线程，不拥有平台事件循环。
+- [x] **EXE-03**: 用户可以把三个执行器映射到三个线程、同一线程或 superloop。
 
 ### SDP/JSEP
 
@@ -63,15 +63,15 @@
 
 ### 可观测性
 
-- [ ] **OBS-01**: 库提供统一 observer vtable 输出状态事件、错误事件、本地候选、远端媒体帧和待发送 datagram。
-- [ ] **OBS-02**: 库提供关键计数器，覆盖 ICE、DTLS、SRTP、RTP、RTCP、媒体帧和容量错误。
-- [ ] **OBS-03**: 库提供 trace hook，能关联 PeerConnection、子系统、状态转换、错误码和关键字段。
+- [x] **OBS-01**: 库提供统一 observer vtable 输出状态事件、错误事件、本地候选、远端媒体帧和待发送 datagram。
+- [x] **OBS-02**: 库提供关键计数器，覆盖 ICE、DTLS、SRTP、RTP、RTCP、媒体帧和容量错误。
+- [x] **OBS-03**: 库提供 trace hook，能关联 PeerConnection、子系统、状态转换、错误码和关键字段。
 - [ ] **OBS-04**: NACK、PLI、ICE 失败、DTLS 失败、SRTP 解保护失败等未自动修复事件都有可观测输出。
 
 ### 构建、示例与验收
 
-- [ ] **BLD-01**: 项目提供 CMake 静态库构建目标。
-- [ ] **BLD-02**: 项目提供公共头文件安装或导出规则。
+- [x] **BLD-01**: 项目提供 CMake 静态库构建目标。
+- [x] **BLD-02**: 项目提供公共头文件安装或导出规则。
 - [ ] **TST-01**: 项目包含 SDP/JSEP、ICE/STUN、RTP/RTCP、固定内存和错误路径的自动化测试。
 - [ ] **EXM-01**: 项目提供本地 Chrome 页面用于发起或接听 1v1 音视频通话。
 - [ ] **EXM-02**: 项目提供最小信令示例，用于交换 SDP 和 trickle ICE candidate。
@@ -113,21 +113,21 @@
 
 | 需求 | 阶段 | 状态 |
 |-------------|-------|--------|
-| API-01 | 第 1 阶段 | 已规划 |
-| API-02 | 第 1 阶段 | 已规划 |
-| API-03 | 第 1 阶段 | 已规划 |
-| API-05 | 第 1 阶段 | 已规划 |
-| MEM-01 | 第 1 阶段 | 已规划 |
-| MEM-02 | 第 1 阶段 | 已规划 |
-| MEM-03 | 第 1 阶段 | 已规划 |
-| EXE-01 | 第 1 阶段 | 已规划 |
-| EXE-02 | 第 1 阶段 | 已规划 |
-| EXE-03 | 第 1 阶段 | 已规划 |
-| OBS-01 | 第 1 阶段 | 已规划 |
-| OBS-02 | 第 1 阶段 | 已规划 |
-| OBS-03 | 第 1 阶段 | 已规划 |
-| BLD-01 | 第 1 阶段 | 已规划 |
-| BLD-02 | 第 1 阶段 | 已规划 |
+| API-01 | 第 1 阶段 | 已完成 |
+| API-02 | 第 1 阶段 | 已完成 |
+| API-03 | 第 1 阶段 | 已完成 |
+| API-05 | 第 1 阶段 | 已完成 |
+| MEM-01 | 第 1 阶段 | 已完成 |
+| MEM-02 | 第 1 阶段 | 已完成 |
+| MEM-03 | 第 1 阶段 | 已完成 |
+| EXE-01 | 第 1 阶段 | 已完成 |
+| EXE-02 | 第 1 阶段 | 已完成 |
+| EXE-03 | 第 1 阶段 | 已完成 |
+| OBS-01 | 第 1 阶段 | 已完成 |
+| OBS-02 | 第 1 阶段 | 已完成 |
+| OBS-03 | 第 1 阶段 | 已完成 |
+| BLD-01 | 第 1 阶段 | 已完成 |
+| BLD-02 | 第 1 阶段 | 已完成 |
 | SDP-01 | 第 2 阶段 | 待开始 |
 | SDP-02 | 第 2 阶段 | 待开始 |
 | SDP-03 | 第 2 阶段 | 待开始 |
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-10，第 1 阶段规划后*
+*最后更新：2026-05-10，第 1 阶段执行完成后*
