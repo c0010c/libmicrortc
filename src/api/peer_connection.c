@@ -514,6 +514,10 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->video_rtp_sequence = 1;
     pc->video_rtp_timestamp = 0;
     pc->video_rtp_ssrc = 0x22222222u;
+    pc->h264_reassembly_len = 0;
+    pc->h264_reassembly_expected_sequence = 0;
+    pc->h264_reassembly_timestamp = 0;
+    pc->h264_reassembly_active = 0;
     pc->security_backend = 0;
     pc->security_session = 0;
     pc->security_session_storage = 0;

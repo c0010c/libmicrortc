@@ -127,6 +127,10 @@ struct rtc_peer_connection_t {
     uint16_t video_rtp_sequence;
     uint32_t video_rtp_timestamp;
     uint32_t video_rtp_ssrc;
+    size_t h264_reassembly_len;
+    uint16_t h264_reassembly_expected_sequence;
+    uint32_t h264_reassembly_timestamp;
+    int h264_reassembly_active;
     size_t local_candidate_count;
     size_t remote_candidate_count;
     size_t candidate_pair_count;

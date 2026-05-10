@@ -53,5 +53,12 @@ rtc_status_t rtc_rtp_packetize_h264(const rtc_media_frame_t *frame,
                                     size_t max_packets_per_frame,
                                     rtc_rtp_packet_buffer_t *packets,
                                     size_t *inout_packet_count);
+rtc_status_t rtc_rtp_depacketize_h264(
+    const uint8_t *payload, size_t payload_len, uint16_t sequence,
+    uint32_t timestamp, int marker, uint8_t *reassembly_buffer,
+    size_t max_reassembly_bytes, size_t *inout_reassembly_len,
+    uint16_t *inout_expected_sequence, int *inout_active,
+    uint32_t *inout_timestamp, int *out_frame_ready,
+    const char **out_drop_reason);
 
 #endif

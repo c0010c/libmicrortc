@@ -136,14 +136,90 @@ static void rtc_media_emit_typed_frame(rtc_peer_connection_t *pc,
     pc->counters.media.frames_received++;
 }
 
+static void rtc_media_emit_typed_frame_data(rtc_peer_connection_t *pc,
+                                            rtc_media_kind_t kind,
+                                            const uint8_t *data,
+                                            size_t data_len,
+                                            uint32_t timestamp)
+{
+    rtc_media_frame_t frame;
+
+    memset(&frame, 0, sizeof(frame));
+    frame.kind = kind;
+    frame.data = data;
+    frame.data_len = data_len;
+    frame.timestamp = timestamp;
+    if (pc->observer.on_media_frame_typed != 0) {
+        pc->observer.on_media_frame_typed(pc->observer.user_data, &frame);
+    }
+    if (pc->observer.on_media_frame != 0) {
+        pc->observer.on_media_frame(pc->observer.user_data, data, data_len);
+    }
+    pc->counters.media.frames_received++;
+}
+
+static void rtc_media_trace_h264_drop(rtc_peer_connection_t *pc,
+                                      const char *reason,
+                                      rtc_status_t status)
+{
+    rtc_trace_field_t fields[5];
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "rtp";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = "h264_reassembly";
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_MEDIA_KIND;
+    fields[2].value = "h264";
+    fields[2].number = 0;
+    fields[3].key = RTC_TRACE_FIELD_REASON;
+    fields[3].value = reason;
+    fields[3].number = 0;
+    fields[4].key = RTC_TRACE_FIELD_STATUS;
+    fields[4].value = 0;
+    fields[4].number = (uint64_t)status;
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_RTP_PACKET, fields, 5);
+}
+
 static void rtc_media_receive_task(void *user_data)
 {
     rtc_media_queue_slot_t *slot = (rtc_media_queue_slot_t *)user_data;
     rtc_peer_connection_t *pc = slot->pc;
+    int frame_ready = 0;
+    const char *drop_reason = 0;
+    rtc_status_t status;
 
     if (slot->payload_type == RTC_RTP_PAYLOAD_TYPE_OPUS) {
         slot->kind = RTC_MEDIA_KIND_AUDIO_OPUS;
         rtc_media_emit_typed_frame(pc, slot);
+    } else if (slot->payload_type == RTC_RTP_PAYLOAD_TYPE_H264) {
+        slot->kind = RTC_MEDIA_KIND_VIDEO_H264;
+        status = rtc_rtp_depacketize_h264(
+            slot->payload, slot->payload_len, slot->sequence, slot->timestamp,
+            slot->marker, pc->h264_reassembly_buffer,
+            pc->media_max_reassembly_bytes, &pc->h264_reassembly_len,
+            &pc->h264_reassembly_expected_sequence,
+            &pc->h264_reassembly_active, &pc->h264_reassembly_timestamp,
+            &frame_ready, &drop_reason);
+        if (drop_reason != 0) {
+            pc->counters.media.h264_reassembly_drops++;
+            rtc_media_trace_h264_drop(pc, drop_reason, status);
+        }
+        if (status != RTC_STATUS_OK) {
+            pc->counters.rtp.packets_dropped++;
+            slot->dispatch_status = status;
+        } else if (frame_ready) {
+            rtc_media_emit_typed_frame_data(
+                pc, RTC_MEDIA_KIND_VIDEO_H264, pc->h264_reassembly_buffer,
+                pc->h264_reassembly_len, pc->h264_reassembly_timestamp);
+            pc->h264_reassembly_len = 0;
+            pc->h264_reassembly_active = 0;
+            slot->dispatch_status = RTC_STATUS_OK;
+        } else {
+            slot->dispatch_status = RTC_STATUS_OK;
+        }
     } else {
         pc->counters.rtp.packets_dropped++;
         slot->dispatch_status = RTC_STATUS_UNSUPPORTED;

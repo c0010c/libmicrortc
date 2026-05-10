@@ -379,3 +379,186 @@ rtc_status_t rtc_rtp_packetize_h264(const rtc_media_frame_t *frame,
     state->timestamp = timestamp + 3000u;
     return RTC_STATUS_OK;
 }
+
+static rtc_status_t rtc_h264_append_reassembly(
+    uint8_t *reassembly_buffer, size_t max_reassembly_bytes,
+    size_t *inout_reassembly_len, const uint8_t *data, size_t data_len,
+    const char **out_drop_reason)
+{
+    if (*inout_reassembly_len + data_len > max_reassembly_bytes) {
+        *inout_reassembly_len = 0;
+        if (out_drop_reason != 0) {
+            *out_drop_reason = "h264_reassembly_capacity";
+        }
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    memcpy(reassembly_buffer + *inout_reassembly_len, data, data_len);
+    *inout_reassembly_len += data_len;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_h264_depacketize_stap_a(
+    const uint8_t *payload, size_t payload_len, uint8_t *reassembly_buffer,
+    size_t max_reassembly_bytes, size_t *inout_reassembly_len,
+    const char **out_drop_reason)
+{
+    size_t offset = 1u;
+
+    while (offset < payload_len) {
+        uint16_t nalu_len;
+        rtc_status_t status;
+
+        if (offset + 2u > payload_len) {
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_stap_a_length";
+            }
+            return RTC_STATUS_PROTOCOL_ERROR;
+        }
+        nalu_len = rtc_read_u16(payload + offset);
+        offset += 2u;
+        if (nalu_len == 0 || offset + nalu_len > payload_len) {
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_stap_a_length";
+            }
+            return RTC_STATUS_PROTOCOL_ERROR;
+        }
+        status = rtc_h264_append_reassembly(
+            reassembly_buffer, max_reassembly_bytes, inout_reassembly_len,
+            payload + offset, nalu_len, out_drop_reason);
+        if (status != RTC_STATUS_OK) {
+            return status;
+        }
+        offset += nalu_len;
+    }
+
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_rtp_depacketize_h264(
+    const uint8_t *payload, size_t payload_len, uint16_t sequence,
+    uint32_t timestamp, int marker, uint8_t *reassembly_buffer,
+    size_t max_reassembly_bytes, size_t *inout_reassembly_len,
+    uint16_t *inout_expected_sequence, int *inout_active,
+    uint32_t *inout_timestamp, int *out_frame_ready,
+    const char **out_drop_reason)
+{
+    uint8_t nalu_type;
+    rtc_status_t status;
+
+    if (out_frame_ready != 0) {
+        *out_frame_ready = 0;
+    }
+    if (out_drop_reason != 0) {
+        *out_drop_reason = 0;
+    }
+    if (payload == 0 || payload_len == 0 || reassembly_buffer == 0 ||
+        inout_reassembly_len == 0 || inout_expected_sequence == 0 ||
+        inout_active == 0 || inout_timestamp == 0 ||
+        out_frame_ready == 0 || max_reassembly_bytes == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+
+    nalu_type = (uint8_t)(payload[0] & 0x1fu);
+    if (nalu_type >= 1u && nalu_type <= 23u) {
+        if (!*inout_active) {
+            *inout_reassembly_len = 0;
+        }
+        status = rtc_h264_append_reassembly(
+            reassembly_buffer, max_reassembly_bytes, inout_reassembly_len,
+            payload, payload_len, out_drop_reason);
+        if (status != RTC_STATUS_OK) {
+            *inout_active = 0;
+            return status;
+        }
+        *inout_active = !marker;
+        *inout_expected_sequence = (uint16_t)(sequence + 1u);
+        *inout_timestamp = timestamp;
+        if (marker) {
+            *out_frame_ready = 1;
+        }
+        return RTC_STATUS_OK;
+    }
+
+    if (nalu_type == 24u) { /* STAP-A */
+        if (!*inout_active) {
+            *inout_reassembly_len = 0;
+        }
+        status = rtc_h264_depacketize_stap_a(
+            payload, payload_len, reassembly_buffer, max_reassembly_bytes,
+            inout_reassembly_len, out_drop_reason);
+        if (status != RTC_STATUS_OK) {
+            *inout_active = 0;
+            *inout_reassembly_len = 0;
+            return status;
+        }
+        *inout_active = !marker;
+        *inout_expected_sequence = (uint16_t)(sequence + 1u);
+        *inout_timestamp = timestamp;
+        if (marker) {
+            *out_frame_ready = 1;
+        }
+        return RTC_STATUS_OK;
+    }
+
+    if (nalu_type == 28u) { /* FU-A */
+        uint8_t fu_header;
+        uint8_t reconstructed_header;
+        int start;
+        int end;
+
+        if (payload_len < 3u) {
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_fu_a_short";
+            }
+            return RTC_STATUS_PROTOCOL_ERROR;
+        }
+        fu_header = payload[1];
+        start = (fu_header & 0x80u) != 0u;
+        end = (fu_header & 0x40u) != 0u;
+        if (start) {
+            *inout_reassembly_len = 0;
+            *inout_active = 1;
+            *inout_timestamp = timestamp;
+            reconstructed_header =
+                (uint8_t)((payload[0] & 0xe0u) | (fu_header & 0x1fu));
+            status = rtc_h264_append_reassembly(
+                reassembly_buffer, max_reassembly_bytes,
+                inout_reassembly_len, &reconstructed_header, 1u,
+                out_drop_reason);
+            if (status != RTC_STATUS_OK) {
+                *inout_active = 0;
+                return status;
+            }
+        } else if (!*inout_active) {
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_missing_start";
+            }
+            return RTC_STATUS_OK;
+        } else if (sequence != *inout_expected_sequence) {
+            *inout_active = 0;
+            *inout_reassembly_len = 0;
+            if (out_drop_reason != 0) {
+                *out_drop_reason = "h264_sequence_gap";
+            }
+            return RTC_STATUS_OK;
+        }
+
+        status = rtc_h264_append_reassembly(
+            reassembly_buffer, max_reassembly_bytes, inout_reassembly_len,
+            payload + 2u, payload_len - 2u, out_drop_reason);
+        if (status != RTC_STATUS_OK) {
+            *inout_active = 0;
+            return status;
+        }
+        *inout_expected_sequence = (uint16_t)(sequence + 1u);
+        if (end) {
+            *inout_active = 0;
+            if (marker) {
+                *out_frame_ready = 1;
+            }
+        }
+        return RTC_STATUS_OK;
+    }
+
+    return RTC_STATUS_UNSUPPORTED;
+}
