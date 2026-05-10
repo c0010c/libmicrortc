@@ -18,6 +18,7 @@ add_library(rtc STATIC
     src/ice/ice.c
     src/stun/stun.c
     src/net/demux.c
+    src/security/security.c
     src/executor/executor.c
     src/memory/arena.c
     src/memory/allocator.c

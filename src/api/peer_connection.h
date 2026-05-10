@@ -7,6 +7,7 @@
 #include "jsep/jsep.h"
 #include "memory/arena.h"
 #include "rtc/peer_connection.h"
+#include "rtc/security.h"
 #include "sdp/sdp.h"
 
 #define RTC_PC_REMOTE_CANDIDATE_SLOT_BYTES 512u
@@ -31,6 +32,13 @@ typedef enum rtc_ice_role_t {
     RTC_ICE_ROLE_CONTROLLING,
     RTC_ICE_ROLE_CONTROLLED
 } rtc_ice_role_t;
+
+typedef enum rtc_security_dtls_state_t {
+    RTC_SECURITY_DTLS_NEW = 0,
+    RTC_SECURITY_DTLS_CONNECTING,
+    RTC_SECURITY_DTLS_CONNECTED,
+    RTC_SECURITY_DTLS_FAILED
+} rtc_security_dtls_state_t;
 
 typedef struct rtc_ice_candidate_summary_t {
     rtc_ice_candidate_type_t type;
@@ -70,6 +78,13 @@ struct rtc_peer_connection_t {
     rtc_executors_t executors;
     rtc_observer_vtable_t observer;
     rtc_peer_connection_counters_t counters;
+    const rtc_security_backend_config_t *security_backend;
+    void *security_session;
+    void *security_session_storage;
+    size_t security_session_storage_bytes;
+    rtc_security_dtls_role_t dtls_role;
+    rtc_security_dtls_state_t dtls_state;
+    int srtp_ready;
     rtc_jsep_state_t signaling_state;
     rtc_sdp_description_t local_summary;
     rtc_sdp_description_t remote_summary;

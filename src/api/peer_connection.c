@@ -11,6 +11,7 @@
 #include "observability/counters.h"
 #include "observability/observer.h"
 #include "observability/trace.h"
+#include "security/security.h"
 
 static void rtc_pc_trace(rtc_peer_connection_t *pc, const char *event,
                          const char *operation, rtc_status_t status)
@@ -273,6 +274,38 @@ static rtc_status_t rtc_pc_alloc_stun_transactions(
                                   : RTC_STATUS_CAPACITY_STUN_TRANSACTIONS;
 }
 
+static rtc_status_t rtc_pc_alloc_security_session_storage(
+    rtc_peer_connection_t *pc, const rtc_security_backend_config_t *backend,
+    rtc_capacity_diagnostics_t *diag)
+{
+    size_t storage_bytes;
+
+    pc->security_session_storage = 0;
+    pc->security_session_storage_bytes = 0;
+    if (backend == 0) {
+        return RTC_STATUS_OK;
+    }
+
+    storage_bytes = pc->limits.dtls.max_session_storage_bytes;
+    if (backend->session_storage_bytes > storage_bytes || storage_bytes == 0) {
+        if (diag != 0) {
+            diag->resource = RTC_CAPACITY_RESOURCE_DTLS_SESSION;
+            diag->required = backend->session_storage_bytes;
+            diag->used = storage_bytes;
+        }
+        return RTC_STATUS_CAPACITY;
+    }
+
+    pc->security_session_storage = rtc_core_alloc(
+        &pc->arena, storage_bytes, sizeof(void *),
+        RTC_CAPACITY_RESOURCE_DTLS_SESSION, diag);
+    if (pc->security_session_storage == 0) {
+        return RTC_STATUS_CAPACITY;
+    }
+    pc->security_session_storage_bytes = storage_bytes;
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t rtc_require_pc(rtc_peer_connection_t *pc)
 {
     if (pc == 0 || pc->is_closed) {
@@ -415,6 +448,13 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     pc->srflx_candidate_gathered = 0;
     pc->connectivity_checks_started = 0;
     pc->remote_candidate_pending_pairs = 0;
+    pc->security_backend = 0;
+    pc->security_session = 0;
+    pc->security_session_storage = 0;
+    pc->security_session_storage_bytes = 0;
+    pc->dtls_role = RTC_SECURITY_DTLS_ROLE_CLIENT;
+    pc->dtls_state = RTC_SECURITY_DTLS_NEW;
+    pc->srtp_ready = 0;
     pc->is_closed = 0;
 
     status = rtc_pc_alloc_sdp_buffer(&pc->arena,
@@ -470,6 +510,15 @@ rtc_status_t rtc_peer_connection_create(const rtc_peer_connection_config_t *conf
     memset(pc->stun_transactions, 0,
            config->limits.ice.max_transactions *
                sizeof(*pc->stun_transactions));
+    status = rtc_pc_alloc_security_session_storage(
+        pc, config->security_backend, diag);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    status = rtc_security_init(pc, config->security_backend);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
 
     *out_pc = pc;
     rtc_pc_trace(pc, RTC_TRACE_PC_CREATE, "create", RTC_STATUS_OK);
@@ -545,6 +594,7 @@ rtc_status_t rtc_peer_connection_destroy(rtc_peer_connection_t *pc)
     }
 
     pc->counters.api.destroy_calls++;
+    rtc_security_shutdown(pc);
     rtc_pc_trace(pc, RTC_TRACE_PC_DESTROY, "destroy", RTC_STATUS_OK);
     pc->is_closed = 1;
     return RTC_STATUS_OK;
