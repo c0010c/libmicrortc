@@ -20,6 +20,15 @@ typedef struct rtc_rtp_packetizer_state_t {
     uint32_t ssrc;
 } rtc_rtp_packetizer_state_t;
 
+typedef struct rtc_rtp_packet_buffer_t {
+    uint8_t *data;
+    size_t capacity;
+    size_t len;
+    uint16_t sequence;
+    uint32_t timestamp;
+    int marker;
+} rtc_rtp_packet_buffer_t;
+
 rtc_status_t rtc_rtp_write_header(uint8_t *out, size_t capacity, int marker,
                                   uint8_t payload_type, uint16_t sequence,
                                   uint32_t timestamp, uint32_t ssrc);
@@ -27,5 +36,11 @@ rtc_status_t rtc_rtp_packetize_opus(const rtc_media_frame_t *frame,
                                     rtc_rtp_packetizer_state_t *state,
                                     size_t max_payload_bytes, uint8_t *out,
                                     size_t capacity, size_t *out_len);
+rtc_status_t rtc_rtp_packetize_h264(const rtc_media_frame_t *frame,
+                                    rtc_rtp_packetizer_state_t *state,
+                                    size_t max_payload_bytes,
+                                    size_t max_packets_per_frame,
+                                    rtc_rtp_packet_buffer_t *packets,
+                                    size_t *inout_packet_count);
 
 #endif

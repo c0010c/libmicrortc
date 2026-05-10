@@ -81,7 +81,6 @@ static void rtc_media_network_send_task(void *user_data)
                                      slot->payload_len);
         }
         pc->counters.rtp.packets_sent++;
-        pc->counters.media.frames_sent++;
     } else {
         pc->counters.rtp.packets_dropped++;
     }
@@ -89,8 +88,30 @@ static void rtc_media_network_send_task(void *user_data)
     rtc_media_release_slot(slot);
 }
 
-rtc_status_t rtc_media_send_frame(rtc_peer_connection_t *pc,
-                                  const rtc_media_frame_t *frame)
+static rtc_status_t rtc_media_dispatch_slot(rtc_peer_connection_t *pc,
+                                            rtc_media_queue_slot_t *slot,
+                                            rtc_media_kind_t kind,
+                                            uint16_t sequence,
+                                            uint32_t timestamp)
+{
+    rtc_status_t status;
+
+    status = pc->executors.network.post(pc->executors.network.user_data,
+                                        rtc_media_network_send_task, slot);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        rtc_media_trace_packet(pc, kind, sequence, timestamp, status,
+                               "network_post_failed");
+        return status;
+    }
+    status = slot->dispatch_status;
+    rtc_media_trace_packet(pc, kind, sequence, timestamp, status,
+                           status == RTC_STATUS_OK ? 0 : "protect_failed");
+    return status;
+}
+
+static rtc_status_t rtc_media_send_opus(rtc_peer_connection_t *pc,
+                                        const rtc_media_frame_t *frame)
 {
     rtc_media_queue_slot_t *slot;
     rtc_rtp_packetizer_state_t state;
@@ -98,12 +119,6 @@ rtc_status_t rtc_media_send_frame(rtc_peer_connection_t *pc,
     uint32_t timestamp;
     rtc_status_t status;
 
-    if (pc == 0 || frame == 0 || frame->data == 0 || frame->data_len == 0) {
-        return RTC_STATUS_INVALID_ARGUMENT;
-    }
-    if (frame->kind != RTC_MEDIA_KIND_AUDIO_OPUS) {
-        return RTC_STATUS_UNSUPPORTED;
-    }
     if (frame->data_len > pc->media_max_payload_bytes) {
         return RTC_STATUS_CAPACITY_PACKET_CACHE;
     }
@@ -131,16 +146,104 @@ rtc_status_t rtc_media_send_frame(rtc_peer_connection_t *pc,
     pc->audio_rtp_sequence = state.sequence;
     pc->audio_rtp_timestamp = state.timestamp;
 
-    status = pc->executors.network.post(pc->executors.network.user_data,
-                                        rtc_media_network_send_task, slot);
+    status = rtc_media_dispatch_slot(pc, slot, frame->kind, sequence,
+                                     timestamp);
+    if (status == RTC_STATUS_OK) {
+        pc->counters.media.frames_sent++;
+    }
+    return status;
+}
+
+static void rtc_media_release_slots(rtc_media_queue_slot_t **slots,
+                                    size_t slot_count)
+{
+    size_t i;
+
+    for (i = 0; i < slot_count; ++i) {
+        if (slots[i] != 0 && slots[i]->in_use) {
+            rtc_media_release_slot(slots[i]);
+        }
+    }
+}
+
+static rtc_status_t rtc_media_send_h264(rtc_peer_connection_t *pc,
+                                        const rtc_media_frame_t *frame)
+{
+    rtc_media_queue_slot_t *slots[32];
+    rtc_rtp_packet_buffer_t packets[32];
+    rtc_rtp_packetizer_state_t state;
+    size_t slot_count;
+    size_t packet_count;
+    size_t i;
+    rtc_status_t status;
+
+    if (pc->media_max_packets_per_frame > 32u) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    slot_count = pc->media_max_packets_per_frame;
+    if (slot_count > pc->media_queue_slot_count) {
+        slot_count = pc->media_queue_slot_count;
+    }
+    if (slot_count == 0) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+
+    for (i = 0; i < slot_count; ++i) {
+        slots[i] = rtc_media_acquire_slot(pc);
+        if (slots[i] == 0) {
+            rtc_media_release_slots(slots, i);
+            return RTC_STATUS_CAPACITY;
+        }
+        slots[i]->kind = frame->kind;
+        packets[i].data = slots[i]->payload;
+        packets[i].capacity = slots[i]->payload_capacity;
+        packets[i].len = 0;
+        packets[i].sequence = 0;
+        packets[i].timestamp = 0;
+        packets[i].marker = 0;
+    }
+
+    packet_count = slot_count;
+    state.sequence = pc->video_rtp_sequence;
+    state.timestamp = pc->video_rtp_timestamp;
+    state.ssrc = pc->video_rtp_ssrc;
+    status = rtc_rtp_packetize_h264(frame, &state, pc->media_max_payload_bytes,
+                                    pc->media_max_packets_per_frame, packets,
+                                    &packet_count);
     if (status != RTC_STATUS_OK) {
-        rtc_media_release_slot(slot);
-        rtc_media_trace_packet(pc, frame->kind, sequence, timestamp, status,
-                               "network_post_failed");
+        rtc_media_release_slots(slots, slot_count);
+        rtc_media_trace_packet(pc, frame->kind, pc->video_rtp_sequence,
+                               frame->timestamp, status,
+                               "h264_packetize_failed");
         return status;
     }
-    status = slot->dispatch_status;
-    rtc_media_trace_packet(pc, frame->kind, sequence, timestamp, status,
-                           status == RTC_STATUS_OK ? 0 : "protect_failed");
-    return status;
+
+    pc->video_rtp_sequence = state.sequence;
+    pc->video_rtp_timestamp = state.timestamp;
+    for (i = 0; i < packet_count; ++i) {
+        slots[i]->payload_len = packets[i].len;
+        status = rtc_media_dispatch_slot(pc, slots[i], frame->kind,
+                                         packets[i].sequence,
+                                         packets[i].timestamp);
+        if (status != RTC_STATUS_OK) {
+            return status;
+        }
+    }
+    pc->counters.media.frames_sent++;
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_media_send_frame(rtc_peer_connection_t *pc,
+                                  const rtc_media_frame_t *frame)
+{
+    if (pc == 0 || frame == 0 || frame->data == 0 || frame->data_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (frame->kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
+        return rtc_media_send_opus(pc, frame);
+    }
+    if (frame->kind == RTC_MEDIA_KIND_VIDEO_H264) {
+        return rtc_media_send_h264(pc, frame);
+    }
+    return RTC_STATUS_UNSUPPORTED;
 }

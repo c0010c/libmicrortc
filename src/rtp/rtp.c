@@ -62,3 +62,278 @@ rtc_status_t rtc_rtp_packetize_opus(const rtc_media_frame_t *frame,
     state->timestamp = timestamp + RTC_RTP_OPUS_CLOCK_INCREMENT;
     return RTC_STATUS_OK;
 }
+
+static int rtc_h264_start_code_len(const uint8_t *data, size_t len,
+                                   size_t offset, size_t *out_len)
+{
+    if (offset + 3u <= len && data[offset] == 0x00 &&
+        data[offset + 1u] == 0x00 && data[offset + 2u] == 0x01) {
+        *out_len = 3;
+        return 1;
+    }
+    if (offset + 4u <= len && data[offset] == 0x00 &&
+        data[offset + 1u] == 0x00 && data[offset + 2u] == 0x00 &&
+        data[offset + 3u] == 0x01) {
+        *out_len = 4;
+        return 1;
+    }
+    return 0;
+}
+
+static int rtc_h264_find_start_code(const uint8_t *data, size_t len,
+                                    size_t offset, size_t *out_offset,
+                                    size_t *out_start_code_len)
+{
+    size_t i;
+
+    for (i = offset; i < len; ++i) {
+        if (rtc_h264_start_code_len(data, len, i, out_start_code_len)) {
+            *out_offset = i;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static rtc_status_t rtc_h264_write_packet(rtc_rtp_packet_buffer_t *packet,
+                                          uint16_t sequence,
+                                          uint32_t timestamp, uint32_t ssrc,
+                                          int marker, const uint8_t *payload,
+                                          size_t payload_len)
+{
+    rtc_status_t status;
+
+    if (packet == 0 || packet->data == 0 || payload == 0 ||
+        packet->capacity < RTC_RTP_HEADER_BYTES + payload_len) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    status = rtc_rtp_write_header(packet->data, packet->capacity, marker,
+                                  RTC_RTP_PAYLOAD_TYPE_H264, sequence,
+                                  timestamp, ssrc);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    memcpy(packet->data + RTC_RTP_HEADER_BYTES, payload, payload_len);
+    packet->len = RTC_RTP_HEADER_BYTES + payload_len;
+    packet->sequence = sequence;
+    packet->timestamp = timestamp;
+    packet->marker = marker;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_h264_emit_packet(rtc_rtp_packet_buffer_t *packets,
+                                         size_t packet_capacity,
+                                         size_t *packet_count,
+                                         uint16_t *sequence,
+                                         uint32_t timestamp, uint32_t ssrc,
+                                         int marker, const uint8_t *payload,
+                                         size_t payload_len)
+{
+    rtc_status_t status;
+
+    if (*packet_count >= packet_capacity) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    status = rtc_h264_write_packet(&packets[*packet_count], *sequence,
+                                   timestamp, ssrc, marker, payload,
+                                   payload_len);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    *sequence = (uint16_t)(*sequence + 1u);
+    (*packet_count)++;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_h264_emit_fua(rtc_rtp_packet_buffer_t *packets,
+                                      size_t packet_capacity,
+                                      size_t *packet_count,
+                                      uint16_t *sequence, uint32_t timestamp,
+                                      uint32_t ssrc, int marker,
+                                      const uint8_t *nalu, size_t nalu_len,
+                                      size_t max_payload_bytes)
+{
+    uint8_t nalu_header;
+    uint8_t nri;
+    uint8_t nalu_type;
+    size_t fragment_capacity;
+    size_t offset;
+
+    if (max_payload_bytes <= 2u) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    nalu_header = nalu[0];
+    nri = (uint8_t)(nalu_header & 0x60u);
+    nalu_type = (uint8_t)(nalu_header & 0x1fu);
+    fragment_capacity = max_payload_bytes - 2u;
+    offset = 1u;
+
+    while (offset < nalu_len) {
+        size_t fragment_len = nalu_len - offset;
+        int start = offset == 1u;
+        int end;
+        rtc_status_t status;
+        rtc_rtp_packet_buffer_t *packet;
+
+        if (fragment_len > fragment_capacity) {
+            fragment_len = fragment_capacity;
+        }
+        end = offset + fragment_len >= nalu_len;
+        if (*packet_count >= packet_capacity) {
+            return RTC_STATUS_CAPACITY_PACKET_CACHE;
+        }
+        packet = &packets[*packet_count];
+        if (packet->data == 0 ||
+            packet->capacity < RTC_RTP_HEADER_BYTES + fragment_len + 2u) {
+            return RTC_STATUS_CAPACITY_PACKET_CACHE;
+        }
+        status = rtc_rtp_write_header(packet->data, packet->capacity,
+                                      end && marker, RTC_RTP_PAYLOAD_TYPE_H264,
+                                      *sequence, timestamp, ssrc);
+        if (status != RTC_STATUS_OK) {
+            return status;
+        }
+        packet->data[RTC_RTP_HEADER_BYTES] = (uint8_t)(nri | 28u);
+        packet->data[RTC_RTP_HEADER_BYTES + 1u] =
+            (uint8_t)((start ? 0x80u : 0u) | (end ? 0x40u : 0u) |
+                      nalu_type);
+        memcpy(packet->data + RTC_RTP_HEADER_BYTES + 2u, nalu + offset,
+               fragment_len);
+        packet->len = RTC_RTP_HEADER_BYTES + fragment_len + 2u;
+        packet->sequence = *sequence;
+        packet->timestamp = timestamp;
+        packet->marker = end && marker;
+        *sequence = (uint16_t)(*sequence + 1u);
+        (*packet_count)++;
+        offset += fragment_len;
+    }
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_h264_count_nalu_packets(size_t nalu_len,
+                                                size_t max_payload_bytes,
+                                                size_t *inout_count)
+{
+    size_t payload_bytes;
+    size_t fragment_capacity;
+    size_t fragments;
+
+    if (nalu_len == 0) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    if (nalu_len <= max_payload_bytes) {
+        (*inout_count)++;
+        return RTC_STATUS_OK;
+    }
+    if (max_payload_bytes <= 2u) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    payload_bytes = nalu_len - 1u;
+    fragment_capacity = max_payload_bytes - 2u;
+    fragments = (payload_bytes + fragment_capacity - 1u) / fragment_capacity;
+    *inout_count += fragments;
+    return RTC_STATUS_OK;
+}
+
+rtc_status_t rtc_rtp_packetize_h264(const rtc_media_frame_t *frame,
+                                    rtc_rtp_packetizer_state_t *state,
+                                    size_t max_payload_bytes,
+                                    size_t max_packets_per_frame,
+                                    rtc_rtp_packet_buffer_t *packets,
+                                    size_t *inout_packet_count)
+{
+    size_t packet_capacity;
+    size_t packet_count = 0;
+    size_t start_code;
+    size_t start_code_len;
+    size_t offset;
+    uint16_t sequence;
+    uint32_t timestamp;
+
+    if (frame == 0 || state == 0 || packets == 0 ||
+        inout_packet_count == 0 || frame->data == 0 || frame->data_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (max_payload_bytes == 0 || max_packets_per_frame == 0) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    packet_capacity = *inout_packet_count;
+    if (packet_capacity == 0 || packet_capacity > max_packets_per_frame) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+    if (!rtc_h264_find_start_code(frame->data, frame->data_len, 0,
+                                  &start_code, &start_code_len) ||
+        start_code != 0) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    offset = start_code + start_code_len;
+    while (offset < frame->data_len) {
+        size_t next_start;
+        size_t next_start_len = 0;
+        size_t nalu_end = frame->data_len;
+        size_t nalu_len;
+        rtc_status_t status;
+
+        if (rtc_h264_find_start_code(frame->data, frame->data_len, offset,
+                                     &next_start, &next_start_len)) {
+            nalu_end = next_start;
+        }
+        nalu_len = nalu_end - offset;
+        status = rtc_h264_count_nalu_packets(nalu_len, max_payload_bytes,
+                                             &packet_count);
+        if (status != RTC_STATUS_OK) {
+            return status;
+        }
+        if (packet_count > max_packets_per_frame ||
+            packet_count > packet_capacity) {
+            return RTC_STATUS_CAPACITY_PACKET_CACHE;
+        }
+        if (nalu_end == frame->data_len) {
+            break;
+        }
+        offset = nalu_end + next_start_len;
+    }
+
+    packet_count = 0;
+    sequence = state->sequence;
+    timestamp = frame->timestamp != 0 ? frame->timestamp : state->timestamp;
+    offset = start_code + start_code_len;
+    while (offset < frame->data_len) {
+        size_t next_start;
+        size_t next_start_len = 0;
+        size_t nalu_end = frame->data_len;
+        size_t nalu_len;
+        int last_nalu;
+        rtc_status_t status;
+
+        if (rtc_h264_find_start_code(frame->data, frame->data_len, offset,
+                                     &next_start, &next_start_len)) {
+            nalu_end = next_start;
+        }
+        nalu_len = nalu_end - offset;
+        last_nalu = nalu_end == frame->data_len;
+        if (nalu_len <= max_payload_bytes) {
+            status = rtc_h264_emit_packet(
+                packets, packet_capacity, &packet_count, &sequence, timestamp,
+                state->ssrc, last_nalu, frame->data + offset, nalu_len);
+        } else {
+            status = rtc_h264_emit_fua(
+                packets, packet_capacity, &packet_count, &sequence, timestamp,
+                state->ssrc, last_nalu, frame->data + offset, nalu_len,
+                max_payload_bytes);
+        }
+        if (status != RTC_STATUS_OK) {
+            return status;
+        }
+        if (last_nalu) {
+            break;
+        }
+        offset = nalu_end + next_start_len;
+    }
+
+    *inout_packet_count = packet_count;
+    state->sequence = sequence;
+    state->timestamp = timestamp + 3000u;
+    return RTC_STATUS_OK;
+}
