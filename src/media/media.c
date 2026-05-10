@@ -105,6 +105,33 @@ void rtc_media_emit_pli_feedback(rtc_peer_connection_t *pc,
                              media_ssrc, RTC_STATUS_OK, 0);
 }
 
+void rtc_media_emit_nack_feedback(rtc_peer_connection_t *pc,
+                                  uint32_t media_ssrc,
+                                  const rtc_media_feedback_t *feedback)
+{
+    rtc_media_feedback_t reported;
+    rtc_media_kind_t kind;
+
+    if (pc == 0 || feedback == 0) {
+        return;
+    }
+
+    reported = *feedback;
+    kind = media_ssrc == pc->rtcp_audio.ssrc ? RTC_MEDIA_KIND_AUDIO_OPUS
+                                             : RTC_MEDIA_KIND_VIDEO_H264;
+    reported.type = RTC_MEDIA_FEEDBACK_NACK;
+    reported.kind = kind;
+    reported.ssrc = media_ssrc;
+    reported.retransmit_performed = 0;
+    if (pc->observer.on_media_feedback != 0) {
+        pc->observer.on_media_feedback(pc->observer.user_data, &reported);
+    }
+    pc->counters.rtcp.nack_received++;
+    pc->counters.rtcp.nack_no_retransmit++;
+    rtc_media_trace_feedback(pc, "nack_received", kind, media_ssrc,
+                             RTC_STATUS_OK, "nack_no_retransmit");
+}
+
 static rtc_media_queue_slot_t *rtc_media_acquire_slot(rtc_peer_connection_t *pc)
 {
     size_t i;

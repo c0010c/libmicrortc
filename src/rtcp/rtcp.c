@@ -149,6 +149,44 @@ rtc_status_t rtc_rtcp_write_pli(uint32_t sender_ssrc, uint32_t media_ssrc,
     return RTC_STATUS_OK;
 }
 
+rtc_status_t rtc_rtcp_parse_nack(const uint8_t *fci, size_t fci_len,
+                                 rtc_media_feedback_t *out_feedback)
+{
+    size_t offset;
+    size_t count;
+
+    if (fci == 0 || out_feedback == 0 || fci_len < 4u ||
+        (fci_len & 3u) != 0u) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+
+    memset(out_feedback, 0, sizeof(*out_feedback));
+    out_feedback->type = RTC_MEDIA_FEEDBACK_NACK;
+    out_feedback->retransmit_performed = 0;
+    count = 0;
+    for (offset = 0; offset < fci_len && count < 17u; offset += 4u) {
+        uint16_t pid;
+        uint16_t blp;
+        uint8_t bit;
+
+        pid = rtc_read_u16(fci + offset);
+        blp = rtc_read_u16(fci + offset + 2u);
+        if (offset == 0) {
+            out_feedback->pid = pid;
+            out_feedback->blp = blp;
+        }
+        out_feedback->lost_sequence_numbers[count++] = pid;
+        for (bit = 0; bit < 16u && count < 17u; ++bit) {
+            if ((blp & (uint16_t)(1u << bit)) != 0u) {
+                out_feedback->lost_sequence_numbers[count++] =
+                    (uint16_t)(pid + bit + 1u);
+            }
+        }
+    }
+    out_feedback->lost_sequence_number_count = count;
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t rtc_rtcp_parse_sr(rtc_peer_connection_t *pc,
                                       const uint8_t *packet,
                                       size_t packet_len)
@@ -256,6 +294,32 @@ static rtc_status_t rtc_rtcp_parse_psfb(rtc_peer_connection_t *pc,
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t rtc_rtcp_parse_rtpfb(rtc_peer_connection_t *pc,
+                                         const uint8_t *packet,
+                                         size_t packet_len)
+{
+    rtc_media_feedback_t feedback;
+    uint8_t fmt;
+    uint32_t media_ssrc;
+    rtc_status_t status;
+
+    if (packet_len < 16u) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    fmt = (uint8_t)(packet[0] & 0x1fu);
+    if (fmt != RTC_RTCP_FMT_NACK) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    media_ssrc = rtc_read_u32(packet + 8);
+    status = rtc_rtcp_parse_nack(packet + 12, packet_len - 12u, &feedback);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    rtc_media_emit_nack_feedback(pc, media_ssrc, &feedback);
+    return RTC_STATUS_OK;
+}
+
 rtc_status_t rtc_rtcp_parse_compound(rtc_peer_connection_t *pc,
                                      const uint8_t *packet,
                                      size_t packet_len)
@@ -291,6 +355,8 @@ rtc_status_t rtc_rtcp_parse_compound(rtc_peer_connection_t *pc,
             status = rtc_rtcp_parse_rr(pc, packet + offset, rtcp_len);
         } else if (packet_type == RTC_RTCP_PT_SDES) {
             status = rtc_rtcp_parse_sdes(pc, packet + offset, rtcp_len);
+        } else if (packet_type == RTC_RTCP_PT_RTPFB) {
+            status = rtc_rtcp_parse_rtpfb(pc, packet + offset, rtcp_len);
         } else if (packet_type == RTC_RTCP_PT_PSFB) {
             status = rtc_rtcp_parse_psfb(pc, packet + offset, rtcp_len);
         } else {

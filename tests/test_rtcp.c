@@ -652,7 +652,7 @@ static void write_nack(uint8_t *packet, uint32_t sender_ssrc,
     packet[19] = 0xDD;
 }
 
-static int test_rtcp_receive_nack_reports_no_retransmit_feedback(void)
+static int test_rtcp_receive_nack_reports_nack_no_retransmit_feedback(void)
 {
     unsigned char arena[32768];
     uint8_t packet[20];
@@ -742,5 +742,5 @@ int rtc_test_rtcp(void)
     if (status != 0) {
         return status;
     }
-    return test_rtcp_receive_nack_reports_no_retransmit_feedback();
+    return test_rtcp_receive_nack_reports_nack_no_retransmit_feedback();
 }

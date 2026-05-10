@@ -17,5 +17,8 @@ rtc_status_t rtc_media_request_keyframe(rtc_peer_connection_t *pc,
                                         rtc_media_kind_t kind);
 void rtc_media_emit_pli_feedback(rtc_peer_connection_t *pc,
                                  uint32_t media_ssrc);
+void rtc_media_emit_nack_feedback(rtc_peer_connection_t *pc,
+                                  uint32_t media_ssrc,
+                                  const rtc_media_feedback_t *feedback);
 
 #endif
