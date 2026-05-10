@@ -11,6 +11,8 @@ typedef struct rtc_peer_connection_t rtc_peer_connection_t;
 #define RTC_RTCP_PT_SR 200u
 #define RTC_RTCP_PT_RR 201u
 #define RTC_RTCP_PT_SDES 202u
+#define RTC_RTCP_PT_PSFB 206u
+#define RTC_RTCP_FMT_PLI 1u
 
 typedef struct rtc_rtcp_media_stats_t {
     uint32_t ssrc;
@@ -33,6 +35,9 @@ rtc_status_t rtc_rtcp_write_sdes(uint32_t ssrc, const char *cname,
                                  size_t cname_len,
                                  size_t max_sdes_cname_bytes, uint8_t *out,
                                  size_t capacity, size_t *out_len);
+rtc_status_t rtc_rtcp_write_pli(uint32_t sender_ssrc, uint32_t media_ssrc,
+                                uint8_t *out, size_t capacity,
+                                size_t *out_len);
 rtc_status_t rtc_rtcp_parse_compound(rtc_peer_connection_t *pc,
                                      const uint8_t *packet,
                                      size_t packet_len);

@@ -46,6 +46,65 @@ static void rtc_media_trace_packet(rtc_peer_connection_t *pc,
     rtc_trace_emit(&pc->observer, RTC_TRACE_RTP_PACKET, fields, field_count);
 }
 
+static void rtc_media_trace_feedback(rtc_peer_connection_t *pc,
+                                     const char *operation,
+                                     rtc_media_kind_t kind,
+                                     uint32_t ssrc,
+                                     rtc_status_t status,
+                                     const char *reason)
+{
+    rtc_trace_field_t fields[6];
+    size_t field_count = 5;
+
+    fields[0].key = RTC_TRACE_FIELD_SUBSYSTEM;
+    fields[0].value = "rtcp";
+    fields[0].number = 0;
+    fields[1].key = RTC_TRACE_FIELD_OPERATION;
+    fields[1].value = operation;
+    fields[1].number = 0;
+    fields[2].key = RTC_TRACE_FIELD_MEDIA_KIND;
+    fields[2].value = kind == RTC_MEDIA_KIND_VIDEO_H264 ? "h264" : "opus";
+    fields[2].number = 0;
+    fields[3].key = RTC_TRACE_FIELD_SSRC;
+    fields[3].value = 0;
+    fields[3].number = ssrc;
+    fields[4].key = RTC_TRACE_FIELD_STATUS;
+    fields[4].value = 0;
+    fields[4].number = (uint64_t)status;
+    if (reason != 0) {
+        fields[5].key = RTC_TRACE_FIELD_REASON;
+        fields[5].value = reason;
+        fields[5].number = 0;
+        field_count = 6;
+    }
+
+    rtc_counters_note_trace(&pc->counters);
+    rtc_trace_emit(&pc->observer, RTC_TRACE_MEDIA_FEEDBACK, fields,
+                   field_count);
+}
+
+void rtc_media_emit_pli_feedback(rtc_peer_connection_t *pc,
+                                 uint32_t media_ssrc)
+{
+    rtc_media_feedback_t feedback;
+
+    if (pc == 0) {
+        return;
+    }
+
+    memset(&feedback, 0, sizeof(feedback));
+    feedback.type = RTC_MEDIA_FEEDBACK_PLI;
+    feedback.kind = RTC_MEDIA_KIND_VIDEO_H264;
+    feedback.ssrc = media_ssrc;
+    feedback.retransmit_performed = 0;
+    if (pc->observer.on_media_feedback != 0) {
+        pc->observer.on_media_feedback(pc->observer.user_data, &feedback);
+    }
+    pc->counters.rtcp.pli_received++;
+    rtc_media_trace_feedback(pc, "pli_received", RTC_MEDIA_KIND_VIDEO_H264,
+                             media_ssrc, RTC_STATUS_OK, 0);
+}
+
 static rtc_media_queue_slot_t *rtc_media_acquire_slot(rtc_peer_connection_t *pc)
 {
     size_t i;
@@ -403,6 +462,74 @@ rtc_status_t rtc_media_send_rtcp_reports(rtc_peer_connection_t *pc)
     pc->counters.rtcp.rtcp_sdes_sent++;
     rtc_media_release_slot(slot);
     return RTC_STATUS_OK;
+}
+
+static void rtc_media_network_send_pli_task(void *user_data)
+{
+    rtc_media_queue_slot_t *slot = (rtc_media_queue_slot_t *)user_data;
+    rtc_peer_connection_t *pc = slot->pc;
+    size_t packet_len = slot->payload_len;
+    rtc_status_t status;
+
+    status = rtc_srtp_protect_rtcp(pc, slot->payload, &packet_len,
+                                   slot->payload_capacity);
+    if (status == RTC_STATUS_OK) {
+        slot->payload_len = packet_len;
+        if (pc->observer.on_datagram != 0) {
+            pc->observer.on_datagram(pc->observer.user_data, slot->payload,
+                                     slot->payload_len);
+        }
+        pc->counters.rtcp.pli_sent++;
+    }
+    slot->dispatch_status = status;
+    rtc_media_release_slot(slot);
+}
+
+rtc_status_t rtc_media_request_keyframe(rtc_peer_connection_t *pc,
+                                        rtc_media_kind_t kind)
+{
+    rtc_media_queue_slot_t *slot;
+    rtc_status_t status;
+
+    if (pc == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (kind != RTC_MEDIA_KIND_VIDEO_H264) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    slot = rtc_media_acquire_slot(pc);
+    if (slot == 0) {
+        return RTC_STATUS_CAPACITY;
+    }
+    slot->kind = RTC_MEDIA_KIND_VIDEO_H264;
+    status = rtc_rtcp_write_pli(pc->rtcp_audio.ssrc, pc->rtcp_video.ssrc,
+                                slot->payload, slot->payload_capacity,
+                                &slot->payload_len);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        rtc_media_trace_feedback(pc, "pli_send", RTC_MEDIA_KIND_VIDEO_H264,
+                                 pc->rtcp_video.ssrc, status,
+                                 "pli_write_failed");
+        return status;
+    }
+
+    status = pc->executors.network.post(pc->executors.network.user_data,
+                                        rtc_media_network_send_pli_task,
+                                        slot);
+    if (status != RTC_STATUS_OK) {
+        rtc_media_release_slot(slot);
+        rtc_media_trace_feedback(pc, "pli_send", RTC_MEDIA_KIND_VIDEO_H264,
+                                 pc->rtcp_video.ssrc, status,
+                                 "network_post_failed");
+        return status;
+    }
+
+    status = slot->dispatch_status;
+    rtc_media_trace_feedback(pc, "pli_send", RTC_MEDIA_KIND_VIDEO_H264,
+                             pc->rtcp_video.ssrc, status,
+                             status == RTC_STATUS_OK ? 0 : "protect_failed");
+    return status;
 }
 
 static rtc_status_t rtc_media_send_opus(rtc_peer_connection_t *pc,

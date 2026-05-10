@@ -1225,7 +1225,7 @@ rtc_status_t rtc_peer_connection_request_keyframe(
         return RTC_STATUS_UNSUPPORTED;
     }
 
-    return rtc_pc_unsupported(pc, "request_keyframe");
+    return rtc_media_request_keyframe(pc, kind);
 }
 
 rtc_status_t rtc_peer_connection_get_counters(

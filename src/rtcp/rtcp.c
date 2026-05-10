@@ -1,6 +1,7 @@
 #include "rtcp/rtcp.h"
 
 #include "api/peer_connection.h"
+#include "media/media.h"
 
 #include <string.h>
 
@@ -130,6 +131,24 @@ rtc_status_t rtc_rtcp_write_sdes(uint32_t ssrc, const char *cname,
     return RTC_STATUS_OK;
 }
 
+rtc_status_t rtc_rtcp_write_pli(uint32_t sender_ssrc, uint32_t media_ssrc,
+                                uint8_t *out, size_t capacity,
+                                size_t *out_len)
+{
+    if (out == 0 || out_len == 0) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (capacity < 12u) {
+        return RTC_STATUS_CAPACITY_PACKET_CACHE;
+    }
+
+    rtc_rtcp_write_header(out, RTC_RTCP_FMT_PLI, RTC_RTCP_PT_PSFB, 2);
+    rtc_write_u32(out + 4, sender_ssrc);
+    rtc_write_u32(out + 8, media_ssrc);
+    *out_len = 12;
+    return RTC_STATUS_OK;
+}
+
 static rtc_status_t rtc_rtcp_parse_sr(rtc_peer_connection_t *pc,
                                       const uint8_t *packet,
                                       size_t packet_len)
@@ -217,6 +236,26 @@ static rtc_status_t rtc_rtcp_parse_sdes(rtc_peer_connection_t *pc,
     return RTC_STATUS_OK;
 }
 
+static rtc_status_t rtc_rtcp_parse_psfb(rtc_peer_connection_t *pc,
+                                        const uint8_t *packet,
+                                        size_t packet_len)
+{
+    uint8_t fmt;
+    uint32_t media_ssrc;
+
+    if (packet_len < 12u) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    fmt = (uint8_t)(packet[0] & 0x1fu);
+    if (fmt != RTC_RTCP_FMT_PLI) {
+        return RTC_STATUS_UNSUPPORTED;
+    }
+
+    media_ssrc = rtc_read_u32(packet + 8);
+    rtc_media_emit_pli_feedback(pc, media_ssrc);
+    return RTC_STATUS_OK;
+}
+
 rtc_status_t rtc_rtcp_parse_compound(rtc_peer_connection_t *pc,
                                      const uint8_t *packet,
                                      size_t packet_len)
@@ -252,6 +291,8 @@ rtc_status_t rtc_rtcp_parse_compound(rtc_peer_connection_t *pc,
             status = rtc_rtcp_parse_rr(pc, packet + offset, rtcp_len);
         } else if (packet_type == RTC_RTCP_PT_SDES) {
             status = rtc_rtcp_parse_sdes(pc, packet + offset, rtcp_len);
+        } else if (packet_type == RTC_RTCP_PT_PSFB) {
+            status = rtc_rtcp_parse_psfb(pc, packet + offset, rtcp_len);
         } else {
             return RTC_STATUS_UNSUPPORTED;
         }
