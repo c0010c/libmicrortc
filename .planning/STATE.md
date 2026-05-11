@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 4 UAT complete; Phase 6 plans executed with secure E2E environment blocker; ACC-01 still pending secure full E2E and manual media approval
-last_updated: "2026-05-11T18:20:15.000+08:00"
+status: v1.0 milestone archived; awaiting next milestone definition
+last_updated: "2026-05-11T23:59:00+08:00"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 34
-  completed_plans: 34
+  completed_phases: 6
+  total_plans: 35
+  completed_plans: 35
   percent: 100
 ---
 
@@ -16,14 +16,26 @@ progress:
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-11
-**当前状态：** 第 4 阶段已通过阶段级 UAT，验证范围为 deterministic backend、核心安全契约和中文文档收口；第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-10 已执行，06-10 已记录默认 OFF gate、dry-run、security-gate 通过，以及 secure ON 配置因本机缺少可选 OpenSSL/libsrtp 开发依赖而阻断；secure full E2E 与 VLC/ffplay 人工 UAT 未完成，`ACC-01` 仍待完成。
+**当前状态：** v1.0 已完成并归档。第 1-6 阶段共 35/35 个计划完成，v1 48/48 个需求完成，secure full E2E 和 VLC/ffplay 人工媒体播放 gate 均通过。完整路线图、需求和审计记录已归档到 `.planning/milestones/`；live `.planning/REQUIREMENTS.md` 将在关闭提交中移除，下一步通过 `$gsd-new-milestone` 重新定义新里程碑。
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-10` 已执行默认 OFF build、`rtc_chrome_e2e` 构建、dry-run、security-gate 和 secure ON 配置尝试。默认 gate 均通过，secure ON 在 `FindRtcOptionalSecurity.cmake` 因本机缺少可选 OpenSSL/libsrtp 开发依赖而失败，未生成 `full-secure` 媒体文件，VLC/ffplay 人工批准未执行。下一步是在具备依赖的环境中重新运行 secure full E2E 和人工媒体检查，随后运行 `$gsd-verify-work 6`。
+**当前焦点：** v1.0 里程碑已收口，下一步是运行 `$gsd-new-milestone` 定义 fresh requirements、研究和后续 ROADMAP。
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-05-11:
+
+| Category | Item | Status |
+|---|---|---|
+| milestone_audit | 第 1 阶段缺少 `01-VERIFICATION.md`，但已有 UAT、SUMMARY、源码和测试证据 | deferred |
+| milestone_audit | 第 3 阶段缺少 `03-VERIFICATION.md`，但已有 UAT、SUMMARY、源码和测试证据 | deferred |
+| milestone_audit | 第 4 阶段缺少 `04-VERIFICATION.md`，但已有 UAT、SUMMARY、源码和测试证据 | deferred |
+| validation_docs | 第 2 阶段 Nyquist frontmatter 仍为 partial，需要后续文档修复或 `$gsd-validate-phase` 收口 | deferred |
+| tooling | GSD 工具链 npm audit moderate vulnerability 记录在第 6 阶段 deferred items，建议独立维护任务评估升级 | deferred |
 
 ## 工作流配置
 
@@ -42,17 +54,17 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 10/10 plans 已执行；`06-01-SUMMARY.md` 到 `06-10-SUMMARY.md` 已完成；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收。
+**状态：** 已完成。11/11 plans 已执行；`06-01-SUMMARY.md` 到 `06-11-SUMMARY.md` 已完成；secure full E2E 自动化通过；VLC/ffplay 人工验收已由用户批准；`ACC-01` 已关闭。
 
-**计划数量：** 10
+**计划数量：** 11
 
 **下一步：**
 
 ```bash
-$gsd-verify-work 6
+$gsd-complete-milestone
 ```
 
-复核时重点确认 `ACC-01` 因 secure full E2E 环境阻断和 VLC/ffplay 人工 gate 未通过而保持未完成；安装可选 OpenSSL/libsrtp 开发依赖后可重新执行 `06-10` 的 secure full E2E 和人工媒体验收步骤。
+v1.0 已归档。下一步启动新里程碑。
 
 **计划入口：** `.planning/phases/06-chrome-end-to-end-acceptance/`
 
@@ -106,6 +118,7 @@ $gsd-verify-work 6
 - `.planning/phases/03-ice-stun-datagram-network-layer/03-02-SUMMARY.md`
 - `.planning/phases/03-ice-stun-datagram-network-layer/03-03-SUMMARY.md`
 - `.planning/phases/03-ice-stun-datagram-network-layer/03-04-SUMMARY.md`
+- `.planning/phases/03-ice-stun-datagram-network-layer/03-UAT.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-CONTEXT.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-DISCUSSION-LOG.md`
 - `.planning/phases/04-dtls-srtp-secure-transport/04-RESEARCH.md`
@@ -164,6 +177,7 @@ $gsd-verify-work 6
 ---
 ## 最近会话
 
+- 2026-05-10T19:53:10+08:00：完成第 3 阶段 UAT，7/7 检查通过、0 issue、0 pending；验证范围覆盖 ICE/STUN 公共契约、远端 trickle candidate、host/srflx gathering、Full ICE checks、regular nomination、ICE 失败原因、datagram demux、构建测试和中文文档/需求追踪。
 - 2026-05-10T21:26:05+08:00：完成 `04-01-PLAN.md`，建立 security backend 公共契约、DTLS/SRTP counters/trace 和 deterministic backend 测试入口。
 - 2026-05-10T21:37:40+08:00：完成 `04-02-PLAN.md`，接入固定 DTLS session storage、ICE connected 自动启动 DTLS、早到 DTLS 拒绝和 backend outgoing datagram 转发。
 - 2026-05-10T21:47:27+08:00：完成 `04-03-PLAN.md`，本地 SDP fingerprint 改由 backend sha-256 fingerprint 提供，并实现 DTLS peer fingerprint mismatch 硬失败。
@@ -191,7 +205,17 @@ $gsd-verify-work 6
 - 2026-05-11T17:08:15+08:00：完成 `06-07-PLAN.md`，Chrome 页面、run_e2e 和 C 示例共享同一 `runId`；C 示例支持 `--run-id`，WebSocket text frame 读取改为固定内存分片状态机；构建、C smoke 和 page smoke 均通过；`ACC-01` 仍待 06-08..06-10。
 - 2026-05-11T17:17:55+08:00：完成 `06-08-PLAN.md`，C 示例 runtime 新增真实成功状态机和分层 timeout summary；媒体发送改为 `RTC_EXECUTOR_MEDIA` 并检查返回值；full E2E pass 判定要求 C summary、进程退出码和非空 Opus/H264 媒体文件同时满足；`ACC-01` 仍待 06-09..06-10。
 - 2026-05-11T17:53:40+08:00：完成 `06-09-PLAN.md`，新增默认关闭的 OpenSSL DTLS / libsrtp Chrome E2E security backend；ON 分支配置真实 backend vtable，OFF 构建和 security gate smoke 保持无系统安全依赖；本机缺少可选开发包，secure build/full E2E 留给 06-10；`ACC-01` 仍待人工验收。
-- 2026-05-11T17:58:56+08:00：执行 `06-10-PLAN.md`，默认 OFF configure/build、dry-run、security-gate 和 `ctest` 均通过；secure ON 配置因本机缺少可选 OpenSSL/libsrtp 开发依赖在 CMake gate 阻断，未生成 full-secure 媒体文件，VLC/ffplay 人工批准未执行；`ACC-01` 保持未完成。
+- 2026-05-11T17:58:56+08:00：执行 `06-10-PLAN.md`，默认 OFF configure/build、dry-run、security-gate 和 `ctest` 均通过；secure ON 配置当时因本机缺少可选 OpenSSL/libsrtp 开发依赖在 CMake gate 阻断，未生成 full-secure 媒体文件，VLC/ffplay 人工批准未执行；`ACC-01` 保持未完成。
+- 2026-05-11T19:01:25+08:00：完成 quick task `20260511-install-openssl111-libsrtp`，在用户级前缀安装 OpenSSL 1.1.1w 和 libsrtp 2.6.0；使用 `OPENSSL_ROOT_DIR`/`CMAKE_PREFIX_PATH` 重新运行 secure ON 配置并构建 `rtc_chrome_e2e` 通过，Phase 6 缺依赖环境 blocker 已解除；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收。
+- 2026-05-11T19:24:00+08:00：按用户要求尽可能全自动运行 `$gsd-verify-work 6`；dry-run、默认构建、page smoke、C smoke、media smoke、security gate、secure ON 构建和 CTest 均通过；将 `build/` 切换到 secure ON 后运行 full E2E，失败层级从原先 optional-security gate 前进到 `ice/ice_not_connected`。UAT 已诊断根因为 Chrome ICE/STUN authenticated Binding request/response 互通缺口，并新增 `06-11-PLAN.md` 作为 gap closure 计划；`ACC-01` 仍未关闭。
+- 2026-05-11T19:36:00+08:00：完成 `06-11-PLAN.md`；新增 Chrome ICE/STUN USERNAME、MESSAGE-INTEGRITY、FINGERPRINT、authenticated Binding success response 和 deterministic tests，C 示例在首个 STUN 早到时用 `recvfrom` 源地址补齐 peer-reflexive host candidate，`run_e2e.mjs` 支持 `--binary`/`RTC_CHROME_E2E_BINARY`；默认 OFF smoke、secure ON CTest 和 secure full E2E 均通过，full-secure compact summary 为 `pass:true`、`layer:"none"`，媒体文件非空；`ACC-01` 仍待 VLC/ffplay 人工批准。
+- 2026-05-11T19:50:00+08:00：完成 `$gsd-verify-work 6` 最终人工 UAT；用户批准 VLC/ffplay 媒体播放 gate，`06-UAT.md` 9/9 通过、0 pending，`06-VERIFICATION.md` 更新为 passed，`ACC-01` 已关闭，第 6 阶段完成。
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 20260511 | 安装 OpenSSL 1.1.1 和 libsrtp，解除 Phase 6 可选安全依赖 blocker | 2026-05-11 | 未提交（工作区已有未提交变更） | [20260511-install-openssl111-libsrtp](./quick/20260511-install-openssl111-libsrtp/) |
 
 ## 执行决策
 

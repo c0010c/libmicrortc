@@ -1,5 +1,22 @@
 # WebRTC 纯 C 库
 
+## 当前状态
+
+v1.0 已于 2026-05-11 发货：项目完成纯 C `PeerConnection` MVP，覆盖 SDP/JSEP、Full ICE + STUN、可插拔 DTLS/SRTP backend、Opus/H264 RTP/RTCP 媒体平面、本地 Chrome 页面、WebSocket 信令示例、secure full E2E 自动化和 VLC/ffplay 人工媒体播放 gate。
+
+当前 live 规划已进入下一里程碑准备状态：v1.0 的完整路线图、需求和审计报告已归档到 `.planning/milestones/`，下一步由 `$gsd-new-milestone` 重新生成 fresh `.planning/REQUIREMENTS.md` 和后续路线图。
+
+## 下一里程碑目标
+
+下一里程碑尚未定义。候选方向来自 v1.0 需求归档中的 v2 项：TURN relay、NACK 重传、基础拥塞控制或发送节奏、多路媒体、更广泛 SDP 兼容、DataChannel/SCTP、更多官方安全 backend 和结构化 trace 导出工具。
+
+## v1.0 归档摘要
+
+- **阶段：** 1-6，共 35 个计划，全部完成。
+- **需求：** v1 48/48 完成；live `REQUIREMENTS.md` 已在关闭流程中移除，下一里程碑重新定义。
+- **验收：** secure full E2E 输出 `pass:true`、`layer:"none"`，H264/Opus 媒体产物非空，用户已批准 VLC/ffplay 人工播放 gate。
+- **已知技术债：** v1.0 审计状态为 `gaps_found`，主要是第 1、3、4 阶段缺少严格工作流要求的 `*-VERIFICATION.md`；实现链路和 E2E 目标未发现产品级阻断，用户选择接受为技术债继续归档。
+
 ## 这是什么
 
 这是一个面向性能受限设备的生产级 WebRTC 纯 C 库。首版提供完整 `PeerConnection` 抽象，负责 SDP/JSEP、ICE、DTLS-SRTP、RTP/RTCP，并以接近浏览器 WebRTC API 的方式与 Chrome 完成 1v1 音视频通话互通。
@@ -16,29 +33,30 @@
 
 - 第 1 阶段验证：纯 C CMake 静态库骨架、公共 `rtc_status_t`、不透明 `PeerConnection` create/destroy、固定 arena/limits、三执行器 vtable、亲和检查、observer、trace、计数器、最小 create/destroy 示例和中文 API 契约文档已通过本地构建与测试。
 - 第 2 阶段验证：固定 Chrome 1v1 SDP/JSEP profile、create-time SDP 参数、offer/answer writer、Chrome SDP parser、最小 JSEP 状态机、`addIceCandidate` 远端 candidate 固定槽保存和相关 golden/API 测试已通过本地构建与测试。
+- 第 3 阶段验证：ICE/STUN 公共契约、host/srflx candidate gathering、远端 trickle candidate 输入、Full ICE checks、regular nomination、ICE 状态/失败原因、STUN transaction、datagram demux 和中文 API 文档已通过本地 deterministic tests 与 `03-UAT.md` 阶段级验证；TURN、DNS/hostname STUN server、DTLS/RTP/RTCP payload 解析和 Chrome 真实端到端仍属于后续阶段或不在范围内。
 - 第 4 阶段验证：单一 `security_backend` vtable、固定 DTLS session storage、ICE connected 自动启动 DTLS、SDP sha-256 fingerprint 绑定与 mismatch 硬失败、`EXTRACTOR-dtls_srtp` key export、内部 SRTP/SRTCP protect/unprotect wrapper、安全错误 detail/counter/trace 矩阵和中文文档/UAT 收口已通过本地 deterministic tests；Chrome 真实 DTLS/SRTP 端到端验收仍属于第 6 阶段。
 - 第 5 阶段验证：typed media API、Opus/H264 RTP packetize/depacketize、H264 single NALU/FU-A/STAP-A、RTCP SR/RR/SDES、显式 PLI、NACK parse-only feedback、SRTP/SRTCP 失败不泄漏和 executor/buffer 生命周期契约已通过本地 deterministic tests 与中文文档/UAT 收口；Chrome 真实端到端验收仍属于第 6 阶段。
-- 第 6 阶段自动化验收：Chrome 合成媒体页面、JSON-only WebSocket 信令、`rtc_chrome_e2e` C 示例、样本解析、JSONL summary、七层 failure layering、共享 `runId`、WebSocket 分片读取、C runtime 成功状态机、media executor 亲和和默认关闭的 OpenSSL DTLS/libsrtp 可选 backend 已收口；默认 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF` 时 security gate 正确停在 `dtls/optional_security_backend_disabled`。本机缺少可选 OpenSSL/libsrtp 开发依赖，真实 Chrome DTLS/SRTP secure full E2E 与 VLC/ffplay 人工播放仍待完成，`ACC-01` 不视为已关闭。
+- 第 6 阶段端到端验收：Chrome 合成媒体页面、JSON-only WebSocket 信令、`rtc_chrome_e2e` C 示例、样本解析、JSONL summary、七层 failure layering、共享 `runId`、WebSocket 分片读取、C runtime 成功状态机、media executor 亲和和默认关闭的 OpenSSL DTLS/libsrtp 可选 backend 已收口；默认 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF` 时 security gate 正确停在 `dtls/optional_security_backend_disabled`。当前机器已通过用户级安装提供 OpenSSL 1.1.1w 和 libsrtp 2.6.0，secure ON 配置、`rtc_chrome_e2e` 构建、secure full E2E 均已通过；06-11 已补齐 Chrome ICE/STUN authenticated Binding request/response、peer-reflexive 示例层候选和 secure binary selection。2026-05-11 用户已批准 VLC/ffplay 人工媒体播放 gate，`ACC-01` 已关闭。
 
 ### 当前范围
 
 - [x] 提供 SDP/JSEP 层面的 `PeerConnection` 发起和接听流程，即 `createOffer`、`createAnswer`、`setLocalDescription`、`setRemoteDescription`、`addIceCandidate` 等核心信令 API。
 - [x] 支持 Chrome 1v1 最小 SDP/JSEP 画像中的 BUNDLE、rtcp-mux、DTLS fingerprint/setup、ICE 参数、H264、Opus、`sendrecv`/`recvonly` 和 trickle ICE candidate 保存。
-- [ ] 实现 Full ICE + STUN，支持 host/srflx candidate，不支持 TURN。
+- [x] 实现 Full ICE + STUN，支持 host/srflx candidate，不支持 TURN。
 - [x] 通过可插拔 backend vtable 集成 DTLS、SRTP 和 crypto 能力。
 - [x] 支持 RTP/RTCP 音视频传输，覆盖 H264 access unit、Opus frame、SR/RR、SDES、PLI，并解析上报 NACK。
 - [ ] 使用固定 arena 和 limits，在创建阶段完成内存切分，创建成功后运行期不动态增长。
 - [ ] 使用 `signaling`、`media`、`network` 三类 `post + timer` 执行器抽象，库内部不创建线程。
-- [ ] 通过 datagram 输入输出 API 与用户提供的 UDP/socket 层集成。
+- [x] 通过 datagram 输入输出 API 与用户提供的 UDP/socket 层集成。
 - [ ] 提供事件、计数器和 trace hook，首版即可支撑生产排障。
-- [ ] 使用 CMake 交付静态库，并提供本地 Chrome 页面和信令示例完成端到端验收；当前 Chrome E2E 自动化、UAT runbook 和可选安全 backend 实现已完成，secure full E2E 依赖本机 OpenSSL/libsrtp 开发包，VLC/ffplay 人工媒体播放仍是 `ACC-01` gate。
+- [x] 使用 CMake 交付静态库，并提供本地 Chrome 页面和信令示例完成端到端验收；Chrome E2E 自动化、UAT runbook、可选安全 backend、本机 OpenSSL/libsrtp 用户级依赖、secure full E2E 自动化和 VLC/ffplay 人工媒体播放批准均已完成。
 
 ### 阶段规划记录
 
-- 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
+- 第 3 阶段已执行完成并通过阶段级验证：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；验证范围为用户提供 UDP/socket 的 datagram API 与本地 deterministic tests，Chrome 真实端到端留到第 6 阶段。
 - 第 4 阶段已执行完成并通过阶段级验证：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；默认构建不要求 OpenSSL/libsrtp 开发包，真实 Chrome DTLS 端到端验收留到第 6 阶段。
 - 第 5 阶段已执行完成并通过阶段级验证：范围覆盖 typed media frame API、Opus/H264 RTP packetize/depacketize、H264 FU-A/STAP-A、RTCP SR/RR/SDES、PLI 显式请求、NACK 只上报不重传、media/network executor 分层和媒体可观测性。
-- 第 6 阶段已执行 06-01..06-10：范围覆盖 Chrome 合成媒体页面、WebSocket 信令、C 示例 socket/WebSocket I/O、样本解析、可选安全 backend gate、full E2E 自动化、failure layering、共享 runId、WebSocket 分片读取、C runtime 成功状态机、media executor 亲和、OpenSSL DTLS/libsrtp 可选 backend 和 UAT 文档；本机缺少可选安全依赖，secure full E2E 与 VLC/ffplay 人工播放检查仍未完成。
+- 第 6 阶段已执行 06-01..06-11 并通过 UAT：范围覆盖 Chrome 合成媒体页面、WebSocket 信令、C 示例 socket/WebSocket I/O、样本解析、可选安全 backend gate、full E2E 自动化、failure layering、共享 runId、WebSocket 分片读取、C runtime 成功状态机、media executor 亲和、OpenSSL DTLS/libsrtp 可选 backend、Chrome ICE/STUN authenticated Binding request/response 互通、secure binary selection 和 UAT 文档；本机缺少可选安全依赖的环境 blocker 已解除，secure full E2E 自动化已通过，VLC/ffplay 人工播放检查已由用户批准。
 
 ### 不在范围内
 
@@ -86,7 +104,7 @@
 | 用户负责 UDP/socket 收发 | 避免平台 I/O 假设，保持跨平台边界清晰 | — 待验证 |
 | Chrome 最小 SDP/JSEP 画像 | 首版聚焦可验收互通，不追求泛化 SDP 兼容 | — 待验证 |
 | 固定 Chrome 1v1 SDP/JSEP profile | 避免通用 SDP builder/parser 扩大范围，先锁定 Chrome 互通画像 | 第 2 阶段已建立 writer/parser、golden fixtures 和最小 JSEP 状态机 |
-| Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | 第 3 阶段已规划，待执行验证 |
+| Full ICE + STUN，暂不支持 TURN | 控制首版复杂度，同时满足基础 NAT 场景 | 第 3 阶段已通过 host/srflx gathering、Full ICE checks、regular nomination 和 STUN transaction UAT 验证 |
 | DTLS/SRTP/crypto 使用单一 `security_backend` vtable | 保持依赖和许可策略可替换；默认构建不强制 OpenSSL/libsrtp，真实适配必须可选 | 第 4 阶段已通过 deterministic backend、内部 SRTP/SRTCP wrapper 和 UAT 文档验证 |
 | 首版不做拥塞控制闭环 | 避免引入复杂反馈控制，先保证基本互通与可观测性 | — 待验证 |
 | NACK 解析并上报但不重传 | 暴露网络质量信息，同时不扩大首版发送缓存和调度复杂度 | 第 5 阶段已通过 typed feedback、counter、trace 和 UAT 文档验证 |
@@ -109,4 +127,4 @@
 4. 使用当前状态更新背景
 
 ---
-*最后更新：2026-05-11，第 4 阶段 UAT 状态同步后*
+*最后更新：2026-05-11，v1.0 里程碑完成后*
