@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { spawn } from "node:child_process";
 import { chromium } from "@playwright/test";
 import { createSignalingServer } from "./signaling.mjs";
 
@@ -12,6 +13,7 @@ function parseArgs(argv) {
   return {
     dryRun: argv.includes("--dry-run"),
     pageSmoke: argv.includes("--page-smoke"),
+    cExampleSmoke: argv.includes("--c-example-smoke"),
   };
 }
 
@@ -150,12 +152,86 @@ async function pageSmoke() {
   }
 }
 
+function runCommand(command, args) {
+  return new Promise((resolveRun) => {
+    const child = spawn(command, args, {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("close", (code) => {
+      resolveRun({ code, stdout, stderr });
+    });
+  });
+}
+
+function requireSource(source, needle) {
+  if (!source.includes(needle)) {
+    throw new Error(`missing source marker: ${needle}`);
+  }
+}
+
+async function cExampleSmoke() {
+  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
+  if (!existsSync(binary)) {
+    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
+  }
+
+  const run = await runCommand(binary, [
+    "--dry-run",
+    "--output-dir",
+    "examples/chrome_e2e/out",
+  ]);
+  if (run.code !== 0) {
+    throw new Error(`rtc_chrome_e2e --dry-run failed: ${run.stderr || run.stdout}`);
+  }
+
+  const jsonlPath = resolve(repoRoot, "examples/chrome_e2e/out/rtc_chrome_e2e.jsonl");
+  const jsonl = readFileSync(jsonlPath, "utf8").trim().split(/\n+/).map((line) => JSON.parse(line));
+  const hasStarted = jsonl.some((event) => event.event === "process.started");
+  const summary = jsonl.find((event) => event.type === "summary");
+  if (!hasStarted || !summary?.pass) {
+    throw new Error("C example JSONL missing process.started or passing summary");
+  }
+
+  const source = readFileSync(resolve(repoRoot, "examples/chrome_e2e/rtc_chrome_e2e.c"), "utf8");
+  [
+    "rtc_peer_connection_set_remote_description",
+    "rtc_peer_connection_create_answer",
+    "rtc_peer_connection_set_local_description",
+    "rtc_peer_connection_add_ice_candidate",
+    "rtc_peer_connection_gather_candidates",
+    "rtc_peer_connection_start_connectivity_checks",
+    "rtc_peer_connection_receive_datagram",
+    "on_datagram",
+    "memcpy",
+    "signaling.connected",
+  ].forEach((needle) => requireSource(source, needle));
+
+  console.log(JSON.stringify({
+    ok: true,
+    layer: "none",
+    binary: "build/rtc_chrome_e2e",
+    jsonl: "examples/chrome_e2e/out/rtc_chrome_e2e.jsonl",
+    events: jsonl.length,
+  }, null, 2));
+}
+
 const args = parseArgs(process.argv.slice(2));
 
 if (args.dryRun) {
   await dryRun();
 } else if (args.pageSmoke) {
   await pageSmoke();
+} else if (args.cExampleSmoke) {
+  await cExampleSmoke();
 } else {
   await dryRun();
 }
