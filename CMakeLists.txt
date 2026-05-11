@@ -10,7 +10,7 @@ option(RTC_BUILD_TESTS "Build rtc tests" ON)
 option(RTC_BUILD_EXAMPLES "Build rtc examples" ON)
 option(RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY "Enable optional Chrome E2E DTLS/SRTP security dependencies" OFF)
 
-if(RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY)
+if(RTC_BUILD_EXAMPLES AND RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY)
     include(cmake/FindRtcOptionalSecurity.cmake)
 endif()
 

@@ -476,6 +476,7 @@ async function mediaFileSmoke() {
   }
 
   const outputDir = "examples/chrome_e2e/out/media-file-smoke";
+  mkdirSync(resolve(repoRoot, outputDir), { recursive: true });
   const run = await runCommand(binary, [
     "--dry-run",
     "--output-dir",
@@ -534,6 +535,7 @@ async function securityGateSmoke() {
   }
 
   const outputDir = "examples/chrome_e2e/out/security-gate-smoke";
+  mkdirSync(resolve(repoRoot, outputDir), { recursive: true });
   const run = await runCommand(binary, [
     "--output-dir",
     outputDir,

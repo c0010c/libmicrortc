@@ -255,11 +255,46 @@ static int file_exists(const char *path)
 static int ensure_output_dir(const char *path)
 {
     struct stat st;
+    char scratch[512];
+    size_t len;
+    size_t i;
 
-    if (stat(path, &st) == 0) {
+    if (path == 0 || path[0] == '\0') {
+        return -1;
+    }
+    len = strlen(path);
+    if (len >= sizeof(scratch)) {
+        return -1;
+    }
+    memcpy(scratch, path, len + 1u);
+
+    for (i = 1u; i <= len; ++i) {
+        if (scratch[i] != '/' && scratch[i] != '\\' && scratch[i] != '\0') {
+            continue;
+        }
+        if (i == 0u || (i == 2u && scratch[1] == ':')) {
+            continue;
+        }
+        {
+            char saved = scratch[i];
+            scratch[i] = '\0';
+            if (scratch[0] != '\0' && stat(scratch, &st) != 0) {
+                if (mkdir(scratch, 0775) != 0 && errno != EEXIST) {
+                    scratch[i] = saved;
+                    return -1;
+                }
+            } else if (scratch[0] != '\0' && !S_ISDIR(st.st_mode)) {
+                scratch[i] = saved;
+                return -1;
+            }
+            scratch[i] = saved;
+        }
+    }
+
+    if (stat(scratch, &st) == 0) {
         return S_ISDIR(st.st_mode) ? 0 : -1;
     }
-    if (mkdir(path, 0775) == 0) {
+    if (mkdir(scratch, 0775) == 0) {
         return 0;
     }
     return errno == EEXIST ? 0 : -1;
@@ -615,6 +650,8 @@ static int ws_send_text(int fd, const char *text)
     size_t header_len;
     size_t i;
     const uint8_t mask[4] = {0x12u, 0x34u, 0x56u, 0x78u};
+    size_t frame_len;
+    size_t sent = 0;
 
     if (len > 4096u) {
         return -1;
@@ -634,11 +671,50 @@ static int ws_send_text(int fd, const char *text)
     for (i = 0; i < len; ++i) {
         frame[header_len + i] = ((const uint8_t *)text)[i] ^ mask[i % 4u];
     }
-    return send(fd, frame, header_len + len, 0) ==
-                   (ssize_t)(header_len + len)
-               ? 0
-               : -1;
+    frame_len = header_len + len;
+    while (sent < frame_len) {
+        ssize_t n = send(fd, frame + sent, frame_len - sent, 0);
+        if (n > 0) {
+            sent += (size_t)n;
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            fd_set writefds;
+            FD_ZERO(&writefds);
+            FD_SET(fd, &writefds);
+            if (select(fd + 1, 0, &writefds, 0, 0) < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return -1;
+            }
+            continue;
+        }
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        return -1;
+    }
+    return 0;
 #endif
+}
+
+static int ws_send_failed(e2e_context_t *ctx, const char *reason)
+{
+    set_failure(ctx, "signaling", reason);
+    if (ctx != 0 && ctx->jsonl != 0) {
+        rtc_e2e_jsonl_event(ctx->jsonl, "error", "signaling", "failed",
+                            reason);
+    }
+    return -1;
+}
+
+static int escape_run_id(e2e_context_t *ctx, char *out, size_t out_len)
+{
+    if (json_escape_string(ctx->options->run_id, out, out_len) != 0) {
+        return ws_send_failed(ctx, "run_id.escape_failed");
+    }
+    return 0;
 }
 
 static int ws_rx_fail(e2e_context_t *ctx, const char *reason)
@@ -786,13 +862,19 @@ static void sleep_10ms(void)
 static void send_status(e2e_context_t *ctx, const char *state)
 {
     char message[256];
+    char escaped_run_id[128];
     if (ctx->ws_fd < 0) {
+        return;
+    }
+    if (escape_run_id(ctx, escaped_run_id, sizeof(escaped_run_id)) != 0) {
         return;
     }
     snprintf(message, sizeof(message),
              "{\"type\":\"status\",\"runId\":\"%s\",\"state\":\"%s\"}",
-             ctx->options->run_id, state);
-    (void)ws_send_text(ctx->ws_fd, message);
+             escaped_run_id, state);
+    if (ws_send_text(ctx->ws_fd, message) != 0) {
+        (void)ws_send_failed(ctx, "status.send_failed");
+    }
 }
 
 static void on_state(void *user_data, const char *state)
@@ -933,14 +1015,18 @@ static void on_local_candidate(void *user_data, const char *candidate,
     e2e_context_t *ctx = (e2e_context_t *)user_data;
     char message[768];
     char escaped[512];
+    char escaped_run_id[128];
     rtc_e2e_jsonl_event(ctx->jsonl, "candidate", "ice", "ok", detail);
     ctx->have_local_candidate = 1;
-    if (ctx->ws_fd >= 0 && json_escape_string(detail, escaped,
-                                               sizeof(escaped)) == 0) {
+    if (ctx->ws_fd >= 0 &&
+        escape_run_id(ctx, escaped_run_id, sizeof(escaped_run_id)) == 0 &&
+        json_escape_string(detail, escaped, sizeof(escaped)) == 0) {
         snprintf(message, sizeof(message),
                  "{\"type\":\"candidate\",\"runId\":\"%s\",\"candidate\":{\"candidate\":\"%s\",\"sdpMid\":\"0\",\"sdpMLineIndex\":0}}",
-                 ctx->options->run_id, escaped);
-        (void)ws_send_text(ctx->ws_fd, message);
+                 escaped_run_id, escaped);
+        if (ws_send_text(ctx->ws_fd, message) != 0) {
+            (void)ws_send_failed(ctx, "candidate.send_failed");
+        }
     }
 }
 
@@ -1242,6 +1328,7 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
 {
     char answer[8192];
     char escaped_answer[8192];
+    char escaped_run_id[128];
     size_t answer_len = sizeof(answer);
     char message[9000];
     rtc_status_t status;
@@ -1277,14 +1364,20 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
         '\0';
     if (json_escape_string(answer, escaped_answer, sizeof(escaped_answer)) !=
         0) {
+        set_failure(ctx, "signaling", "answer.escape_failed");
         rtc_e2e_jsonl_event(ctx->jsonl, "error", "signaling", "failed",
                             "answer.escape_failed");
         return -1;
     }
+    if (escape_run_id(ctx, escaped_run_id, sizeof(escaped_run_id)) != 0) {
+        return -1;
+    }
     snprintf(message, sizeof(message),
              "{\"type\":\"answer\",\"runId\":\"%s\",\"sdp\":\"%s\"}",
-             ctx->options->run_id, escaped_answer);
-    (void)ws_send_text(ctx->ws_fd, message);
+             escaped_run_id, escaped_answer);
+    if (ws_send_text(ctx->ws_fd, message) != 0) {
+        return ws_send_failed(ctx, "answer.send_failed");
+    }
     ctx->answer_sent = 1;
     rtc_e2e_jsonl_event(ctx->jsonl, "status", "signaling", "ok",
                         "answer.sent");
@@ -1480,10 +1573,22 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
     }
     {
         char hello[256];
+        char escaped_run_id[128];
+        if (escape_run_id(&ctx, escaped_run_id, sizeof(escaped_run_id)) != 0) {
+            cleanup_runtime(&ctx);
+            rtc_e2e_jsonl_summary(jsonl, 0, "signaling",
+                                  "run_id.escape_failed");
+            return 1;
+        }
         snprintf(hello, sizeof(hello),
                  "{\"type\":\"hello\",\"runId\":\"%s\",\"role\":\"c-example\"}",
-                 options->run_id);
-        (void)ws_send_text(ctx.ws_fd, hello);
+                 escaped_run_id);
+        if (ws_send_text(ctx.ws_fd, hello) != 0) {
+            cleanup_runtime(&ctx);
+            rtc_e2e_jsonl_summary(jsonl, 0, "signaling",
+                                  "hello.send_failed");
+            return 1;
+        }
     }
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
