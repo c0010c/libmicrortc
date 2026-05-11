@@ -34,16 +34,38 @@ JSONL `summary` 会报告 `audio_frames_received`、`video_frames_received`、`a
 
 ## 运行
 
+首次运行前安装 Node 依赖，并构建 C 示例：
+
 ```bash
-npm run e2e:chrome:dry-run
+npm install
+cmake -S . -B build && cmake --build build --target rtc_chrome_e2e
+```
+
+常用验收命令：
+
+```bash
+node examples/chrome_e2e/run_e2e.mjs --dry-run
+node examples/chrome_e2e/run_e2e.mjs --page-smoke
 node examples/chrome_e2e/run_e2e.mjs --c-example-smoke
 node examples/chrome_e2e/run_e2e.mjs --media-file-smoke
+node examples/chrome_e2e/run_e2e.mjs --security-gate-smoke
 node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000
 ```
 
 完整编排会启动本机信令服务、`rtc_chrome_e2e` C 示例和 Chrome 页面，然后输出一行 compact JSON summary。summary 字段包含 `pass`、`layer`、`reason`、`duration_ms`、`page`、`c_example`、`media_files`、`manual_vlc_required` 和最近 5 条 `latestEvents`。`manual_vlc_required` 当前始终为 `true`；自动化只验证 SDP/ICE/DTLS/SRTP/RTP/RTCP 状态、counter 和媒体文件产物，不替代 VLC 人工播放验收。页面成功但未人工确认时，`summary-layer` 会显示 `manual_vlc_pending`。
 
 当前默认构建未启用可选安全 backend，因此 full run 会以非零退出并报告 `layer:"dtls"`、`reason:"optional_security_backend_disabled"`。开发 smoke 如需确认编排路径可使用 `--manual-security-ok`，但该选项只允许脚本以 0 退出，不表示真实 Chrome DTLS/SRTP 或 VLC 媒体验收通过。
+
+## VLC/ffplay 人工检查
+
+只有在启用并成功配置可选安全 backend 后，full run 才可能生成来自真实 Chrome 媒体流的 `received-opus.packets` 与 `received-h264.264`。自动化 summary 中的 `manual_vlc_required:true` 表示仍需要人工播放检查；不要把媒体文件存在或 counter 增长等同于人工验收完成。
+
+推荐人工步骤：
+
+1. 运行 `node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000`，确认 summary 不再停在 `dtls/optional_security_backend_disabled`，且 `media_files` 中列出 `received-opus.packets` 与 `received-h264.264`。
+2. 用 VLC 打开输出目录中的 `received-h264.264`，或运行 `ffplay -f h264 received-h264.264` 检查视频是否可播放。
+3. `received-opus.packets` 是长度前缀 Opus packet 文件，不是 Ogg 容器；如需播放，先用本地工具把 4 字节 big-endian 长度前缀 packet 重新封装为可播放容器，再用 VLC/ffplay 检查。
+4. 记录 compact JSON summary、`rtc_chrome_e2e.jsonl` 最后 5 条事件、VLC/ffplay 结果和失败层级。人工确认前，`ACC-01` 仍视为待人工验收。
 
 ## 失败层级排查表
 

@@ -173,3 +173,12 @@ SRTP/SRTCP wrapper 语义：
 - SRTCP protect 失败不输出明文：RTCP SR/RR/SDES/PLI 发送路径只有 `rtc_srtp_protect_rtcp` 成功后才调用 `observer.on_datagram`。
 - SRTP unprotect、认证或 replay 失败不输出媒体帧：RTP 接收路径失败时不会调用 `observer.on_media_frame_typed`。
 - SRTCP unprotect、认证或 replay 失败不输出 feedback：RTCP 接收路径失败时不会调用 `observer.on_media_feedback`，也不会把未认证 RTCP 当作有效 SR/RR/SDES/PLI/NACK。
+
+## 第 6 阶段：Chrome E2E 示例边界
+
+第 6 阶段新增的 Chrome 页面、WebSocket 信令、C 示例 socket pump、样本文件解析、JSONL 输出和 VLC/ffplay 人工验收步骤全部位于 `examples/chrome_e2e/` 或 `.planning/` 验收文档中，不改变核心库公共边界。
+
+- 核心库不创建 socket、不创建线程、不拥有 WebSocket client/server，也不读取或写入媒体文件。
+- `rtc_chrome_e2e` 示例负责本机 UDP/socket 收发、WebSocket SDP/candidate 交换、`sample1.opus` 与 `test-25fps.h264` 示例层解析、`received-opus.packets` 与 `received-h264.264` 落盘。
+- Chrome 页面只使用 synthetic canvas/Web Audio 媒体，不请求真实摄像头或麦克风；这属于验收 harness，不是核心 API 行为。
+- `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY` 默认关闭；默认构建不要求 OpenSSL/libsrtp。真实 Chrome DTLS/SRTP 和 VLC 人工播放检查通过前，不应把 `ACC-01` 宣称为完成。
