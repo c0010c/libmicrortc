@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync 
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chromium } from "@playwright/test";
 import { createSignalingServer } from "./signaling.mjs";
 
@@ -286,6 +287,7 @@ async function fullE2E(args) {
 
   mkdirSync(resolve(repoRoot, args.outputDir), { recursive: true });
   removeStaleRunOutputs(args.outputDir);
+  const runId = randomUUID();
   const server = await waitForServerReady(createSignalingServer({ port: 0 }));
   let browser;
   let page;
@@ -301,7 +303,7 @@ async function fullE2E(args) {
       env: browserEnv(),
     });
     page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-    await page.goto(server.url);
+    await page.goto(`${server.url}?runId=${encodeURIComponent(runId)}`);
 
     child = spawn(binary, [
       "--ws-url",
@@ -310,6 +312,8 @@ async function fullE2E(args) {
       args.outputDir,
       "--timeout-ms",
       String(args.timeoutMs),
+      "--run-id",
+      runId,
     ], {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "pipe"],

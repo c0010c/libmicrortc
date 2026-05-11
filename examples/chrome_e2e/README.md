@@ -52,7 +52,7 @@ node examples/chrome_e2e/run_e2e.mjs --security-gate-smoke
 node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000
 ```
 
-完整编排会启动本机信令服务、`rtc_chrome_e2e` C 示例和 Chrome 页面，然后输出一行 compact JSON summary。summary 字段包含 `pass`、`layer`、`reason`、`duration_ms`、`page`、`c_example`、`media_files`、`manual_vlc_required` 和最近 5 条 `latestEvents`。`manual_vlc_required` 当前始终为 `true`；自动化只验证 SDP/ICE/DTLS/SRTP/RTP/RTCP 状态、counter 和媒体文件产物，不替代 VLC 人工播放验收。页面成功但未人工确认时，`summary-layer` 会显示 `manual_vlc_pending`。
+完整编排会启动本机信令服务、`rtc_chrome_e2e` C 示例和 Chrome 页面。编排脚本会生成一个共享 `runId`，通过页面 URL query 注入给 Chrome 页面，并通过 `rtc_chrome_e2e --run-id` 注入给 C 示例，确保双方加入同一个信令 run。随后脚本输出一行 compact JSON summary。summary 字段包含 `pass`、`layer`、`reason`、`duration_ms`、`page`、`c_example`、`media_files`、`manual_vlc_required` 和最近 5 条 `latestEvents`。`manual_vlc_required` 当前始终为 `true`；自动化只验证 SDP/ICE/DTLS/SRTP/RTP/RTCP 状态、counter 和媒体文件产物，不替代 VLC 人工播放验收。页面成功但未人工确认时，`summary-layer` 会显示 `manual_vlc_pending`。
 
 当前默认构建未启用可选安全 backend，因此 full run 会以非零退出并报告 `layer:"dtls"`、`reason:"optional_security_backend_disabled"`。开发 smoke 如需确认编排路径可使用 `--manual-security-ok`，但该选项只允许脚本以 0 退出，不表示真实 Chrome DTLS/SRTP 或 VLC 媒体验收通过。
 

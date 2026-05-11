@@ -25,7 +25,6 @@
 #include <unistd.h>
 #endif
 
-#define E2E_RUN_ID "c-example"
 #define E2E_WS_KEY "dGhlIHNhbXBsZSBub25jZQ=="
 #define E2E_DATAGRAM_QUEUE_CAPACITY 8u
 #define E2E_DATAGRAM_MAX_BYTES 1500u
@@ -39,6 +38,7 @@ typedef struct e2e_options_t {
     uint32_t timeout_ms;
     const char *sample_opus;
     const char *sample_h264;
+    const char *run_id;
     int dry_run;
 } e2e_options_t;
 
@@ -131,6 +131,7 @@ static void e2e_defaults(e2e_options_t *options)
     options->timeout_ms = 30000;
     options->sample_opus = "sample1.opus";
     options->sample_h264 = "test-25fps.h264";
+    options->run_id = "c-example";
 }
 
 static int parse_u16(const char *text, uint16_t *out)
@@ -201,6 +202,9 @@ static int parse_args(int argc, char **argv, e2e_options_t *options)
         } else if (strcmp(argv[i], "--sample-h264") == 0 && i + 1 < argc &&
                    require_value(argc, argv, i)) {
             options->sample_h264 = argv[++i];
+        } else if (strcmp(argv[i], "--run-id") == 0 && i + 1 < argc &&
+                   require_value(argc, argv, i)) {
+            options->run_id = argv[++i];
         } else {
             return -1;
         }
@@ -208,7 +212,7 @@ static int parse_args(int argc, char **argv, e2e_options_t *options)
 
     return options->ws_url != 0 && options->local_ip != 0 &&
                    options->output_dir != 0 && options->sample_opus != 0 &&
-                   options->sample_h264 != 0
+                   options->sample_h264 != 0 && options->run_id != 0
                ? 0
                : -1;
 }
@@ -706,7 +710,7 @@ static void send_status(e2e_context_t *ctx, const char *state)
     }
     snprintf(message, sizeof(message),
              "{\"type\":\"status\",\"runId\":\"%s\",\"state\":\"%s\"}",
-             E2E_RUN_ID, state);
+             ctx->options->run_id, state);
     (void)ws_send_text(ctx->ws_fd, message);
 }
 
@@ -842,7 +846,7 @@ static void on_local_candidate(void *user_data, const char *candidate,
                                                sizeof(escaped)) == 0) {
         snprintf(message, sizeof(message),
                  "{\"type\":\"candidate\",\"runId\":\"%s\",\"candidate\":{\"candidate\":\"%s\",\"sdpMid\":\"0\",\"sdpMLineIndex\":0}}",
-                 E2E_RUN_ID, escaped);
+                 ctx->options->run_id, escaped);
         (void)ws_send_text(ctx->ws_fd, message);
     }
 }
@@ -1118,7 +1122,7 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
     }
     snprintf(message, sizeof(message),
              "{\"type\":\"answer\",\"runId\":\"%s\",\"sdp\":\"%s\"}",
-             E2E_RUN_ID, escaped_answer);
+             ctx->options->run_id, escaped_answer);
     (void)ws_send_text(ctx->ws_fd, message);
     rtc_e2e_jsonl_event(ctx->jsonl, "status", "signaling", "ok",
                         "answer.sent");
@@ -1310,9 +1314,13 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
                               "WebSocket connection failed");
         return 1;
     }
-    (void)ws_send_text(ctx.ws_fd,
-                       "{\"type\":\"hello\",\"runId\":\"" E2E_RUN_ID
-                       "\",\"role\":\"c-example\"}");
+    {
+        char hello[256];
+        snprintf(hello, sizeof(hello),
+                 "{\"type\":\"hello\",\"runId\":\"%s\",\"role\":\"c-example\"}",
+                 options->run_id);
+        (void)ws_send_text(ctx.ws_fd, hello);
+    }
 
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_create(&config, &diag, &pc);

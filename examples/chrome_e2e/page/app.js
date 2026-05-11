@@ -1,5 +1,7 @@
+const params = new URLSearchParams(window.location.search);
+
 const state = {
-  runId: crypto.randomUUID(),
+  runId: params.get("runId") ?? crypto.randomUUID(),
   pc: null,
   ws: null,
   localStream: null,
