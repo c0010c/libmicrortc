@@ -87,9 +87,10 @@ node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000
 
 ```bash
 cmake -S . -B build -DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON
+cmake -S . -B build-secure -DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON && cmake --build build-secure --target rtc_chrome_e2e
 ```
 
-启用后 CMake 会执行 `cmake/FindRtcOptionalSecurity.cmake`。当前 gate 只接受宽松许可证依赖：OpenSSL 使用 Apache-2.0，libsrtp 使用 BSD-3-Clause，或等价宽松许可的替代实现；不得接受 GPL/LGPL 依赖。如果本机缺少依赖，CMake 会失败并提示安装可选 Chrome E2E 安全依赖，或改回 `-DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF`。
+启用后 CMake 会执行 `cmake/FindRtcOptionalSecurity.cmake`，并只在 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 的 `rtc_chrome_e2e` 示例 target 上查找、包含和链接 OpenSSL/libsrtp；默认 OFF 构建不查找、不链接这些系统依赖。当前 gate 只接受宽松许可证依赖：OpenSSL 使用 Apache-2.0，libsrtp 使用 BSD-3-Clause，或等价宽松许可的替代实现；不得接受 GPL/LGPL 依赖。安装 OpenSSL/libsrtp 开发包、确认系统包许可证和维护安全更新是启用者的责任。如果本机缺少依赖，CMake 会失败并提示安装可选 Chrome E2E 安全依赖，或改回 `-DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF`。
 
 只有启用并成功配置可选安全 backend 后，full E2E 才可能到达 `dtls.connected` 和 `srtp.ready`。默认 OFF 的 smoke 只验证安全依赖 gate 与失败分层，不声明真实 Chrome DTLS/SRTP 互通已完成。
 
