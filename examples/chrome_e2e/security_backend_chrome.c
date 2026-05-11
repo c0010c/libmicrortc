@@ -271,8 +271,7 @@ static rtc_status_t chrome_create_session(
                                  RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
     }
 
-    SSL_CTX_set_verify(session->ctx,
-                       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
+    SSL_CTX_set_verify(session->ctx, SSL_VERIFY_NONE, 0);
     SSL_CTX_set_read_ahead(session->ctx, 1);
     if (SSL_CTX_use_certificate(session->ctx, session->certificate) != 1 ||
         SSL_CTX_use_PrivateKey(session->ctx, session->private_key) != 1 ||
@@ -408,6 +407,10 @@ static rtc_status_t chrome_export_keying_material(void *opaque,
 
     if (session == 0 || session->ssl == 0 || label == 0 || out == 0 ||
         label_len == 0 || label_len > (size_t)INT_MAX) {
+        return RTC_STATUS_INVALID_ARGUMENT;
+    }
+    if (label_len != strlen("EXTRACTOR-dtls_srtp") ||
+        memcmp(label, "EXTRACTOR-dtls_srtp", label_len) != 0) {
         return RTC_STATUS_INVALID_ARGUMENT;
     }
 
