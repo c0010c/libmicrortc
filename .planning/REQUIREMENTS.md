@@ -72,7 +72,7 @@
 
 - [x] **BLD-01**: 项目提供 CMake 静态库构建目标。
 - [x] **BLD-02**: 项目提供公共头文件安装或导出规则。
-- [ ] **TST-01**: 项目包含 SDP/JSEP、ICE/STUN、RTP/RTCP、固定内存和错误路径的自动化测试。
+- [x] **TST-01**: 项目包含 SDP/JSEP、ICE/STUN、RTP/RTCP、固定内存和错误路径的自动化测试。
 - [x] **EXM-01**: 项目提供本地 Chrome 页面用于发起或接听 1v1 音视频通话。
 - [x] **EXM-02**: 项目提供最小信令示例，用于交换 SDP 和 trickle ICE candidate。
 - [ ] **ACC-01**: 用户可以通过本地 Chrome 页面和信令示例完成 1v1 音视频通话验收。
@@ -157,10 +157,10 @@
 | RTCP-03 | 第 5 阶段 | 已完成：05-05 实现 `rtc_peer_connection_request_keyframe(video)` 生成受保护 PLI datagram，并在远端 PLI 后通过 `on_media_feedback` 上报；05-06 文档化显式 PLI 与用户编码器责任 |
 | RTCP-04 | 第 5 阶段 | 已完成：05-05 实现 Generic NACK PID/BLP 固定数组展开和 observer 上报，`retransmit_performed = 0` 且不执行重传；05-06 文档和 UAT 明确 NACK 不触发重传 |
 | OBS-04 | 第 5 阶段 | 已完成：05-05 为 PLI/NACK 输出 typed feedback、counter 和 trace；NACK reason 固定为 `nack_no_retransmit`；05-06 在 API 契约、UAT 和项目状态中收口可观测语义 |
-| TST-01 | 第 6 阶段 | 执行中：06-05 已完成端到端自动化编排、页面 smoke、C JSONL summary 解析和七层失败分层；06-06 文档/UAT 收口仍待完成 |
+| TST-01 | 第 6 阶段 | 已完成：06-05 已完成端到端自动化编排、页面 smoke、C JSONL summary 解析和七层失败分层；06-06 新增 `06-UAT.md`，明确 dry-run/page-smoke/security-gate/full run、JSONL summary 和失败层级检查 |
 | EXM-01 | 第 6 阶段 | 已完成：06-01 新增本地 Chrome 合成媒体页面、双视频预览、七阶段状态条、compact diagnostics 和 Playwright page smoke |
 | EXM-02 | 第 6 阶段 | 已完成：06-01 新增本机 WebSocket 信令服务，支持 SDP offer/answer 与 trickle ICE candidate JSON 转发并拒绝媒体 payload |
-| ACC-01 | 第 6 阶段 | 执行中：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 已完成默认关闭的可选真实安全 backend gate、许可证说明和 DTLS/SRTP/RTP/RTCP 失败分层；06-05 已完成 full E2E 自动化编排和 `manual_vlc_required:true` 报告；06-06 VLC 人工验收仍待完成 |
+| ACC-01 | 第 6 阶段 | 部分完成/待人工验收：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 已完成默认关闭的可选真实安全 backend gate、许可证说明和 DTLS/SRTP/RTP/RTCP 失败分层；06-05 已完成 full E2E 自动化编排和 `manual_vlc_required:true` 报告；06-06 已创建 UAT 清单，但默认安全 backend 仍关闭，真实 Chrome DTLS/SRTP full E2E 与 VLC 人工播放仍待完成 |
 
 **覆盖情况：**
 - v1 需求：48 项
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*
+*最后更新：2026-05-11，06-06 Chrome E2E UAT、需求追踪和 manual VLC gate 收口后*

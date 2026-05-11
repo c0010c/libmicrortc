@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 in progress; 06-01..06-05 complete; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T06:45:26.964Z"
+status: Phase 6 plans complete; ACC-01 still pending optional security backend and manual VLC verification; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T06:52:00.000Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 30
-  completed_plans: 29
-  percent: 97
+  completed_plans: 30
+  percent: 100
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-05 已完成，06-06 待执行；第 4 阶段计划执行完成后仍等待阶段级验证
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-06 计划已执行完成，真实可选安全 backend 和 VLC/ffplay 人工播放仍是 `ACC-01` gate；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收执行；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，`06-03-PLAN.md` 已交付样本解析、按节奏发送、接收媒体落盘和 media-file smoke，`06-04-PLAN.md` 已交付默认关闭的可选 Chrome DTLS/SRTP backend gate 和安全失败分层，`06-05-PLAN.md` 已交付 full E2E 编排、compact JSON summary 和七层失败诊断，下一步继续 `06-06-PLAN.md` 文档/UAT 收口；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
+**当前焦点：** Phase 6: Chrome 端到端验收收口；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，`06-03-PLAN.md` 已交付样本解析、按节奏发送、接收媒体落盘和 media-file smoke，`06-04-PLAN.md` 已交付默认关闭的可选 Chrome DTLS/SRTP backend gate 和安全失败分层，`06-05-PLAN.md` 已交付 full E2E 编排、compact JSON summary 和七层失败诊断，`06-06-PLAN.md` 已交付中文 README/API 边界、`06-UAT.md`、需求追踪、PROJECT/ROADMAP/STATE 收口并将 `manual_vlc_required:true` 作为人工 gate；下一步运行 `$gsd-verify-work 6`，并在启用真实可选安全 backend 后完成 VLC/ffplay 人工播放确认；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
 
 ## 工作流配置
 
@@ -42,15 +42,17 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 5/6 plans 已执行；`06-01-SUMMARY.md`、`06-02-SUMMARY.md`、`06-03-SUMMARY.md`、`06-04-SUMMARY.md` 与 `06-05-SUMMARY.md` 已完成；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 6/6 plans 已执行；`06-01-SUMMARY.md`、`06-02-SUMMARY.md`、`06-03-SUMMARY.md`、`06-04-SUMMARY.md`、`06-05-SUMMARY.md` 与 `06-06-SUMMARY.md` 已完成；`ACC-01` 仍待真实可选安全 backend 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 6
 
 **下一步：**
 
 ```bash
-$gsd-execute-phase 6
+$gsd-verify-work 6
 ```
+
+验收时重点确认 full E2E 是否仍停在 `dtls/optional_security_backend_disabled`、summary 是否保持 `manual_vlc_required:true`、以及 VLC/ffplay 人工播放是否已记录。默认安全 backend 未启用或人工媒体检查未通过时，`ACC-01` 不应标记为完成。
 
 **也建议：**
 
