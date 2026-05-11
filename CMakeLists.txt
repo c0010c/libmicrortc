@@ -70,6 +70,12 @@ endif()
 if(RTC_BUILD_EXAMPLES)
     add_executable(rtc_create_destroy examples/create_destroy.c)
     target_link_libraries(rtc_create_destroy PRIVATE rtc)
+
+    add_executable(rtc_chrome_e2e
+        examples/chrome_e2e/rtc_chrome_e2e.c
+        examples/chrome_e2e/jsonl.c
+    )
+    target_link_libraries(rtc_chrome_e2e PRIVATE rtc)
 endif()
 
 install(TARGETS rtc ARCHIVE DESTINATION lib)
