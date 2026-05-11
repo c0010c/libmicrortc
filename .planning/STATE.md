@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 gap closure in progress; 06-08 completed runtime success state, media executor affinity, and strict full E2E pass criteria; ACC-01 still pending
-last_updated: "2026-05-11T17:17:55.000+08:00"
+status: Phase 6 gap closure in progress; 06-09 completed optional OpenSSL/libsrtp backend implementation; ACC-01 still pending secure full E2E and manual media approval
+last_updated: "2026-05-11T09:56:12.875Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 34
-  completed_plans: 32
-  percent: 94
+  completed_plans: 33
+  percent: 97
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-08 已执行，06-08 已关闭 C runtime 无成功条件、media API executor 亲和和 full E2E pass 判定误报 blocker；06-09..06-10 仍需关闭真实可选安全 backend 和 VLC/ffplay 人工 UAT；`ACC-01` 仍待完成；第 4 阶段计划执行完成后仍等待阶段级验证
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-09 已执行，06-09 已关闭 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时仍返回 unsupported 的 blocker，并实现默认关闭的 OpenSSL DTLS / libsrtp security backend；06-10 仍需 secure full E2E 和 VLC/ffplay 人工 UAT；`ACC-01` 仍待完成；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-08` 已让 C 示例 runtime 按真实状态写 passing summary 或准确失败层，媒体样本发送改为 `RTC_EXECUTOR_MEDIA` 亲和并检查返回值，`run_e2e.mjs` 不再把 security override 或空媒体文件误报为通过。剩余 blocker 是 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时 security backend 仍 unsupported，以及 secure full E2E/VLC 人工批准。下一步执行 `06-09-PLAN.md`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办。
+**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-09` 已实现默认关闭的真实可选 OpenSSL DTLS / libsrtp backend，ON 分支会填充 `security_backend` vtable，OFF 构建仍不查找或链接系统安全依赖。本机缺少可选 OpenSSL/libsrtp 开发包，因此 secure build/full E2E 仍未运行。下一步执行 `06-10-PLAN.md`，在具备依赖的环境中完成 secure full E2E 和 VLC/ffplay 人工批准；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办。
 
 ## 工作流配置
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 8/10 plans 已执行，2 个 gap closure plans 待执行；`06-01-SUMMARY.md` 到 `06-08-SUMMARY.md` 已完成；`06-09` 到 `06-10` 待执行；`ACC-01` 仍待真实可选安全 backend、secure full E2E 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 9/10 plans 已执行，1 个 gap closure plan 待执行；`06-01-SUMMARY.md` 到 `06-09-SUMMARY.md` 已完成；`06-10` 待执行；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 10
 
@@ -195,6 +195,7 @@ $gsd-verify-work 4
 - 2026-05-11T15:20:00+08:00：根据 `06-VERIFICATION.md` 的 gaps 补充 `06-07` 到 `06-10` 四个 gap closure 计划，覆盖共享 runId/WebSocket 分片读取、C runtime 成功状态机/media executor 亲和、真实可选 OpenSSL/libsrtp security backend、secure full E2E 与 VLC/ffplay 人工批准；`ACC-01` 仍未关闭。
 - 2026-05-11T17:08:15+08:00：完成 `06-07-PLAN.md`，Chrome 页面、run_e2e 和 C 示例共享同一 `runId`；C 示例支持 `--run-id`，WebSocket text frame 读取改为固定内存分片状态机；构建、C smoke 和 page smoke 均通过；`ACC-01` 仍待 06-08..06-10。
 - 2026-05-11T17:17:55+08:00：完成 `06-08-PLAN.md`，C 示例 runtime 新增真实成功状态机和分层 timeout summary；媒体发送改为 `RTC_EXECUTOR_MEDIA` 并检查返回值；full E2E pass 判定要求 C summary、进程退出码和非空 Opus/H264 媒体文件同时满足；`ACC-01` 仍待 06-09..06-10。
+- 2026-05-11T17:53:40+08:00：完成 `06-09-PLAN.md`，新增默认关闭的 OpenSSL DTLS / libsrtp Chrome E2E security backend；ON 分支配置真实 backend vtable，OFF 构建和 security gate smoke 保持无系统安全依赖；本机缺少可选开发包，secure build/full E2E 留给 06-10；`ACC-01` 仍待人工验收。
 
 ## 执行决策
 
@@ -227,6 +228,7 @@ $gsd-verify-work 4
 - `06-04` 安全失败分层在示例 JSONL 中保持明确：fingerprint/handshake 属于 `dtls`，`key_export`/`srtp_init` 属于 `srtp`，RTP protect/unprotect 属于 `rtp`，RTCP/SRTCP protect/unprotect 属于 `rtcp`。
 - `06-05` E2E 自动化 summary 的一级失败层级固定为 `signaling`、`ice`、`dtls`、`srtp`、`rtp`、`rtcp`、`media_file`；自动化只验证状态、counter 和媒体文件产物，`manual_vlc_required` 保持 true，不替代 VLC 人工播放验收。
 - `06-08` C runtime passing summary 必须以 offer/answer/ICE/SRTP/media_files_ready 为准，timeout 按最早缺失层报告；`manual-security-ok` 只能输出 `manual_security_override:true`，不能把 `dtls/optional_security_backend_disabled` 转成 `pass:true`。
+- `06-09` Chrome 可选安全 backend 只在 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时包含和链接 OpenSSL/libsrtp；Chrome 自签 DTLS certificate 的身份校验由核心 sha-256 fingerprint 比对负责，SRTP protect/unprotect 失败由核心 wrapper 映射到具体 rtp/rtcp/srtp detail。
 
 ---
-*最后更新：2026-05-11，06-08 runtime 状态机、media executor 亲和和 pass 判定收紧后*
+*最后更新：2026-05-11，06-09 可选 OpenSSL/libsrtp backend 实现后*
