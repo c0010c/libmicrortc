@@ -160,7 +160,7 @@
 | TST-01 | 第 6 阶段 | 已规划：06-05 端到端自动化编排与失败分层，06-06 文档/UAT 收口 |
 | EXM-01 | 第 6 阶段 | 已完成：06-01 新增本地 Chrome 合成媒体页面、双视频预览、七阶段状态条、compact diagnostics 和 Playwright page smoke |
 | EXM-02 | 第 6 阶段 | 已完成：06-01 新增本机 WebSocket 信令服务，支持 SDP offer/answer 与 trickle ICE candidate JSON 转发并拒绝媒体 payload |
-| ACC-01 | 第 6 阶段 | 执行中：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 双向媒体文件、06-04 可选真实安全 backend gate、06-05 full E2E、06-06 VLC 人工验收仍待完成 |
+| ACC-01 | 第 6 阶段 | 执行中：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 可选真实安全 backend gate、06-05 full E2E、06-06 VLC 人工验收仍待完成 |
 
 **覆盖情况：**
 - v1 需求：48 项

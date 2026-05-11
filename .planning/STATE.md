@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 in progress; 06-01 and 06-02 complete; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T06:19:17.190Z"
+status: Phase 6 in progress; 06-01..06-03 complete; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T06:26:46Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 30
-  completed_plans: 26
-  percent: 87
+  completed_plans: 27
+  percent: 90
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01 和 06-02 已完成，06-03..06-06 待执行；第 4 阶段计划执行完成后仍等待阶段级验证
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-03 已完成，06-04..06-06 待执行；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收执行；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，下一步继续 `06-03-PLAN.md`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
+**当前焦点：** Phase 6: Chrome 端到端验收执行；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，`06-03-PLAN.md` 已交付样本解析、按节奏发送、接收媒体落盘和 media-file smoke，下一步继续 `06-04-PLAN.md`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
 
 ## 工作流配置
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 2/6 plans 已执行；`06-01-SUMMARY.md` 与 `06-02-SUMMARY.md` 已完成；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 3/6 plans 已执行；`06-01-SUMMARY.md`、`06-02-SUMMARY.md` 与 `06-03-SUMMARY.md` 已完成；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 6
 
@@ -183,6 +183,7 @@ $gsd-verify-work 4
 - 2026-05-11T13:30:00+08:00：完成第 6 阶段规划，新增 `06-PATTERNS.md` 和 `06-01` 到 `06-06` 六个 PLAN.md；范围覆盖 Chrome 页面/信令、C 示例 I/O、样本解析、真实 DTLS/SRTP backend gate、E2E 自动化和中文 UAT 收口，下一步可运行 `$gsd-execute-phase 6`。
 - 2026-05-11T14:04:41+08:00：完成 `06-01-PLAN.md`，新增 Chrome 合成媒体页面、JSON-only WebSocket 信令服务、dry-run/page-smoke 编排入口；`EXM-01` 与 `EXM-02` 已完成，后续 `06-02` 接入 C 示例信令和 UDP pump。
 - 2026-05-11T14:16:29+08:00：完成 `06-02-PLAN.md`，新增 `rtc_chrome_e2e` C 示例 target、dry-run、WebSocket client、UDP socket pump、PeerConnection observer JSONL 输出和 `--c-example-smoke`；后续 `06-03` 接入样本解析与媒体文件。
+- 2026-05-11T14:26:46+08:00：完成 `06-03-PLAN.md`，新增示例层 H264/Ogg Opus 样本 parser、parser deterministic tests、`srtp.ready` 后按节奏发送、typed media 接收落盘、JSONL 媒体统计和 `--media-file-smoke`；后续 `06-04` 接入真实 DTLS/SRTP backend gate。
 
 ## 执行决策
 
@@ -209,6 +210,8 @@ $gsd-verify-work 4
 - `06-02` C 示例的 socket、WebSocket、JSONL 和发送队列全部保留在 `examples/chrome_e2e/` 示例层，核心 `src/` 不新增 socket/thread 责任。
 - `06-02` WebSocket client 只支持本阶段本机 `ws://host:port/ws`、text frame 和 JSON 信令，不实现通用 WebSocket/HTTP 客户端。
 - `06-02` 当前库尚无生产态 executor context public API，示例 target 私有包含 `src/` 并使用既有内部 executor context helper 标注 signaling/network 调用亲和；这不改变核心 public API。
+- `06-03` 样本解析只保留在 `examples/chrome_e2e/` 示例层；H264 Annex B 使用 `40000us` 25fps 节奏，Ogg Opus 在不安全推导 granule 时使用 `20000us` fallback。
+- `06-03` C 示例接收媒体落盘为 `received-opus.packets` 和 `received-h264.264`，JSONL summary 使用 `audio_frames_received`、`video_frames_received`、`audio_bytes_received`、`video_bytes_received` 报告媒体文件统计。
 
 ---
 *最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*
