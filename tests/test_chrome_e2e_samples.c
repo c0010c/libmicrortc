@@ -1,6 +1,6 @@
 #include "test_runner.h"
 
-#include "examples/chrome_e2e/media_samples.h"
+#include "../examples/chrome_e2e/media_samples.h"
 
 int rtc_test_chrome_e2e_samples(void)
 {
