@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -8,15 +8,35 @@ import { chromium } from "@playwright/test";
 import { createSignalingServer } from "./signaling.mjs";
 
 const repoRoot = resolve(new URL("../..", import.meta.url).pathname);
+const failureLayers = ["signaling","ice","dtls","srtp","rtp","rtcp","media_file"];
+const requiredCEvents = ["offer.received", "answer.sent", "ice.connected", "dtls.connected", "srtp.ready"];
 
 function parseArgs(argv) {
-  return {
+  const args = {
     dryRun: argv.includes("--dry-run"),
     pageSmoke: argv.includes("--page-smoke"),
     cExampleSmoke: argv.includes("--c-example-smoke"),
     mediaFileSmoke: argv.includes("--media-file-smoke"),
     securityGateSmoke: argv.includes("--security-gate-smoke"),
+    timeoutMs: 30000,
+    chromeChannel: "chrome",
+    outputDir: "examples/chrome_e2e/out",
+    keepOpen: argv.includes("--keep-open"),
+    manualSecurityOk: argv.includes("--manual-security-ok"),
   };
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === "--timeout-ms" && argv[i + 1]) {
+      args.timeoutMs = Number.parseInt(argv[++i], 10);
+    } else if (argv[i] === "--chrome-channel" && argv[i + 1]) {
+      args.chromeChannel = argv[++i];
+    } else if (argv[i] === "--output-dir" && argv[i + 1]) {
+      args.outputDir = argv[++i];
+    }
+  }
+  if (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0) {
+    throw new Error("--timeout-ms must be a positive integer");
+  }
+  return args;
 }
 
 function checkPath(relativePath) {
@@ -38,12 +58,114 @@ function findChromiumExecutable() {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+function isSecurityBackendDisabled() {
+  return process.env.RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY === "OFF";
+}
+
 function browserEnv() {
   const localLib = resolve(repoRoot, ".cache/playwright-libs/root/usr/lib/x86_64-linux-gnu");
   const libraryPath = [existsSync(localLib) ? localLib : null, process.env.LD_LIBRARY_PATH]
     .filter(Boolean)
     .join(":");
   return libraryPath ? { ...process.env, LD_LIBRARY_PATH: libraryPath } : process.env;
+}
+
+function parseJsonl(text) {
+  return text
+    .trim()
+    .split(/\n+/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function latestEvents(events, count = 5) {
+  return events.slice(-count).map((event) => ({
+    type: event.type,
+    layer: event.layer,
+    status: event.status,
+    event: event.event,
+    pass: event.pass,
+    reason: event.reason,
+  }));
+}
+
+function selectFailureLayer({ cEvents = [], pageSummary = null, timedOut = false, exitCode = 0 }) {
+  if (timedOut) {
+    return { layer: "signaling", reason: "timeout" };
+  }
+  const cSummary = cEvents.find((event) => event.type === "summary");
+  if (cSummary && cSummary.pass === false) {
+    return {
+      layer: failureLayers.includes(cSummary.layer) ? cSummary.layer : "signaling",
+      reason: cSummary.reason || "c_example_failed",
+    };
+  }
+  const cError = cEvents.find((event) => event.type === "error" && failureLayers.includes(event.layer));
+  if (cError) {
+    return { layer: cError.layer, reason: cError.event || "c_example_error" };
+  }
+  if (pageSummary?.layer && pageSummary.layer !== "none" && failureLayers.includes(pageSummary.layer)) {
+    return { layer: pageSummary.layer, reason: pageSummary.reason || "page_failed" };
+  }
+  if (exitCode !== 0) {
+    return { layer: "signaling", reason: "c_example_exit_nonzero" };
+  }
+  return { layer: "none", reason: "" };
+}
+
+function summarizeMediaFiles(outputDir) {
+  const absoluteDir = resolve(repoRoot, outputDir);
+  if (!existsSync(absoluteDir)) {
+    return [];
+  }
+  return readdirSync(absoluteDir)
+    .filter((name) => name === "received-opus.packets" || name === "received-h264.264")
+    .map((name) => {
+      const path = resolve(absoluteDir, name);
+      return { path: `${outputDir}/${name}`, bytes: statSync(path).size };
+    });
+}
+
+function removeStaleRunOutputs(outputDir) {
+  for (const name of ["rtc_chrome_e2e.jsonl", "received-opus.packets", "received-h264.264"]) {
+    const path = resolve(repoRoot, outputDir, name);
+    if (existsSync(path)) {
+      unlinkSync(path);
+    }
+  }
+}
+
+function waitForChildExit(child, timeoutMs) {
+  return new Promise((resolveExit) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        child.kill("SIGTERM");
+        resolveExit({ code: null, stdout, stderr, timedOut: true });
+      }
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("close", (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolveExit({ code, stdout, stderr, timedOut: false });
+      }
+    });
+  });
+}
+
+async function waitForServerReady(server) {
+  await server.listen();
+  return server;
 }
 
 async function dryRun() {
@@ -64,6 +186,7 @@ async function dryRun() {
   const summary = {
     ok,
     layer: ok ? "none" : "preflight",
+    failureLayers,
     files: requiredFiles,
     scripts,
   };
@@ -74,8 +197,7 @@ async function dryRun() {
 }
 
 async function pageSmoke() {
-  const server = createSignalingServer({ port: 0 });
-  await server.listen();
+  const server = await waitForServerReady(createSignalingServer({ port: 0 }));
 
   let browser;
   try {
@@ -151,6 +273,113 @@ async function pageSmoke() {
       await browser.close();
     }
     await server.close();
+  }
+}
+
+async function fullE2E(args) {
+  const startedAt = Date.now();
+  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
+  if (!existsSync(binary)) {
+    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
+  }
+
+  mkdirSync(resolve(repoRoot, args.outputDir), { recursive: true });
+  removeStaleRunOutputs(args.outputDir);
+  const server = await waitForServerReady(createSignalingServer({ port: 0 }));
+  let browser;
+  let page;
+  let child;
+  let childResult = { code: 1, stdout: "", stderr: "", timedOut: false };
+  let pageState = null;
+
+  try {
+    const executablePath = args.chromeChannel === "chromium" ? findChromiumExecutable() : findChromiumExecutable();
+    browser = await chromium.launch({
+      headless: true,
+      executablePath,
+      env: browserEnv(),
+    });
+    page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.goto(server.url);
+
+    child = spawn(binary, [
+      "--ws-url",
+      server.wsUrl,
+      "--output-dir",
+      args.outputDir,
+      "--timeout-ms",
+      String(args.timeoutMs),
+    ], {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const childExit = waitForChildExit(child, args.timeoutMs + 2000);
+
+    await page.getByRole("button", { name: "Start Call" }).click();
+    await page.waitForFunction(() => window.__chromeE2E?.offerCreated === true, null, { timeout: Math.min(args.timeoutMs, 10000) });
+    await Promise.race([
+      page.waitForFunction(() => {
+        const stage = document.querySelector('[data-testid="stage-signaling"]');
+        return stage?.dataset.state === "connected";
+      }, null, { timeout: Math.min(args.timeoutMs, 10000) }),
+      childExit,
+    ]);
+
+    childResult = await childExit;
+    pageState = await page.evaluate(() => window.__chromeE2E).catch(() => null);
+    if (args.keepOpen) {
+      await page.waitForTimeout(1000);
+    }
+  } finally {
+    if (browser && !args.keepOpen) {
+      await browser.close();
+    }
+    await server.close();
+  }
+
+  const jsonlPath = resolve(repoRoot, args.outputDir, "rtc_chrome_e2e.jsonl");
+  const cEvents = existsSync(jsonlPath) ? parseJsonl(readFileSync(jsonlPath, "utf8")) : [];
+  const cSummary = cEvents.find((event) => event.type === "summary") ?? null;
+  const failure = selectFailureLayer({
+    cEvents,
+    pageSummary: pageState?.summary,
+    timedOut: childResult.timedOut,
+    exitCode: childResult.code ?? 1,
+  });
+  const mediaFiles = summarizeMediaFiles(args.outputDir);
+  const manualVlcRequired = true;
+  const optionalSecurityGate =
+    failure.layer === "dtls" &&
+    (failure.reason === "optional_security_backend_disabled" ||
+      cSummary?.reason === "optional_security_backend_disabled" ||
+      isSecurityBackendDisabled());
+  const pass =
+    failure.layer === "none" &&
+    childResult.code === 0 &&
+    cSummary?.pass === true &&
+    mediaFiles.length > 0 &&
+    mediaFiles.every((file) => file.bytes > 0);
+  const summary = {
+    pass: pass || (args.manualSecurityOk && optionalSecurityGate),
+    layer: failure.layer,
+    reason: args.manualSecurityOk && optionalSecurityGate ? "manual_security_ok" : failure.reason,
+    duration_ms: Date.now() - startedAt,
+    failureLayers,
+    page: pageState ?? { summary: null },
+    c_example: {
+      exitCode: childResult.code,
+      timedOut: childResult.timedOut,
+      summary: cSummary,
+      latestEvents: latestEvents(cEvents),
+      stderr: childResult.stderr.trim(),
+    },
+    media_files: mediaFiles,
+    manual_vlc_required: manualVlcRequired,
+  };
+
+  console.log(JSON.stringify(summary));
+  if (!summary.pass) {
+    process.exitCode = 1;
   }
 }
 
@@ -340,5 +569,5 @@ if (args.dryRun) {
 } else if (args.securityGateSmoke) {
   await securityGateSmoke();
 } else {
-  await dryRun();
+  await fullE2E(args);
 }
