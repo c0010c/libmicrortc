@@ -75,6 +75,7 @@ if(RTC_BUILD_EXAMPLES)
         examples/chrome_e2e/rtc_chrome_e2e.c
         examples/chrome_e2e/jsonl.c
     )
+    target_include_directories(rtc_chrome_e2e PRIVATE src)
     target_link_libraries(rtc_chrome_e2e PRIVATE rtc)
 endif()
 

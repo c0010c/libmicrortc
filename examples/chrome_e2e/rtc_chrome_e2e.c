@@ -1,4 +1,5 @@
 #include "jsonl.h"
+#include "executor/executor.h"
 #include "rtc/rtc.h"
 
 #include <errno.h>
@@ -814,6 +815,7 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
     char message[9000];
     rtc_status_t status;
 
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_set_remote_description(
         pc, offer_sdp, strlen(offer_sdp));
     if (status != RTC_STATUS_OK) {
@@ -850,7 +852,9 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
     (void)ws_send_text(ctx->ws_fd, message);
     rtc_e2e_jsonl_event(ctx->jsonl, "status", "signaling", "ok",
                         "answer.sent");
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
     (void)rtc_peer_connection_gather_candidates(pc);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     return 0;
 }
 
@@ -859,6 +863,7 @@ static void handle_candidate(rtc_peer_connection_t *pc, e2e_context_t *ctx,
 {
     rtc_status_t status;
 
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_add_ice_candidate(pc, candidate,
                                                    strlen(candidate));
     if (status != RTC_STATUS_OK) {
@@ -871,7 +876,9 @@ static void handle_candidate(rtc_peer_connection_t *pc, e2e_context_t *ctx,
     rtc_e2e_jsonl_event(ctx->jsonl, "status", "ice", "ok",
                         "remote_candidate.received");
     if (ctx->have_local_candidate && ctx->have_remote_candidate) {
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
         (void)rtc_peer_connection_start_connectivity_checks(pc);
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     }
 }
 
@@ -892,7 +899,9 @@ static void pump_udp(rtc_peer_connection_t *pc, e2e_context_t *ctx)
         memcpy(&ctx->remote_addr, &from, from_len);
         ctx->remote_addr_len = from_len;
         ctx->have_remote_addr = 1;
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
         (void)rtc_peer_connection_receive_datagram(pc, buffer, (size_t)n);
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     }
 #endif
 }
@@ -977,6 +986,7 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
                        "\",\"role\":\"c-example\"}");
 
     fill_pc_config(&config, arena, sizeof(arena), options, &ctx);
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_create(&config, &diag, &pc);
     if (status != RTC_STATUS_OK) {
         rtc_e2e_jsonl_summary(jsonl, 0, "signaling",
@@ -993,6 +1003,7 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
         sleep_10ms();
         elapsed_ms += 10u;
     }
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     (void)rtc_peer_connection_destroy(pc);
     rtc_e2e_jsonl_summary(jsonl, 0, "signaling", "no offer received");
 #if !defined(_WIN32)
