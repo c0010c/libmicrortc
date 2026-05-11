@@ -42,7 +42,10 @@ typedef struct chrome_security_session_t {
     rtc_security_dtls_role_t role;
     int handshake_complete;
     int srtp_ready;
+    int bios_attached;
 } chrome_security_session_t;
+
+static void chrome_destroy_session(void *opaque);
 
 static rtc_status_t chrome_emit_error(chrome_security_session_t *session,
                                       rtc_status_t status,
@@ -58,6 +61,14 @@ static rtc_status_t chrome_emit_error(chrome_security_session_t *session,
         event.detail_code = detail_code;
         session->event_cb(session->event_user_data, &event);
     }
+    return status;
+}
+
+static rtc_status_t chrome_create_fail(chrome_security_session_t *session,
+                                       rtc_status_t status, int detail_code)
+{
+    chrome_emit_error(session, status, detail_code);
+    chrome_destroy_session(session);
     return status;
 }
 
@@ -267,8 +278,8 @@ static rtc_status_t chrome_create_session(
     session->ctx = SSL_CTX_new(DTLS_method());
     if (session->private_key == 0 || session->certificate == 0 ||
         session->ctx == 0) {
-        return chrome_emit_error(session, RTC_STATUS_BACKEND_ERROR,
-                                 RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
+        return chrome_create_fail(session, RTC_STATUS_BACKEND_ERROR,
+                                  RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
     }
 
     SSL_CTX_set_verify(session->ctx, SSL_VERIFY_NONE, 0);
@@ -278,8 +289,8 @@ static rtc_status_t chrome_create_session(
         SSL_CTX_check_private_key(session->ctx) != 1 ||
         SSL_CTX_set_tlsext_use_srtp(session->ctx,
                                     "SRTP_AES128_CM_SHA1_80") != 0) {
-        return chrome_emit_error(session, RTC_STATUS_BACKEND_ERROR,
-                                 RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
+        return chrome_create_fail(session, RTC_STATUS_BACKEND_ERROR,
+                                  RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
     }
 
     session->ssl = SSL_new(session->ctx);
@@ -287,13 +298,14 @@ static rtc_status_t chrome_create_session(
     session->write_bio = BIO_new(BIO_s_mem());
     if (session->ssl == 0 || session->read_bio == 0 ||
         session->write_bio == 0) {
-        return chrome_emit_error(session, RTC_STATUS_BACKEND_ERROR,
-                                 RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
+        return chrome_create_fail(session, RTC_STATUS_BACKEND_ERROR,
+                                  RTC_SECURITY_DETAIL_HANDSHAKE_FAILED);
     }
 
     BIO_set_mem_eof_return(session->read_bio, -1);
     BIO_set_mem_eof_return(session->write_bio, -1);
     SSL_set_bio(session->ssl, session->read_bio, session->write_bio);
+    session->bios_attached = 1;
     SSL_set_options(session->ssl, SSL_OP_NO_QUERY_MTU);
     SSL_set_mtu(session->ssl, 1200);
 
@@ -319,9 +331,13 @@ static void chrome_destroy_session(void *opaque)
     if (session->ssl != 0) {
         SSL_free(session->ssl);
         session->ssl = 0;
-        session->read_bio = 0;
-        session->write_bio = 0;
+        if (session->bios_attached) {
+            session->read_bio = 0;
+            session->write_bio = 0;
+        }
     }
+    BIO_free(session->read_bio);
+    BIO_free(session->write_bio);
     SSL_CTX_free(session->ctx);
     X509_free(session->certificate);
     EVP_PKEY_free(session->private_key);
@@ -475,8 +491,7 @@ static rtc_status_t chrome_init_srtp_context(
 
     if (!srtp_initialized) {
         if (srtp_init() != srtp_err_status_ok) {
-            return chrome_emit_error(session, RTC_STATUS_BACKEND_ERROR,
-                                     RTC_SECURITY_DETAIL_SRTP_INIT_FAILED);
+            return RTC_STATUS_BACKEND_ERROR;
         }
         srtp_initialized = 1;
     }
@@ -499,38 +514,30 @@ static rtc_status_t chrome_init_srtp_context(
     memset(send_key, 0, sizeof(send_key));
     if (status != RTC_STATUS_OK) {
         memset(recv_key, 0, sizeof(recv_key));
-        return chrome_emit_error(session, status,
-                                 RTC_SECURITY_DETAIL_SRTP_INIT_FAILED);
+        return status;
     }
 
     status = chrome_create_srtp_session(&session->srtp_recv, recv_key,
                                         ssrc_any_inbound);
     memset(recv_key, 0, sizeof(recv_key));
     if (status != RTC_STATUS_OK) {
-        return chrome_emit_error(session, status,
-                                 RTC_SECURITY_DETAIL_SRTP_INIT_FAILED);
+        return status;
     }
 
     session->srtp_ready = 1;
     return RTC_STATUS_OK;
 }
 
-static rtc_status_t chrome_srtp_status(chrome_security_session_t *session,
-                                       srtp_err_status_t err,
-                                       int unprotect)
+static rtc_status_t chrome_srtp_status(srtp_err_status_t err, int unprotect)
 {
     if (err == srtp_err_status_ok) {
         return RTC_STATUS_OK;
     }
     if (unprotect && (err == srtp_err_status_replay_fail ||
                       err == srtp_err_status_replay_old)) {
-        return chrome_emit_error(session, RTC_STATUS_PROTOCOL_ERROR,
-                                 RTC_SECURITY_DETAIL_SRTP_REPLAY_FAILED);
+        return RTC_STATUS_PROTOCOL_ERROR;
     }
-    return chrome_emit_error(
-        session, RTC_STATUS_PROTOCOL_ERROR,
-        unprotect ? RTC_SECURITY_DETAIL_SRTP_UNPROTECT_FAILED
-                  : RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED);
+    return RTC_STATUS_BACKEND_ERROR;
 }
 
 static rtc_status_t chrome_srtp_protect_rtp(void *opaque, uint8_t *packet,
@@ -550,7 +557,7 @@ static rtc_status_t chrome_srtp_protect_rtp(void *opaque, uint8_t *packet,
     len = (int)*inout_len;
     err = srtp_protect(session->srtp_send, packet, &len);
     if (err != srtp_err_status_ok) {
-        return chrome_srtp_status(session, err, 0);
+        return chrome_srtp_status(err, 0);
     }
     *inout_len = (size_t)len;
     return RTC_STATUS_OK;
@@ -571,7 +578,7 @@ static rtc_status_t chrome_srtp_unprotect_rtp(void *opaque, uint8_t *packet,
     len = (int)*inout_len;
     err = srtp_unprotect(session->srtp_recv, packet, &len);
     if (err != srtp_err_status_ok) {
-        return chrome_srtp_status(session, err, 1);
+        return chrome_srtp_status(err, 1);
     }
     *inout_len = (size_t)len;
     return RTC_STATUS_OK;
@@ -593,7 +600,7 @@ static rtc_status_t chrome_srtcp_protect(void *opaque, uint8_t *packet,
     len = (int)*inout_len;
     err = srtp_protect_rtcp(session->srtp_send, packet, &len);
     if (err != srtp_err_status_ok) {
-        return chrome_srtp_status(session, err, 0);
+        return chrome_srtp_status(err, 0);
     }
     *inout_len = (size_t)len;
     return RTC_STATUS_OK;
@@ -614,7 +621,7 @@ static rtc_status_t chrome_srtcp_unprotect(void *opaque, uint8_t *packet,
     len = (int)*inout_len;
     err = srtp_unprotect_rtcp(session->srtp_recv, packet, &len);
     if (err != srtp_err_status_ok) {
-        return chrome_srtp_status(session, err, 1);
+        return chrome_srtp_status(err, 1);
     }
     *inout_len = (size_t)len;
     return RTC_STATUS_OK;
