@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 plans complete; ACC-01 still pending optional security backend and manual VLC verification; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T06:52:00.000Z"
+status: Phase 6 gap closure in progress; 06-07 completed signaling runId and WebSocket fragmentation fixes; ACC-01 still pending
+last_updated: "2026-05-11T17:08:15.000+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 30
-  completed_plans: 30
-  percent: 100
+  total_plans: 34
+  completed_plans: 31
+  percent: 91
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-06 计划已执行完成，真实可选安全 backend 和 VLC/ffplay 人工播放仍是 `ACC-01` gate；第 4 阶段计划执行完成后仍等待阶段级验证
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-07 已执行，06-07 已关闭信令 runId 不一致和 C WebSocket 单次 `recv` 分片读取 blocker；06-08..06-10 仍需关闭 C runtime/media executor、真实可选安全 backend 和 VLC/ffplay 人工 UAT；`ACC-01` 仍待完成；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收收口；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，`06-03-PLAN.md` 已交付样本解析、按节奏发送、接收媒体落盘和 media-file smoke，`06-04-PLAN.md` 已交付默认关闭的可选 Chrome DTLS/SRTP backend gate 和安全失败分层，`06-05-PLAN.md` 已交付 full E2E 编排、compact JSON summary 和七层失败诊断，`06-06-PLAN.md` 已交付中文 README/API 边界、`06-UAT.md`、需求追踪、PROJECT/ROADMAP/STATE 收口并将 `manual_vlc_required:true` 作为人工 gate；下一步运行 `$gsd-verify-work 6`，并在启用真实可选安全 backend 后完成 VLC/ffplay 人工播放确认；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
+**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-07` 已让 Chrome 页面、run_e2e 和 C 示例共享同一 `runId`，并为 C 示例 WebSocket reader 增加固定内存分片读取状态机。剩余 blocker 是 C runtime 无成功退出条件、media API 在 signaling executor 调用、`RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时 security backend 仍 unsupported，以及 secure full E2E/VLC 人工批准。下一步执行 `06-08-PLAN.md`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办。
 
 ## 工作流配置
 
@@ -42,17 +42,17 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 6/6 plans 已执行；`06-01-SUMMARY.md`、`06-02-SUMMARY.md`、`06-03-SUMMARY.md`、`06-04-SUMMARY.md`、`06-05-SUMMARY.md` 与 `06-06-SUMMARY.md` 已完成；`ACC-01` 仍待真实可选安全 backend 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 7/10 plans 已执行，3 个 gap closure plans 待执行；`06-01-SUMMARY.md` 到 `06-07-SUMMARY.md` 已完成；`06-08` 到 `06-10` 待执行；`ACC-01` 仍待真实可选安全 backend、secure full E2E 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
 
-**计划数量：** 6
+**计划数量：** 10
 
 **下一步：**
 
 ```bash
-$gsd-verify-work 6
+$gsd-execute-phase 6
 ```
 
-验收时重点确认 full E2E 是否仍停在 `dtls/optional_security_backend_disabled`、summary 是否保持 `manual_vlc_required:true`、以及 VLC/ffplay 人工播放是否已记录。默认安全 backend 未启用或人工媒体检查未通过时，`ACC-01` 不应标记为完成。
+执行时重点按 06-08..06-10 顺序关闭剩余 verification gaps。默认安全 backend 未启用、secure full E2E 未通过或人工媒体检查未通过时，`ACC-01` 不应标记为完成。
 
 **也建议：**
 
@@ -161,6 +161,10 @@ $gsd-verify-work 4
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-04-PLAN.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-05-PLAN.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-06-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-07-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-08-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-09-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-10-PLAN.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-02-SUMMARY.md`
 
 ---
@@ -188,6 +192,8 @@ $gsd-verify-work 4
 - 2026-05-11T14:26:46+08:00：完成 `06-03-PLAN.md`，新增示例层 H264/Ogg Opus 样本 parser、parser deterministic tests、`srtp.ready` 后按节奏发送、typed media 接收落盘、JSONL 媒体统计和 `--media-file-smoke`；后续 `06-04` 接入真实 DTLS/SRTP backend gate。
 - 2026-05-11T14:34:19+08:00：完成 `06-04-PLAN.md`，新增默认关闭的 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY` gate、可选 OpenSSL/libsrtp 依赖探测、`rtc_chrome_e2e_configure_security_backend` 入口、`--security-gate-smoke` 和 DTLS/SRTP/RTP/RTCP JSONL 失败分层；默认构建不强制真实安全依赖，`ACC-01` 仍待 `06-05` full E2E 与 `06-06` UAT 收口。
 - 2026-05-11T14:44:24+08:00：完成 `06-05-PLAN.md`，`run_e2e.mjs` full run 统一编排信令服务、C 示例和 Chrome 页面，输出 compact JSON summary，并把失败层级限定为 signaling/ice/dtls/srtp/rtp/rtcp/media_file；默认安全 backend OFF 时正确停在 `dtls/optional_security_backend_disabled`，`manual_vlc_required` 保持 true。
+- 2026-05-11T15:20:00+08:00：根据 `06-VERIFICATION.md` 的 gaps 补充 `06-07` 到 `06-10` 四个 gap closure 计划，覆盖共享 runId/WebSocket 分片读取、C runtime 成功状态机/media executor 亲和、真实可选 OpenSSL/libsrtp security backend、secure full E2E 与 VLC/ffplay 人工批准；`ACC-01` 仍未关闭。
+- 2026-05-11T17:08:15+08:00：完成 `06-07-PLAN.md`，Chrome 页面、run_e2e 和 C 示例共享同一 `runId`；C 示例支持 `--run-id`，WebSocket text frame 读取改为固定内存分片状态机；构建、C smoke 和 page smoke 均通过；`ACC-01` 仍待 06-08..06-10。
 
 ## 执行决策
 
