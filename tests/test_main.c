@@ -15,6 +15,7 @@ int rtc_test_security(void);
 int rtc_test_media_api(void);
 int rtc_test_rtp(void);
 int rtc_test_rtcp(void);
+int rtc_test_chrome_e2e_samples(void);
 
 int main(void)
 {
@@ -35,6 +36,7 @@ int main(void)
     RTC_RUN_TEST(rtc_test_media_api, result);
     RTC_RUN_TEST(rtc_test_rtp, result);
     RTC_RUN_TEST(rtc_test_rtcp, result);
+    RTC_RUN_TEST(rtc_test_chrome_e2e_samples, result);
 
     if (result.failed != 0) {
         return 1;

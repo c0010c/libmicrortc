@@ -58,6 +58,8 @@ if(RTC_BUILD_TESTS)
         tests/test_media_api.c
         tests/test_rtp.c
         tests/test_rtcp.c
+        tests/test_chrome_e2e_samples.c
+        examples/chrome_e2e/media_samples.c
     )
     target_include_directories(rtc_tests PRIVATE src)
     target_link_libraries(rtc_tests PRIVATE rtc)
