@@ -19,6 +19,8 @@ WebSocket 信令只转发同一 `runId` 内的 JSON 消息，允许类型为 `he
 
 默认构建不会启用真实 Chrome DTLS/SRTP backend。`rtc_chrome_e2e` 在非 dry-run 路径检测到未启用可选 backend 时会输出 JSONL summary：`pass:false`、`layer:"dtls"`、`reason:"optional_security_backend_disabled"`，防止把 deterministic backend 或无加密路径误报为真实互通成功。
 
+安全相关 observer error/trace 会保留分层诊断：fingerprint mismatch 归入 `dtls`，`key_export` 与 `srtp_init` 归入 `srtp`，RTP protect/unprotect 归入 `rtp`，RTCP/SRTCP protect/unprotect 归入 `rtcp`，同时在 JSONL detail 中保留 `detail_code`。
+
 ## 样本媒体与落盘文件
 
 C 示例直接读取项目根目录的 `sample1.opus` 与 `test-25fps.h264`。`sample1.opus` 只在示例层解析 Ogg page/lacing，跳过 `OpusHead` 和 `OpusTags` 后按 Opus packet 发送；`test-25fps.h264` 只在示例层按 Annex B start code 切分，按 25fps 的 `40000us` 节奏发送。parser 不进入 `src/` 核心库。
@@ -51,6 +53,8 @@ cmake -S . -B build -DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON
 ```
 
 启用后 CMake 会执行 `cmake/FindRtcOptionalSecurity.cmake`。当前 gate 只接受宽松许可证依赖：OpenSSL 使用 Apache-2.0，libsrtp 使用 BSD-3-Clause，或等价宽松许可的替代实现；不得接受 GPL/LGPL 依赖。如果本机缺少依赖，CMake 会失败并提示安装可选 Chrome E2E 安全依赖，或改回 `-DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF`。
+
+只有启用并成功配置可选安全 backend 后，full E2E 才可能到达 `dtls.connected` 和 `srtp.ready`。默认 OFF 的 smoke 只验证安全依赖 gate 与失败分层，不声明真实 Chrome DTLS/SRTP 互通已完成。
 
 ## 依赖许可证
 

@@ -720,28 +720,107 @@ static void on_state(void *user_data, const char *state)
     send_status(ctx, state);
 }
 
+static int text_has(const char *text, const char *needle)
+{
+    return text != 0 && needle != 0 && strstr(text, needle) != 0;
+}
+
+static const char *security_detail_name(int detail_code)
+{
+    switch (detail_code) {
+    case RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH:
+        return "fingerprint_mismatch";
+    case RTC_SECURITY_DETAIL_KEY_EXPORT_FAILED:
+        return "key_export_failed";
+    case RTC_SECURITY_DETAIL_SRTP_INIT_FAILED:
+        return "srtp_init_failed";
+    case RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED:
+        return "srtp_protect_failed";
+    case RTC_SECURITY_DETAIL_SRTP_UNPROTECT_FAILED:
+        return "srtp_unprotect_failed";
+    case RTC_SECURITY_DETAIL_SRTP_REPLAY_FAILED:
+        return "srtp_replay_failed";
+    case RTC_SECURITY_DETAIL_HANDSHAKE_FAILED:
+        return "handshake_failed";
+    default:
+        return "none";
+    }
+}
+
+static const char *security_failure_layer(const char *subsystem,
+                                          const char *operation,
+                                          int detail_code)
+{
+    if (detail_code == RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH ||
+        text_has(operation, "fingerprint") || text_has(operation, "dtls") ||
+        text_has(operation, "handshake") || text_has(subsystem, "dtls") ||
+        text_has(subsystem, "security")) {
+        return "dtls";
+    }
+    if (text_has(operation, "protect_rtcp") ||
+        text_has(operation, "unprotect_rtcp") ||
+        text_has(operation, "srtcp") || text_has(subsystem, "rtcp")) {
+        return "rtcp";
+    }
+    if (text_has(operation, "protect_rtp") ||
+        text_has(operation, "unprotect_rtp") || text_has(subsystem, "rtp")) {
+        return "rtp";
+    }
+    if (detail_code == RTC_SECURITY_DETAIL_KEY_EXPORT_FAILED ||
+        detail_code == RTC_SECURITY_DETAIL_SRTP_INIT_FAILED ||
+        detail_code == RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED ||
+        detail_code == RTC_SECURITY_DETAIL_SRTP_UNPROTECT_FAILED ||
+        detail_code == RTC_SECURITY_DETAIL_SRTP_REPLAY_FAILED ||
+        text_has(operation, "key_export") ||
+        text_has(operation, "srtp_init") || text_has(subsystem, "srtp")) {
+        return "srtp";
+    }
+    return subsystem == 0 ? "none" : subsystem;
+}
+
 static void on_error(void *user_data, rtc_status_t status,
                      const char *subsystem, const char *operation,
                      int detail_code)
 {
-    char detail[160];
-    snprintf(detail, sizeof(detail), "%s.%s status=%d detail=%d",
+    char detail[224];
+    const char *layer = security_failure_layer(subsystem, operation,
+                                               detail_code);
+
+    snprintf(detail, sizeof(detail),
+             "%s.%s status=%d detail_code=%d detail=%s",
              subsystem == 0 ? "unknown" : subsystem,
              operation == 0 ? "unknown" : operation, (int)status,
-             detail_code);
+             detail_code, security_detail_name(detail_code));
     e2e_context_t *ctx = (e2e_context_t *)user_data;
-    rtc_e2e_jsonl_event(ctx->jsonl, "error",
-                        subsystem == 0 ? "none" : subsystem, "failed",
-                        detail);
+    rtc_e2e_jsonl_event(ctx->jsonl, "error", layer, "failed", detail);
 }
 
 static void on_trace(void *user_data, const char *event,
                      const rtc_trace_field_t *fields, size_t field_count)
 {
-    (void)fields;
-    (void)field_count;
+    const char *subsystem = 0;
+    const char *operation = 0;
+    const char *reason = 0;
+    const char *layer;
+    char detail[224];
+    size_t i;
     e2e_context_t *ctx = (e2e_context_t *)user_data;
-    rtc_e2e_jsonl_event(ctx->jsonl, "trace", "none", "ok", event);
+
+    for (i = 0; i < field_count; ++i) {
+        if (strcmp(fields[i].key, RTC_TRACE_FIELD_SUBSYSTEM) == 0) {
+            subsystem = fields[i].value;
+        } else if (strcmp(fields[i].key, RTC_TRACE_FIELD_OPERATION) == 0) {
+            operation = fields[i].value;
+        } else if (strcmp(fields[i].key, RTC_TRACE_FIELD_REASON) == 0) {
+            reason = fields[i].value;
+        }
+    }
+    layer = security_failure_layer(subsystem, operation, 0);
+    snprintf(detail, sizeof(detail), "%s operation=%s reason=%s",
+             event == 0 ? "trace" : event,
+             operation == 0 ? "unknown" : operation,
+             reason == 0 ? "none" : reason);
+    rtc_e2e_jsonl_event(ctx->jsonl, "trace", layer, "ok", detail);
 }
 
 static void on_local_candidate(void *user_data, const char *candidate,
@@ -1202,6 +1281,15 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
     ctx.options = options;
     ctx.udp_fd = -1;
     ctx.ws_fd = -1;
+    fill_pc_config(&config, arena, sizeof(arena), options, &ctx);
+    status = rtc_chrome_e2e_configure_security_backend(&config);
+    if (status != RTC_STATUS_OK) {
+        rtc_e2e_jsonl_event(jsonl, "error", "dtls", "failed",
+                            "optional_security_backend_disabled");
+        rtc_e2e_jsonl_summary(jsonl, 0, "dtls",
+                              "optional_security_backend_disabled");
+        return 1;
+    }
     if (open_media_outputs(&ctx, options->output_dir) != 0) {
         close_media(&ctx);
         rtc_e2e_jsonl_summary(jsonl, 0, "media_file",
@@ -1226,20 +1314,6 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
                        "{\"type\":\"hello\",\"runId\":\"" E2E_RUN_ID
                        "\",\"role\":\"c-example\"}");
 
-    fill_pc_config(&config, arena, sizeof(arena), options, &ctx);
-    status = rtc_chrome_e2e_configure_security_backend(&config);
-    if (status != RTC_STATUS_OK) {
-        rtc_e2e_jsonl_event(jsonl, "error", "dtls", "failed",
-                            "optional_security_backend_disabled");
-        rtc_e2e_jsonl_summary(jsonl, 0, "dtls",
-                              "optional_security_backend_disabled");
-#if !defined(_WIN32)
-        close(ctx.ws_fd);
-        close(ctx.udp_fd);
-#endif
-        close_media(&ctx);
-        return 1;
-    }
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_create(&config, &diag, &pc);
     if (status != RTC_STATUS_OK) {
