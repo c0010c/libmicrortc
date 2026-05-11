@@ -12,7 +12,7 @@
 | 1 | 核心骨架与边界契约 | 建立纯 C API、固定内存、执行器、observer、构建和基础可观测性 | API-01, API-02, API-03, API-05, MEM-01, MEM-02, MEM-03, EXE-01, EXE-02, EXE-03, OBS-01, OBS-02, OBS-03, BLD-01, BLD-02 | 已完成 |
 | 2 | SDP/JSEP 与 Offer/Answer | 生成和解析 Chrome 1v1 最小 SDP，并完成发起/接听信令 API | SDP-01, SDP-02, SDP-03, SDP-04, API-04 | 已完成 |
 | 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 执行完成，待验证 |
-| 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 执行完成，待阶段验证 |
+| 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 已完成 |
 | 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 已完成 |
 | 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | 06-01..06-10 已执行，ACC-01 受 secure full E2E 环境和人工媒体 gate 阻断 |
 
@@ -118,6 +118,8 @@
 **目标：** 通过可插拔 backend vtable 建立 DTLS-SRTP 安全通道，不让核心 API 绑定特定第三方 TLS/SRTP 实现。
 
 **需求：** SEC-01, SEC-02, SEC-03, SEC-04, SEC-05
+
+**状态：** 已完成。2026-05-10 阶段级 UAT 通过，见 `04-UAT.md`；验证范围为 deterministic backend、核心安全契约和文档收口，Chrome 真实 DTLS/SRTP 端到端验收仍属于第 6 阶段。
 
 **成功标准：**
 1. DTLS backend vtable 可以由测试后端和至少一个参考后端驱动握手。

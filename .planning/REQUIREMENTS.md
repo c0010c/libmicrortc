@@ -142,11 +142,11 @@
 | NET-01 | 第 3 阶段 | 已规划 |
 | NET-02 | 第 3 阶段 | 已规划 |
 | NET-03 | 第 3 阶段 | 已规划 |
-| SEC-01 | 第 4 阶段 | 已完成：04-01 建立 backend 公共契约，04-02 完成固定 storage runtime、ICE connected 自动启动 DTLS 和 DTLS datagram/event 接入，04-06 文档收口确认单一 `security_backend` 边界 |
+| SEC-01 | 第 4 阶段 | 已完成：04-01 建立 backend 公共契约，04-02 完成固定 storage runtime、ICE connected 自动启动 DTLS 和 DTLS datagram/event 接入，04-06 文档收口确认单一 `security_backend` 边界；04-UAT 阶段级验证通过 |
 | SEC-02 | 第 4 阶段 | 已完成：04-03 将本地 SDP fingerprint 绑定到 backend sha-256 fingerprint，并在 DTLS peer fingerprint mismatch 时进入 dtls.failed、阻断 key export |
 | SEC-03 | 第 4 阶段 | 已完成：04-04 在 handshake complete + fingerprint verification 后导出 `EXTRACTOR-dtls_srtp` keying material，并初始化单一 BUNDLE SRTP/SRTCP context |
 | SEC-04 | 第 4 阶段 | 已完成：04-04 新增内部 SRTP/SRTCP protect/unprotect wrapper，失败路径阻断明文或未认证数据输出 |
-| SEC-05 | 第 4 阶段 | 已完成：04-05 新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定 status、observer detail、trace reason 和 counter，04-06 文档收口确认默认构建不要求 OpenSSL/libsrtp |
+| SEC-05 | 第 4 阶段 | 已完成：04-05 新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定 status、observer detail、trace reason 和 counter，04-06 文档收口确认默认构建不要求 OpenSSL/libsrtp；04-UAT 阶段级验证通过 |
 | RTP-01 | 第 5 阶段 | 已完成：05-02 实现 Opus frame 到 RTP packetize、timestamp/sequence 更新、SRTP protect 和受保护 datagram 输出；05-06 在 API 契约与 UAT 中收口发送语义 |
 | RTP-02 | 第 5 阶段 | 已完成：05-03 实现 RTP datagram SRTP unprotect 后 Opus depacketize，并通过 `on_media_frame_typed` 输出 `RTC_MEDIA_KIND_AUDIO_OPUS` frame；05-06 在 API 契约与 UAT 中收口接收语义 |
 | RTP-03 | 第 5 阶段 | 已完成：05-02 实现 H264 Annex B access unit single NALU 与 FU-A 发送，覆盖 marker、容量和 protect 失败不输出明文；05-06 文档化 H264 access unit 发送边界 |

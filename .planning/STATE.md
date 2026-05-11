@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 plans executed; 06-10 recorded secure E2E environment blocker; ACC-01 still pending secure full E2E and manual media approval
-last_updated: "2026-05-11T17:58:56.000+08:00"
+status: Phase 4 UAT complete; Phase 6 plans executed with secure E2E environment blocker; ACC-01 still pending secure full E2E and manual media approval
+last_updated: "2026-05-11T18:20:15.000+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -15,15 +15,15 @@ progress:
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
-**状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-10 已执行，06-10 已记录默认 OFF gate、dry-run、security-gate 通过，以及 secure ON 配置因本机缺少可选 OpenSSL/libsrtp 开发依赖而阻断；secure full E2E 与 VLC/ffplay 人工 UAT 未完成，`ACC-01` 仍待完成；第 4 阶段计划执行完成后仍等待阶段级验证
+**状态日期：** 2026-05-11
+**当前状态：** 第 4 阶段已通过阶段级 UAT，验证范围为 deterministic backend、核心安全契约和中文文档收口；第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-10 已执行，06-10 已记录默认 OFF gate、dry-run、security-gate 通过，以及 secure ON 配置因本机缺少可选 OpenSSL/libsrtp 开发依赖而阻断；secure full E2E 与 VLC/ffplay 人工 UAT 未完成，`ACC-01` 仍待完成。
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-10` 已执行默认 OFF build、`rtc_chrome_e2e` 构建、dry-run、security-gate 和 secure ON 配置尝试。默认 gate 均通过，secure ON 在 `FindRtcOptionalSecurity.cmake` 因本机缺少可选 OpenSSL/libsrtp 开发依赖而失败，未生成 `full-secure` 媒体文件，VLC/ffplay 人工批准未执行。下一步是在具备依赖的环境中重新运行 secure full E2E 和人工媒体检查，随后运行 `$gsd-verify-work 6`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办。
+**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-10` 已执行默认 OFF build、`rtc_chrome_e2e` 构建、dry-run、security-gate 和 secure ON 配置尝试。默认 gate 均通过，secure ON 在 `FindRtcOptionalSecurity.cmake` 因本机缺少可选 OpenSSL/libsrtp 开发依赖而失败，未生成 `full-secure` 媒体文件，VLC/ffplay 人工批准未执行。下一步是在具备依赖的环境中重新运行 secure full E2E 和人工媒体检查，随后运行 `$gsd-verify-work 6`。
 
 ## 工作流配置
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 10/10 plans 已执行；`06-01-SUMMARY.md` 到 `06-10-SUMMARY.md` 已完成；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 10/10 plans 已执行；`06-01-SUMMARY.md` 到 `06-10-SUMMARY.md` 已完成；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收。
 
 **计划数量：** 10
 
@@ -53,12 +53,6 @@ $gsd-verify-work 6
 ```
 
 复核时重点确认 `ACC-01` 因 secure full E2E 环境阻断和 VLC/ffplay 人工 gate 未通过而保持未完成；安装可选 OpenSSL/libsrtp 开发依赖后可重新执行 `06-10` 的 secure full E2E 和人工媒体验收步骤。
-
-**也建议：**
-
-```bash
-$gsd-verify-work 4
-```
 
 **计划入口：** `.planning/phases/06-chrome-end-to-end-acceptance/`
 
@@ -176,6 +170,7 @@ $gsd-verify-work 4
 - 2026-05-10T21:56:08+08:00：完成 `04-04-PLAN.md`，handshake complete 后导出 DTLS-SRTP key material、初始化单一 SRTP/SRTCP context，并新增内部 protect/unprotect wrapper。
 - 2026-05-10T22:04:18+08:00：完成 `04-05-PLAN.md`，新增 `RTC_SECURITY_DETAIL_*` detail code，并用 deterministic backend 矩阵锁定安全失败的 status、observer detail、trace reason 和 counter。
 - 2026-05-10T22:10:11+08:00：完成 `04-06-PLAN.md`，收口中文契约文档、SEC-01..SEC-05 需求追踪和项目状态，明确默认构建不要求 OpenSSL/libsrtp，Chrome 真实 DTLS E2E 仍属于第 6 阶段验收范围。
+- 2026-05-10T23:20:05+08:00：完成第 4 阶段 UAT，6/6 检查通过、0 issue、0 pending；验证范围覆盖 security backend 公共契约、DTLS runtime、fingerprint mismatch、key export、SRTP/SRTCP wrapper、安全错误矩阵和中文文档边界。
 - 2026-05-10T23:45:00+08:00：完成第 5 阶段规划，生成 `05-RESEARCH.md`、`05-VALIDATION.md`、`05-PATTERNS.md` 和 `05-01` 到 `05-06` 六个执行计划。
 - 2026-05-10T23:58:10+08:00：完成 `05-01-PLAN.md`，建立 typed media frame/feedback API、typed observer、media/RTP/RTCP limits、counters、trace 和 create-time 固定媒体槽。
 - 2026-05-11T00:10:53+08:00：完成 `05-02-PLAN.md`，打通 Opus/H264 RTP 发送 packetize、SRTP protect 和 `observer.on_datagram` 受保护输出，protect 失败不泄漏明文 RTP。
@@ -232,4 +227,4 @@ $gsd-verify-work 4
 - `06-09` Chrome 可选安全 backend 只在 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时包含和链接 OpenSSL/libsrtp；Chrome 自签 DTLS certificate 的身份校验由核心 sha-256 fingerprint 比对负责，SRTP protect/unprotect 失败由核心 wrapper 映射到具体 rtp/rtcp/srtp detail。
 
 ---
-*最后更新：2026-05-11，06-10 secure E2E 环境阻断收口后*
+*最后更新：2026-05-11，第 4 阶段 UAT 状态同步后*
