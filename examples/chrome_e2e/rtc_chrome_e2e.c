@@ -1,5 +1,6 @@
 #include "jsonl.h"
 #include "media_samples.h"
+#include "security_backend_chrome.h"
 #include "executor/executor.h"
 #include "rtc/rtc.h"
 
@@ -841,6 +842,7 @@ static void fill_pc_config(rtc_peer_connection_config_t *config,
     config->limits.ice.max_transactions = 4;
     config->limits.ice.max_timer_slots = 8;
     config->limits.dtls.max_sessions = 1;
+    config->limits.dtls.max_session_storage_bytes = 4096;
     config->limits.rtp.max_packet_cache = 32;
     config->limits.rtp.max_payload_bytes = 1200;
     config->limits.rtp.max_packets_per_frame = 8;
@@ -1225,6 +1227,19 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
                        "\",\"role\":\"c-example\"}");
 
     fill_pc_config(&config, arena, sizeof(arena), options, &ctx);
+    status = rtc_chrome_e2e_configure_security_backend(&config);
+    if (status != RTC_STATUS_OK) {
+        rtc_e2e_jsonl_event(jsonl, "error", "dtls", "failed",
+                            "optional_security_backend_disabled");
+        rtc_e2e_jsonl_summary(jsonl, 0, "dtls",
+                              "optional_security_backend_disabled");
+#if !defined(_WIN32)
+        close(ctx.ws_fd);
+        close(ctx.udp_fd);
+#endif
+        close_media(&ctx);
+        return 1;
+    }
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_create(&config, &diag, &pc);
     if (status != RTC_STATUS_OK) {

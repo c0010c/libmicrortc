@@ -17,7 +17,7 @@ WebSocket 信令只转发同一 `runId` 内的 JSON 消息，允许类型为 `he
 
 `rtc_chrome_e2e` 的 socket、WebSocket、JSONL 和文件输出都位于 `examples/chrome_e2e/` 示例层。核心库仍不创建 socket、不拥有线程或事件循环；UDP datagram 通过 `rtc_peer_connection_receive_datagram` 输入库，待发送 datagram 通过 `observer.on_datagram` 输出后由示例层立即复制到发送队列，再由 `sendto` 发送。
 
-当前计划只完成 C 示例运行时骨架和 smoke 检查；真实 Chrome 互通仍依赖后续样本媒体解析、真实 DTLS/SRTP backend gate 和 full E2E 编排。
+默认构建不会启用真实 Chrome DTLS/SRTP backend。`rtc_chrome_e2e` 在非 dry-run 路径检测到未启用可选 backend 时会输出 JSONL summary：`pass:false`、`layer:"dtls"`、`reason:"optional_security_backend_disabled"`，防止把 deterministic backend 或无加密路径误报为真实互通成功。
 
 ## 样本媒体与落盘文件
 
@@ -40,7 +40,21 @@ node examples/chrome_e2e/run_e2e.mjs --media-file-smoke
 
 后续计划会把 C 示例、样本媒体解析和完整 E2E 编排接入同一入口。
 
+## 可选 Chrome 安全 backend
+
+构建开关 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY` 默认 `OFF`。默认构建不查找、不链接 OpenSSL、libsrtp 或其他系统安全依赖；full E2E 会停在 `optional_security_backend_disabled` gate。
+
+如需启用可选安全依赖，可配置：
+
+```bash
+cmake -S . -B build -DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON
+```
+
+启用后 CMake 会执行 `cmake/FindRtcOptionalSecurity.cmake`。当前 gate 只接受宽松许可证依赖：OpenSSL 使用 Apache-2.0，libsrtp 使用 BSD-3-Clause，或等价宽松许可的替代实现；不得接受 GPL/LGPL 依赖。如果本机缺少依赖，CMake 会失败并提示安装可选 Chrome E2E 安全依赖，或改回 `-DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF`。
+
 ## 依赖许可证
 
 - `ws`: MIT
 - `@playwright/test`: Apache-2.0
+- `OpenSSL`（仅 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时可选）: Apache-2.0
+- `libsrtp`（仅 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时可选）: BSD-3-Clause

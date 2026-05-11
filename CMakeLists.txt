@@ -8,6 +8,11 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 option(RTC_BUILD_TESTS "Build rtc tests" ON)
 option(RTC_BUILD_EXAMPLES "Build rtc examples" ON)
+option(RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY "Enable optional Chrome E2E DTLS/SRTP security dependencies" OFF)
+
+if(RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY)
+    include(cmake/FindRtcOptionalSecurity.cmake)
+endif()
 
 add_library(rtc STATIC
     src/api/rtc.c
@@ -77,8 +82,14 @@ if(RTC_BUILD_EXAMPLES)
         examples/chrome_e2e/rtc_chrome_e2e.c
         examples/chrome_e2e/jsonl.c
         examples/chrome_e2e/media_samples.c
+        examples/chrome_e2e/security_backend_chrome.c
     )
     target_include_directories(rtc_chrome_e2e PRIVATE src)
+    if(RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY)
+        target_compile_definitions(rtc_chrome_e2e PRIVATE RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=1)
+        target_include_directories(rtc_chrome_e2e PRIVATE ${RTC_OPTIONAL_SECURITY_INCLUDE_DIRS})
+        target_link_libraries(rtc_chrome_e2e PRIVATE ${RTC_OPTIONAL_SECURITY_LIBRARIES})
+    endif()
     target_link_libraries(rtc_chrome_e2e PRIVATE rtc)
 endif()
 
