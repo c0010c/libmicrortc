@@ -1,20 +1,22 @@
 ---
 phase: 05-rtp-rtcp-media-plane
 verified: 2026-05-10T17:04:36Z
-status: human_needed
+status: passed
 score: 10/10 must-haves verified
 overrides_applied: 0
+human_approved: 2026-05-11T01:06:17+08:00
 human_verification:
   - test: "异步 executor 语义确认（承接 05-REVIEW.md WR-01）"
     expected: "如果 executor.post 合法延迟执行，媒体 API 返回值、后续失败上报、slot 生命周期和 destroy 时排队任务处理语义应被产品契约接受，或后续用延迟执行器测试补齐。"
-    why_human: "当前自动化测试使用同步 test executor；代码复审将该项列为 advisory warning，非阻塞但需要开发者确认 API 语义。"
+    result: "approved"
+    why_human: "当前自动化测试使用同步 test executor；代码复审将该项列为 advisory warning，非阻塞但需要开发者确认 API 语义。开发者已批准当前语义继续收口。"
 ---
 
 # Phase 05：RTP/RTCP 媒体平面验证报告
 
 **阶段目标：** 完成 1 路 Opus 音频和 1 路 H264 视频的 RTP/RTCP 媒体平面，并把关键反馈事件暴露给用户。  
 **验证时间：** 2026-05-10T17:04:36Z  
-**状态：** human_needed  
+**状态：** passed  
 **复验模式：** 否，初次阶段级验证。  
 **说明：** `gsd-sdk` 在当前 shell 中不可用，因此路线图与需求合同直接从 `.planning/ROADMAP.md`、`.planning/REQUIREMENTS.md` 和 05 阶段 PLAN frontmatter 读取。
 
@@ -35,7 +37,7 @@ human_verification:
 | 9 | NACK 只解析并上报，不执行重传。 | 已验证 | `rtc_rtcp_parse_nack` 展开 PID/BLP 到固定 17 项数组；`rtc_media_emit_nack_feedback` 设置 `retransmit_performed = 0`，递增 `nack_received` 和 `nack_no_retransmit`，trace reason 为 `nack_no_retransmit`。源码反向扫描未发现 `rtx`、`retransmit_cache` 或 `resend`。 |
 | 10 | 关键反馈和安全失败有可观测输出。 | 已验证 | PLI/NACK 走 `on_media_feedback`、counter 和 trace；SRTP/SRTCP protect/unprotect 失败由 `src/srtp` wrapper 记录错误、trace 和 counter，媒体路径在失败时不输出 datagram/frame/feedback。 |
 
-**得分：** 10/10 个 must-have 已通过代码和测试证据验证；另有 1 个人工确认项。
+**得分：** 10/10 个 must-have 已通过代码和测试证据验证；1 个人工确认项已由开发者批准。
 
 ### 必要工件
 
@@ -106,17 +108,19 @@ human_verification:
 
 源码目标文件未发现 TODO/FIXME/placeholder、运行期 `malloc/calloc/realloc`、线程/socket 创建或 NACK 重传缓存。
 
-### 人工验证需要
+### 人工验证结果
 
 #### 1. 异步 executor 语义确认
 
 **测试：** 使用合法但延迟执行的 media/network executor，验证 `send_media_frame`、`receive_datagram`、`request_keyframe` 在 `post()` 后任务稍后执行时的返回值语义、失败上报、slot 生命周期和 destroy 行为。  
 **期望：** 若 public API 语义是“已入队”，则返回值只表示入队成功，后续 protect/unprotect/parse 失败必须通过 observer error、trace 或 counter 可观测；若语义要求同步返回失败，则实现需要调整。  
+**结果：** passed — 开发者批准当前语义，允许第 5 阶段作为非阻塞设计警告继续收口。`05-REVIEW.md` 的 WR-01 保留为后续契约/延迟执行器测试增强项。
+
 **为什么需要人工：** 当前阶段不修改源码；现有测试 executor 同步执行，`05-REVIEW.md` 已将该项定为 advisory warning（0 critical，1 warning）。
 
 ### 缺口摘要
 
-没有发现阻塞阶段目标的实现缺口。所有 Phase 5 requirement IDs 均能从 public API、源码实现、测试和中文文档追踪到实际证据。当前状态为 `human_needed`，仅因为异步 executor 语义仍需开发者确认；这不是代码复审 critical，也不是必须阻断的实现缺失。
+没有发现阻塞阶段目标的实现缺口。所有 Phase 5 requirement IDs 均能从 public API、源码实现、测试和中文文档追踪到实际证据。异步 executor 语义已由开发者批准作为非阻塞设计警告继续收口；这不是代码复审 critical，也不是必须阻断的实现缺失。
 
 ---
 
