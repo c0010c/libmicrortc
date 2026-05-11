@@ -17,7 +17,7 @@
 - 第 1 阶段验证：纯 C CMake 静态库骨架、公共 `rtc_status_t`、不透明 `PeerConnection` create/destroy、固定 arena/limits、三执行器 vtable、亲和检查、observer、trace、计数器、最小 create/destroy 示例和中文 API 契约文档已通过本地构建与测试。
 - 第 2 阶段验证：固定 Chrome 1v1 SDP/JSEP profile、create-time SDP 参数、offer/answer writer、Chrome SDP parser、最小 JSEP 状态机、`addIceCandidate` 远端 candidate 固定槽保存和相关 golden/API 测试已通过本地构建与测试。
 - 第 5 阶段验证：typed media API、Opus/H264 RTP packetize/depacketize、H264 single NALU/FU-A/STAP-A、RTCP SR/RR/SDES、显式 PLI、NACK parse-only feedback、SRTP/SRTCP 失败不泄漏和 executor/buffer 生命周期契约已通过本地 deterministic tests 与中文文档/UAT 收口；Chrome 真实端到端验收仍属于第 6 阶段。
-- 第 6 阶段自动化验收：Chrome 合成媒体页面、JSON-only WebSocket 信令、`rtc_chrome_e2e` C 示例、样本解析、JSONL summary、七层 failure layering、`manual_vlc_required:true` 和中文 `06-UAT.md` 已收口；默认 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF` 时 full run 正确停在 `dtls/optional_security_backend_disabled`，真实 Chrome DTLS/SRTP full E2E 与 VLC/ffplay 人工播放仍待完成，`ACC-01` 不视为已关闭。
+- 第 6 阶段自动化验收：Chrome 合成媒体页面、JSON-only WebSocket 信令、`rtc_chrome_e2e` C 示例、样本解析、JSONL summary、七层 failure layering、共享 `runId`、WebSocket 分片读取、C runtime 成功状态机、media executor 亲和和默认关闭的 OpenSSL DTLS/libsrtp 可选 backend 已收口；默认 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF` 时 security gate 正确停在 `dtls/optional_security_backend_disabled`。本机缺少可选 OpenSSL/libsrtp 开发依赖，真实 Chrome DTLS/SRTP secure full E2E 与 VLC/ffplay 人工播放仍待完成，`ACC-01` 不视为已关闭。
 
 ### 当前范围
 
@@ -30,14 +30,14 @@
 - [ ] 使用 `signaling`、`media`、`network` 三类 `post + timer` 执行器抽象，库内部不创建线程。
 - [ ] 通过 datagram 输入输出 API 与用户提供的 UDP/socket 层集成。
 - [ ] 提供事件、计数器和 trace hook，首版即可支撑生产排障。
-- [ ] 使用 CMake 交付静态库，并提供本地 Chrome 页面和信令示例完成端到端验收；当前 Chrome E2E 自动化与 UAT runbook 已完成，真实可选安全 backend 和 VLC/ffplay 人工媒体播放仍是 `ACC-01` gate。
+- [ ] 使用 CMake 交付静态库，并提供本地 Chrome 页面和信令示例完成端到端验收；当前 Chrome E2E 自动化、UAT runbook 和可选安全 backend 实现已完成，secure full E2E 依赖本机 OpenSSL/libsrtp 开发包，VLC/ffplay 人工媒体播放仍是 `ACC-01` gate。
 
 ### 阶段规划记录
 
 - 第 3 阶段已规划：范围覆盖 host/srflx gathering、Full ICE checks、trickle ICE、ICE 状态事件、STUN transaction 和 STUN/DTLS/RTP/RTCP datagram demux；执行完成后再移入“已验证”。
 - 第 4 阶段已规划：范围覆盖单一 `security_backend` vtable、backend event/callback 数据通道、DTLS fingerprint 校验、SRTP key export、内部 SRTP/SRTCP protect/unprotect wrapper、deterministic backend 错误矩阵和文档收口；默认构建不要求 OpenSSL/libsrtp 开发包，真实 Chrome DTLS 端到端验收留到第 6 阶段。
 - 第 5 阶段已执行完成并通过阶段级验证：范围覆盖 typed media frame API、Opus/H264 RTP packetize/depacketize、H264 FU-A/STAP-A、RTCP SR/RR/SDES、PLI 显式请求、NACK 只上报不重传、media/network executor 分层和媒体可观测性。
-- 第 6 阶段已执行 06-01..06-06：范围覆盖 Chrome 合成媒体页面、WebSocket 信令、C 示例 socket/WebSocket I/O、样本解析、可选安全 backend gate、full E2E 自动化、failure layering 和 UAT 文档；真实 Chrome DTLS/SRTP backend 与 VLC/ffplay 人工播放检查仍待 `$gsd-verify-work 6` 或手工验收记录确认。
+- 第 6 阶段已执行 06-01..06-10：范围覆盖 Chrome 合成媒体页面、WebSocket 信令、C 示例 socket/WebSocket I/O、样本解析、可选安全 backend gate、full E2E 自动化、failure layering、共享 runId、WebSocket 分片读取、C runtime 成功状态机、media executor 亲和、OpenSSL DTLS/libsrtp 可选 backend 和 UAT 文档；本机缺少可选安全依赖，secure full E2E 与 VLC/ffplay 人工播放检查仍未完成。
 
 ### 不在范围内
 
@@ -108,4 +108,4 @@
 4. 使用当前状态更新背景
 
 ---
-*最后更新：2026-05-11，第 6 阶段 06-06 UAT 收口后*
+*最后更新：2026-05-11，第 6 阶段 06-10 环境阻断收口后*

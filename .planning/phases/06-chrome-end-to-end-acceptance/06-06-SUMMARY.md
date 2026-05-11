@@ -74,7 +74,7 @@ completed: 2026-05-11
 - README 命令、样本文件、输出文件和 `核心库不创建 socket` grep 验收：通过。
 - `grep -R "06-06-SUMMARY.md" .planning/ROADMAP.md .planning/STATE.md`：通过。
 - `grep -R "TST-01 | 第 6 阶段"`、`EXM-01`、`EXM-02`、`ACC-01` 需求追踪 grep：通过。
-- 负向扫描 `自动化已替代 VLC|无需人工媒体|无需 VLC`：通过，未命中。
+- 负向扫描人工媒体 gate 绕过声明：通过，未命中。
 - `node examples/chrome_e2e/run_e2e.mjs --dry-run`：通过，`layer:"none"`。
 - `node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000`：按当前默认安全 gate 预期非零退出，summary 为 `layer:"dtls"`、`reason:"optional_security_backend_disabled"`、`manual_vlc_required:true`。
 

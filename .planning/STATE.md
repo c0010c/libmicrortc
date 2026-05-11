@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 gap closure in progress; 06-09 completed optional OpenSSL/libsrtp backend implementation; ACC-01 still pending secure full E2E and manual media approval
-last_updated: "2026-05-11T09:56:12.875Z"
+status: Phase 6 plans executed; 06-10 recorded secure E2E environment blocker; ACC-01 still pending secure full E2E and manual media approval
+last_updated: "2026-05-11T17:58:56.000+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 34
-  completed_plans: 33
-  percent: 97
+  completed_plans: 34
+  percent: 100
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-09 已执行，06-09 已关闭 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时仍返回 unsupported 的 blocker，并实现默认关闭的 OpenSSL DTLS / libsrtp security backend；06-10 仍需 secure full E2E 和 VLC/ffplay 人工 UAT；`ACC-01` 仍待完成；第 4 阶段计划执行完成后仍等待阶段级验证
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-10 已执行，06-10 已记录默认 OFF gate、dry-run、security-gate 通过，以及 secure ON 配置因本机缺少可选 OpenSSL/libsrtp 开发依赖而阻断；secure full E2E 与 VLC/ffplay 人工 UAT 未完成，`ACC-01` 仍待完成；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-09` 已实现默认关闭的真实可选 OpenSSL DTLS / libsrtp backend，ON 分支会填充 `security_backend` vtable，OFF 构建仍不查找或链接系统安全依赖。本机缺少可选 OpenSSL/libsrtp 开发包，因此 secure build/full E2E 仍未运行。下一步执行 `06-10-PLAN.md`，在具备依赖的环境中完成 secure full E2E 和 VLC/ffplay 人工批准；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办。
+**当前焦点：** Phase 6: Chrome 端到端验收 gap closure；`06-10` 已执行默认 OFF build、`rtc_chrome_e2e` 构建、dry-run、security-gate 和 secure ON 配置尝试。默认 gate 均通过，secure ON 在 `FindRtcOptionalSecurity.cmake` 因本机缺少可选 OpenSSL/libsrtp 开发依赖而失败，未生成 `full-secure` 媒体文件，VLC/ffplay 人工批准未执行。下一步是在具备依赖的环境中重新运行 secure full E2E 和人工媒体检查，随后运行 `$gsd-verify-work 6`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办。
 
 ## 工作流配置
 
@@ -42,17 +42,17 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 9/10 plans 已执行，1 个 gap closure plan 待执行；`06-01-SUMMARY.md` 到 `06-09-SUMMARY.md` 已完成；`06-10` 待执行；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 10/10 plans 已执行；`06-01-SUMMARY.md` 到 `06-10-SUMMARY.md` 已完成；`ACC-01` 仍待 secure full E2E 和 VLC/ffplay 人工验收；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 10
 
 **下一步：**
 
 ```bash
-$gsd-execute-phase 6
+$gsd-verify-work 6
 ```
 
-执行时重点按 06-09..06-10 顺序关闭剩余 verification gaps。默认安全 backend 未启用、secure full E2E 未通过或人工媒体检查未通过时，`ACC-01` 不应标记为完成。
+复核时重点确认 `ACC-01` 因 secure full E2E 环境阻断和 VLC/ffplay 人工 gate 未通过而保持未完成；安装可选 OpenSSL/libsrtp 开发依赖后可重新执行 `06-10` 的 secure full E2E 和人工媒体验收步骤。
 
 **也建议：**
 
@@ -196,6 +196,7 @@ $gsd-verify-work 4
 - 2026-05-11T17:08:15+08:00：完成 `06-07-PLAN.md`，Chrome 页面、run_e2e 和 C 示例共享同一 `runId`；C 示例支持 `--run-id`，WebSocket text frame 读取改为固定内存分片状态机；构建、C smoke 和 page smoke 均通过；`ACC-01` 仍待 06-08..06-10。
 - 2026-05-11T17:17:55+08:00：完成 `06-08-PLAN.md`，C 示例 runtime 新增真实成功状态机和分层 timeout summary；媒体发送改为 `RTC_EXECUTOR_MEDIA` 并检查返回值；full E2E pass 判定要求 C summary、进程退出码和非空 Opus/H264 媒体文件同时满足；`ACC-01` 仍待 06-09..06-10。
 - 2026-05-11T17:53:40+08:00：完成 `06-09-PLAN.md`，新增默认关闭的 OpenSSL DTLS / libsrtp Chrome E2E security backend；ON 分支配置真实 backend vtable，OFF 构建和 security gate smoke 保持无系统安全依赖；本机缺少可选开发包，secure build/full E2E 留给 06-10；`ACC-01` 仍待人工验收。
+- 2026-05-11T17:58:56+08:00：执行 `06-10-PLAN.md`，默认 OFF configure/build、dry-run、security-gate 和 `ctest` 均通过；secure ON 配置因本机缺少可选 OpenSSL/libsrtp 开发依赖在 CMake gate 阻断，未生成 full-secure 媒体文件，VLC/ffplay 人工批准未执行；`ACC-01` 保持未完成。
 
 ## 执行决策
 
@@ -231,4 +232,4 @@ $gsd-verify-work 4
 - `06-09` Chrome 可选安全 backend 只在 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 时包含和链接 OpenSSL/libsrtp；Chrome 自签 DTLS certificate 的身份校验由核心 sha-256 fingerprint 比对负责，SRTP protect/unprotect 失败由核心 wrapper 映射到具体 rtp/rtcp/srtp detail。
 
 ---
-*最后更新：2026-05-11，06-09 可选 OpenSSL/libsrtp backend 实现后*
+*最后更新：2026-05-11，06-10 secure E2E 环境阻断收口后*

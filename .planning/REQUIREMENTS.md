@@ -160,7 +160,7 @@
 | TST-01 | 第 6 阶段 | 已完成：06-05 已完成端到端自动化编排、页面 smoke、C JSONL summary 解析和七层失败分层；06-06 新增 `06-UAT.md`，明确 dry-run/page-smoke/security-gate/full run、JSONL summary 和失败层级检查 |
 | EXM-01 | 第 6 阶段 | 已完成：06-01 新增本地 Chrome 合成媒体页面、双视频预览、七阶段状态条、compact diagnostics 和 Playwright page smoke |
 | EXM-02 | 第 6 阶段 | 已完成：06-01 新增本机 WebSocket 信令服务，支持 SDP offer/answer 与 trickle ICE candidate JSON 转发并拒绝媒体 payload |
-| ACC-01 | 第 6 阶段 | 部分完成/待人工验收：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 已完成默认关闭的可选真实安全 backend gate、许可证说明和 DTLS/SRTP/RTP/RTCP 失败分层；06-05 已完成 full E2E 自动化编排和 `manual_vlc_required:true` 报告；06-06 已创建 UAT 清单，但默认安全 backend 仍关闭，真实 Chrome DTLS/SRTP full E2E 与 VLC 人工播放仍待完成 |
+| ACC-01 | 第 6 阶段 | 部分完成/待人工验收：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 已完成默认关闭的可选真实安全 backend gate、许可证说明和 DTLS/SRTP/RTP/RTCP 失败分层；06-05 已完成 full E2E 自动化编排和 `manual_vlc_required:true` 报告；06-07 修复共享 `runId` 和 WebSocket 分片读取；06-08 修复 C runtime 成功状态机、media executor 亲和和 full E2E pass 判定；06-09 实现默认关闭的 OpenSSL DTLS/libsrtp 可选 backend；06-10 已执行默认 OFF gate、dry-run、security-gate 和 secure ON 配置尝试，但本机缺少可选 OpenSSL/libsrtp 开发依赖，secure full E2E 与 VLC/ffplay 人工播放未完成 |
 
 **覆盖情况：**
 - v1 需求：48 项
@@ -169,4 +169,4 @@
 
 ---
 *需求定义：2026-05-10*
-*最后更新：2026-05-11，06-06 Chrome E2E UAT、需求追踪和 manual VLC gate 收口后*
+*最后更新：2026-05-11，06-10 secure E2E 环境阻断记录后*

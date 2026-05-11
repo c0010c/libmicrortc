@@ -46,6 +46,32 @@ created: 2026-05-11
 
 当前状态：默认安全 backend 仍关闭，真实 Chrome DTLS/SRTP full E2E 与 VLC 人工播放尚未完成；不得宣称自动化已经替代人工媒体播放检查。
 
+## 06-10 执行记录
+
+日期：2026-05-11
+命令：`cmake -S . -B build -DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=OFF`
+结果：通过，默认 OFF 构建仍不查找或链接可选 OpenSSL/libsrtp 依赖。
+
+命令：`cmake --build build --target rtc_chrome_e2e`
+结果：通过，生成 `build/rtc_chrome_e2e`。
+
+命令：`npm run e2e:chrome:dry-run`
+结果：通过，样本文件、页面、信令脚本和 npm smoke 入口存在。
+
+命令：`npm run e2e:chrome:security-gate`
+结果：通过，summary 为 `pass:false`、`layer:"dtls"`、`reason:"optional_security_backend_disabled"`，符合默认安全 backend OFF gate。
+
+命令：`cmake -S . -B build-secure -DRTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON`
+结果：环境阻断。本机缺少可选 OpenSSL/libsrtp 开发依赖，CMake 在 `FindRtcOptionalSecurity.cmake` 按预期失败并提示安装依赖或改回 OFF。
+
+```json
+{"pass":false,"layer":"dtls","reason":"optional_security_backend_disabled","manual_vlc_required":true,"media_files":{"received-opus.packets":{"exists":false,"bytes":0},"received-h264.264":{"exists":false,"bytes":0}},"environment_blocker":"missing optional OpenSSL/libsrtp development dependencies","output_dir":"examples/chrome_e2e/out/full-secure"}
+```
+
+VLC/ffplay 结果：未执行。由于 secure ON 构建未完成，未生成 `examples/chrome_e2e/out/full-secure/received-opus.packets` 和 `examples/chrome_e2e/out/full-secure/received-h264.264`，不能进行人工播放批准。
+
+下一步：安装可选 OpenSSL/libsrtp2 开发包后重新运行 secure build、full E2E 和 VLC/ffplay 人工检查；在 full E2E 输出 `pass:true`、`layer:"none"` 且音视频人工播放通过前，`ACC-01` 保持未完成。
+
 ## JSONL Summary 检查
 
 每次 full run 至少保存或记录以下字段：
