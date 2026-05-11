@@ -1,2 +1,5 @@
 .cache/
+build/
+build-secure/
+node_modules/
 examples/chrome_e2e/out/
