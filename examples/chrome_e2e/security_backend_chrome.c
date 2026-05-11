@@ -491,6 +491,7 @@ static rtc_status_t chrome_init_srtp_context(
 
     if (!srtp_initialized) {
         if (srtp_init() != srtp_err_status_ok) {
+            /* Core maps init failure to RTC_SECURITY_DETAIL_SRTP_INIT_FAILED. */
             return RTC_STATUS_BACKEND_ERROR;
         }
         srtp_initialized = 1;
@@ -530,6 +531,9 @@ static rtc_status_t chrome_init_srtp_context(
 
 static rtc_status_t chrome_srtp_status(srtp_err_status_t err, int unprotect)
 {
+    /* Core wrappers map these returns to RTC_SECURITY_DETAIL_SRTP_PROTECT_FAILED,
+       RTC_SECURITY_DETAIL_SRTP_UNPROTECT_FAILED, or
+       RTC_SECURITY_DETAIL_SRTP_REPLAY_FAILED. */
     if (err == srtp_err_status_ok) {
         return RTC_STATUS_OK;
     }
