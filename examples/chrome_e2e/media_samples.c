@@ -86,18 +86,37 @@ static int h264_scan_to_start_code(FILE *file, uint8_t *out,
     return RTC_E2E_SAMPLE_EOF;
 }
 
-int rtc_e2e_sample_next_h264(rtc_e2e_sample_reader_t *reader,
-                             rtc_e2e_sample_frame_t *frame,
-                             uint8_t *buffer, size_t buffer_len)
+static int h264_nalu_type(const uint8_t *data, size_t len)
+{
+    if (len >= 5u && data[0] == 0x00u && data[1] == 0x00u &&
+        data[2] == 0x00u && data[3] == 0x01u) {
+        return data[4] & 0x1f;
+    }
+    if (len >= 4u && data[0] == 0x00u && data[1] == 0x00u &&
+        data[2] == 0x01u) {
+        return data[3] & 0x1f;
+    }
+    return 0;
+}
+
+static int h264_is_vcl(int nalu_type)
+{
+    return nalu_type >= 1 && nalu_type <= 5;
+}
+
+static int h264_read_next_nalu(rtc_e2e_sample_reader_t *reader,
+                               uint8_t *buffer, size_t buffer_len,
+                               size_t *out_len)
 {
     size_t data_len = 0;
     size_t start_len = 0;
     int c;
 
-    if (reader == 0 || frame == 0 || buffer == 0 || buffer_len == 0u ||
+    if (reader == 0 || buffer == 0 || out_len == 0 || buffer_len == 0u ||
         reader->file == 0 || reader->kind != RTC_E2E_SAMPLE_READER_H264) {
         return RTC_E2E_SAMPLE_ERROR;
     }
+    *out_len = 0;
     if (reader->pending_start_code_len == 0u) {
         if (h264_scan_to_start_code(reader->file, reader->pending_start_code,
                                     &reader->pending_start_code_len) !=
@@ -126,6 +145,36 @@ int rtc_e2e_sample_next_h264(rtc_e2e_sample_reader_t *reader,
     }
     if (data_len == 0u) {
         return RTC_E2E_SAMPLE_EOF;
+    }
+    *out_len = data_len;
+    return RTC_E2E_SAMPLE_OK;
+}
+
+int rtc_e2e_sample_next_h264(rtc_e2e_sample_reader_t *reader,
+                             rtc_e2e_sample_frame_t *frame,
+                             uint8_t *buffer, size_t buffer_len)
+{
+    size_t data_len = 0;
+    int saw_vcl = 0;
+
+    if (reader == 0 || frame == 0 || buffer == 0 || buffer_len == 0u ||
+        reader->file == 0 || reader->kind != RTC_E2E_SAMPLE_READER_H264) {
+        return RTC_E2E_SAMPLE_ERROR;
+    }
+
+    while (!saw_vcl) {
+        size_t nalu_len = 0;
+        int nalu_type;
+        int rc;
+
+        rc = h264_read_next_nalu(reader, buffer + data_len,
+                                 buffer_len - data_len, &nalu_len);
+        if (rc != RTC_E2E_SAMPLE_OK) {
+            return data_len > 0u ? RTC_E2E_SAMPLE_OK : rc;
+        }
+        nalu_type = h264_nalu_type(buffer + data_len, nalu_len);
+        data_len += nalu_len;
+        saw_vcl = h264_is_vcl(nalu_type);
     }
 
     memset(frame, 0, sizeof(*frame));

@@ -9,6 +9,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(RTC_BUILD_TESTS "Build rtc tests" ON)
 option(RTC_BUILD_EXAMPLES "Build rtc examples" ON)
 option(RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY "Enable optional Chrome E2E DTLS/SRTP security dependencies" OFF)
+option(RTC_BUILD_OPENSSL_STATIC_MEMORY_PROBE "Build a static-OpenSSL memory probe executable" OFF)
 
 if(RTC_BUILD_EXAMPLES AND RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY)
     include(cmake/FindRtcOptionalSecurity.cmake)
@@ -91,6 +92,31 @@ if(RTC_BUILD_EXAMPLES)
         target_link_libraries(rtc_chrome_e2e PRIVATE ${RTC_OPTIONAL_SECURITY_LIBRARIES})
     endif()
     target_link_libraries(rtc_chrome_e2e PRIVATE rtc)
+endif()
+
+if(RTC_BUILD_OPENSSL_STATIC_MEMORY_PROBE)
+    if(NOT OPENSSL_ROOT_DIR)
+        message(FATAL_ERROR "RTC_BUILD_OPENSSL_STATIC_MEMORY_PROBE requires OPENSSL_ROOT_DIR")
+    endif()
+    set(RTC_OPENSSL_STATIC_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
+    set(RTC_OPENSSL_STATIC_SSL "${OPENSSL_ROOT_DIR}/lib/libssl.a")
+    set(RTC_OPENSSL_STATIC_CRYPTO "${OPENSSL_ROOT_DIR}/lib/libcrypto.a")
+    if(NOT EXISTS "${RTC_OPENSSL_STATIC_SSL}" OR NOT EXISTS "${RTC_OPENSSL_STATIC_CRYPTO}")
+        message(FATAL_ERROR "OpenSSL static libraries not found under OPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}")
+    endif()
+    find_package(Threads REQUIRED)
+    add_executable(rtc_openssl_static_memory_probe
+        examples/openssl_static_memory_probe.c
+    )
+    target_include_directories(rtc_openssl_static_memory_probe PRIVATE
+        "${RTC_OPENSSL_STATIC_INCLUDE_DIR}"
+    )
+    target_link_libraries(rtc_openssl_static_memory_probe PRIVATE
+        "${RTC_OPENSSL_STATIC_SSL}"
+        "${RTC_OPENSSL_STATIC_CRYPTO}"
+        Threads::Threads
+        ${CMAKE_DL_LIBS}
+    )
 endif()
 
 install(TARGETS rtc ARCHIVE DESTINATION lib)

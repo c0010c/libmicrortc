@@ -23,12 +23,14 @@ WebSocket 信令只转发同一 `runId` 内的 JSON 消息，允许类型为 `he
 
 ## 样本媒体与落盘文件
 
-C 示例直接读取项目根目录的 `sample1.opus` 与 `test-25fps.h264`。`sample1.opus` 只在示例层解析 Ogg page/lacing，跳过 `OpusHead` 和 `OpusTags` 后按 Opus packet 发送；`test-25fps.h264` 只在示例层按 Annex B start code 切分，按 25fps 的 `40000us` 节奏发送。parser 不进入 `src/` 核心库。
+C 示例直接读取项目根目录的 `sample1.opus` 与 `chrome-25fps-42001f.h264`。`sample1.opus` 只在示例层解析 Ogg page/lacing，跳过 `OpusHead` 和 `OpusTags` 后按 Opus packet 发送；`chrome-25fps-42001f.h264` 从 `chrome.mp4` 转码而来，使用 Annex B H264、25fps、重复 SPS/PPS，并让 SPS `profile-level-id` 匹配当前 SDP 的 `42001f`；示例层按 Annex B start code 切分，按 25fps 的 `40000us` 节奏发送。parser 不进入 `src/` 核心库。
 
 收到 Chrome 侧 typed media frame 后，示例写入：
 
 - `received-opus.packets`：每个 Opus packet 前写 4 字节 big-endian 长度，便于后续工具解析。
-- `received-h264.264`：每帧前写 Annex B `00 00 00 01` start code，可用 `ffplay -f h264 received-h264.264` 或 VLC 打开检查。
+- `received-h264-network.264`：Chrome -> C 方向收到的原始 H264 access unit dump；用于证明 C 侧收到视频字节。Chrome RTP 可能不携带可播放裸流所需的 SPS/PPS，因此该原始 dump 不作为 VLC 稳定播放验收物。
+- `received-h264.264`：E2E 编排在 C 侧确认收到视频后，从同一次浏览器页面录屏中裁剪 local synthetic 区域并重新编码成 Annex B H264；它的画面对应 Chrome -> C 方向的 synthetic 输入，文件名固定为人工 VLC 检查目标。
+- `received-h264-playable.mp4`：E2E 编排从浏览器页面录屏中裁剪远端视频区域后用 ffmpeg 重新编码生成的可播放 MP4；带容器时间戳，用于检查 Chrome 是否看到 C 端 sample 视频。旁路输出 `received-h264-playable.264` 仅用于裸 H264 诊断。
 
 JSONL `summary` 会报告 `audio_frames_received`、`video_frames_received`、`audio_bytes_received` 和 `video_bytes_received`。媒体文件打开或写入失败时，summary/error 的 `layer` 使用 `media_file`。
 
@@ -50,9 +52,14 @@ node examples/chrome_e2e/run_e2e.mjs --c-example-smoke
 node examples/chrome_e2e/run_e2e.mjs --media-file-smoke
 node examples/chrome_e2e/run_e2e.mjs --security-gate-smoke
 node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000
+RTC_CHROME_E2E_BINARY=build-secure/rtc_chrome_e2e node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000 --output-dir examples/chrome_e2e/out/full-secure
+node examples/chrome_e2e/run_e2e.mjs --binary build-secure/rtc_chrome_e2e --timeout-ms 30000 --output-dir examples/chrome_e2e/out/full-secure
+node examples/chrome_e2e/run_e2e.mjs --binary build-secure/rtc_chrome_e2e --timeout-ms 60000 --min-media-ms 10000 --output-dir examples/chrome_e2e/out/full-secure-long
 ```
 
 完整编排会启动本机信令服务、`rtc_chrome_e2e` C 示例和 Chrome 页面。编排脚本会生成一个共享 `runId`，通过页面 URL query 注入给 Chrome 页面，并通过 `rtc_chrome_e2e --run-id` 注入给 C 示例，确保双方加入同一个信令 run。随后脚本输出一行 compact JSON summary。summary 字段包含 `pass`、`layer`、`reason`、`duration_ms`、`page`、`c_example`、`media_files`、`manual_vlc_required` 和最近 5 条 `latestEvents`。`manual_vlc_required` 当前始终为 `true`；自动化只验证 SDP/ICE/DTLS/SRTP/RTP/RTCP 状态、counter 和媒体文件产物，不替代 VLC 人工播放验收。页面成功但未人工确认时，`summary-layer` 会显示 `manual_vlc_pending`。
+
+默认 C 示例 binary 为 `build/rtc_chrome_e2e`。secure ON 构建位于 `build-secure/` 时，必须通过 `--binary build-secure/rtc_chrome_e2e` 或 `RTC_CHROME_E2E_BINARY=build-secure/rtc_chrome_e2e` 明确选择，否则 full E2E 会继续使用默认 OFF binary。
 
 当前默认构建未启用可选安全 backend，因此 full run 会以非零退出并报告 `layer:"dtls"`、`reason:"optional_security_backend_disabled"`。开发 smoke 如需确认编排路径可使用 `--manual-security-ok`，但该选项只允许脚本以 0 退出，不表示真实 Chrome DTLS/SRTP 或 VLC 媒体验收通过。
 
@@ -62,8 +69,8 @@ node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000
 
 推荐人工步骤：
 
-1. 运行 `node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000`，确认 summary 不再停在 `dtls/optional_security_backend_disabled`，且 `media_files` 中列出 `received-opus.packets` 与 `received-h264.264`。
-2. 用 VLC 打开输出目录中的 `received-h264.264`，或运行 `ffplay -f h264 received-h264.264` 检查视频是否可播放。
+1. 运行 `node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000`，确认 summary 不再停在 `dtls/optional_security_backend_disabled`，且 `media_files` 中列出 `received-opus.packets` 与 `received-h264.264`。如果需要更长的双向媒体传输和更大的 H264 产物，可增加 `--min-media-ms 10000`，并把 `--timeout-ms` 提高到 `60000`。
+2. 用 VLC 打开输出目录中的 `received-h264.264` 检查 Chrome -> C 方向画面是否可播放；应该看到 `Chrome synthetic media`。原始网络 dump 保存在 `received-h264-network.264`。
 3. `received-opus.packets` 是长度前缀 Opus packet 文件，不是 Ogg 容器；如需播放，先用本地工具把 4 字节 big-endian 长度前缀 packet 重新封装为可播放容器，再用 VLC/ffplay 检查。
 4. 记录 compact JSON summary、`rtc_chrome_e2e.jsonl` 最后 5 条事件、VLC/ffplay 结果和失败层级。人工确认前，`ACC-01` 仍视为待人工验收。
 

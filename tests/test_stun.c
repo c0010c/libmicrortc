@@ -76,5 +76,75 @@ int rtc_test_stun(void)
     RTC_TEST_EQ_INT(0, strcmp(mapped.ip, "203.0.113.7"));
     RTC_TEST_EQ_INT(54321, mapped.port);
 
+    {
+        uint8_t chrome_request[160];
+        uint8_t chrome_response[128];
+        rtc_stun_binding_request_attrs_t attrs;
+        size_t chrome_request_len = 0;
+        size_t chrome_response_len = 0;
+
+        RTC_TEST_EQ_INT(
+            RTC_STATUS_OK,
+            rtc_stun_write_ice_binding_request_authenticated(
+                chrome_request, sizeof(chrome_request), txid, "uQjR",
+                strlen("uQjR"), "testufrag", strlen("testufrag"),
+                "testpassword1234567890",
+                strlen("testpassword1234567890"), 1845501695u, 1, 1,
+                0x0102030405060708ull, &chrome_request_len));
+        RTC_TEST_EQ_INT(
+            RTC_STATUS_OK,
+            rtc_stun_parse_binding_request_attrs_auth(
+                chrome_request, chrome_request_len, "testufrag",
+                strlen("testufrag"), "uQjR", strlen("uQjR"),
+                "testpassword1234567890",
+                strlen("testpassword1234567890"), &attrs));
+        RTC_TEST_EQ_INT(1, attrs.use_candidate);
+        RTC_TEST_EQ_INT(1, attrs.has_priority);
+        RTC_TEST_EQ_INT(1, attrs.has_ice_controlling);
+        RTC_TEST_EQ_INT(1, attrs.has_message_integrity);
+        RTC_TEST_EQ_INT(1, attrs.has_fingerprint);
+        RTC_TEST_EQ_INT(1, attrs.message_integrity_valid);
+        RTC_TEST_EQ_INT(1, attrs.fingerprint_valid);
+        RTC_TEST_EQ_INT(1845501695u, attrs.priority);
+        RTC_TEST_EQ_INT(0, strcmp(attrs.username, "testufrag:uQjR"));
+
+        RTC_TEST_EQ_INT(
+            RTC_STATUS_PROTOCOL_ERROR,
+            rtc_stun_parse_binding_request_attrs_auth(
+                chrome_request, chrome_request_len, "testufrag",
+                strlen("testufrag"), "uQjR", strlen("uQjR"),
+                "wrongpassword", strlen("wrongpassword"), &attrs));
+
+        chrome_request[chrome_request_len - 1u] ^= 0x01u;
+        RTC_TEST_EQ_INT(
+            RTC_STATUS_PROTOCOL_ERROR,
+            rtc_stun_parse_binding_request_attrs_auth(
+                chrome_request, chrome_request_len, "testufrag",
+                strlen("testufrag"), "uQjR", strlen("uQjR"),
+                "testpassword1234567890",
+                strlen("testpassword1234567890"), &attrs));
+
+        RTC_TEST_EQ_INT(
+            RTC_STATUS_OK,
+            rtc_stun_write_binding_success_response_authenticated(
+                chrome_response, sizeof(chrome_response), txid,
+                "192.0.2.20", 6000, "testpassword1234567890",
+                strlen("testpassword1234567890"), &chrome_response_len));
+        RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                        rtc_stun_validate_fingerprint(chrome_response,
+                                                      chrome_response_len));
+        RTC_TEST_EQ_INT(
+            RTC_STATUS_OK,
+            rtc_stun_validate_message_integrity(
+                chrome_response, chrome_response_len,
+                "testpassword1234567890",
+                strlen("testpassword1234567890")));
+        RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                        rtc_stun_parse_xor_mapped_address(
+                            chrome_response, chrome_response_len, &mapped));
+        RTC_TEST_EQ_INT(0, strcmp(mapped.ip, "192.0.2.20"));
+        RTC_TEST_EQ_INT(6000, mapped.port);
+    }
+
     return 0;
 }

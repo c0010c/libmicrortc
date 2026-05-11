@@ -13,7 +13,7 @@ typedef struct ice_observer_state_t {
     int state_count;
     int error_count;
     char last_candidate[256];
-    uint8_t last_datagram[64];
+    uint8_t last_datagram[256];
     size_t last_datagram_len;
     const char *last_state;
     const char *last_trace;
@@ -505,6 +505,69 @@ static int test_controlled_nominated_request_selects_pair(void)
     return 0;
 }
 
+static int test_chrome_like_binding_request_gets_success_response(void)
+{
+    unsigned char arena[16384];
+    uint8_t request[160];
+    uint8_t txid[RTC_STUN_TRANSACTION_ID_BYTES];
+    size_t request_len;
+    ice_observer_state_t state;
+    rtc_peer_connection_config_t config;
+    rtc_capacity_diagnostics_t diag;
+    rtc_peer_connection_t *pc;
+    rtc_stun_header_t response_header;
+
+    memset(&state, 0, sizeof(state));
+    memset(txid, 0x55, sizeof(txid));
+    config = test_config(arena, sizeof(arena), &state);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_create(&config, &diag, &pc));
+    pc->ice_role = RTC_ICE_ROLE_CONTROLLED;
+    memcpy(pc->remote_summary.ice_ufrag, "uQjR", strlen("uQjR") + 1u);
+    memcpy(pc->remote_summary.ice_pwd, "lKKhO5hV67flOKX9OA+vUrBp",
+           strlen("lKKhO5hV67flOKX9OA+vUrBp") + 1u);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    add_remote_candidate(
+                        pc, "candidate:1 1 udp 2130706430 192.0.2.20 6000 "
+                            "typ host"));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_gather_candidates(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_peer_connection_start_connectivity_checks(pc));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_stun_write_ice_binding_request_authenticated(
+                        request, sizeof(request), txid, "uQjR", strlen("uQjR"),
+                        "testufrag", strlen("testufrag"),
+                        "testpassword1234567890",
+                        strlen("testpassword1234567890"), 1845501695u, 0, 1,
+                        0x0102030405060708ull, &request_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_ice_handle_stun_response(pc, request, request_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_stun_parse_header(state.last_datagram,
+                                          state.last_datagram_len,
+                                          &response_header));
+    RTC_TEST_EQ_INT(RTC_STUN_BINDING_SUCCESS_RESPONSE, response_header.type);
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.checking") == 0);
+
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_stun_write_ice_binding_request_authenticated(
+                        request, sizeof(request), txid, "uQjR", strlen("uQjR"),
+                        "testufrag", strlen("testufrag"),
+                        "testpassword1234567890",
+                        strlen("testpassword1234567890"), 1845501695u, 1, 1,
+                        0x0102030405060708ull, &request_len));
+    RTC_TEST_EQ_INT(RTC_STATUS_OK,
+                    rtc_ice_handle_stun_response(pc, request, request_len));
+    RTC_TEST_ASSERT(strcmp(state.last_state, "ice.connected") == 0);
+
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    RTC_TEST_EQ_INT(RTC_STATUS_OK, rtc_peer_connection_destroy(pc));
+    return 0;
+}
+
 static int test_candidate_pair_capacity_and_trickle_pairs(void)
 {
     unsigned char arena[16384];
@@ -675,6 +738,7 @@ int rtc_test_ice(void)
     RTC_TEST_EQ_INT(0, test_start_connectivity_checks_requires_remote_candidate());
     RTC_TEST_EQ_INT(0, test_controlling_regular_nomination_selects_pair());
     RTC_TEST_EQ_INT(0, test_controlled_nominated_request_selects_pair());
+    RTC_TEST_EQ_INT(0, test_chrome_like_binding_request_gets_success_response());
     RTC_TEST_EQ_INT(0, test_candidate_pair_capacity_and_trickle_pairs());
     RTC_TEST_EQ_INT(0, test_pair_check_timeout_exhausts_pairs());
     RTC_TEST_EQ_INT(0, test_malformed_stun_fails_check());

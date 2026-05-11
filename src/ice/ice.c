@@ -11,7 +11,7 @@
 #include "stun/stun.h"
 
 #define RTC_ICE_CANDIDATE_STRING_BYTES 256u
-#define RTC_ICE_STUN_REQUEST_BYTES 48u
+#define RTC_ICE_STUN_REQUEST_BYTES 256u
 #define RTC_ICE_STUN_TIMEOUT_MS 500u
 #define RTC_ICE_TIE_BREAKER 0x6f70656e72746331ull
 
@@ -497,10 +497,25 @@ static rtc_status_t rtc_ice_send_pair_request(rtc_peer_connection_t *pc,
     transaction->purpose = use_candidate ? RTC_STUN_PURPOSE_NOMINATION
                                          : RTC_STUN_PURPOSE_PAIR_CHECK;
     transaction->pair_id = pair_id;
-    status = rtc_stun_write_ice_binding_request(
-        request, sizeof(request), transaction->transaction_id, use_candidate,
-        pc->ice_role != RTC_ICE_ROLE_CONTROLLED, RTC_ICE_TIE_BREAKER,
-        &request_len);
+    if (pc->remote_summary.ice_ufrag[0] != '\0' &&
+        pc->remote_summary.ice_pwd[0] != '\0') {
+        status = rtc_stun_write_ice_binding_request_authenticated(
+            request, sizeof(request), transaction->transaction_id,
+            pc->sdp.ice_ufrag, pc->sdp.ice_ufrag_len,
+            pc->remote_summary.ice_ufrag,
+            strlen(pc->remote_summary.ice_ufrag),
+            pc->remote_summary.ice_pwd, strlen(pc->remote_summary.ice_pwd),
+            pc->local_candidate_summaries
+                [pc->candidate_pairs[pair_id].local_candidate_id]
+                    .priority,
+            use_candidate, pc->ice_role != RTC_ICE_ROLE_CONTROLLED,
+            RTC_ICE_TIE_BREAKER, &request_len);
+    } else {
+        status = rtc_stun_write_ice_binding_request(
+            request, sizeof(request), transaction->transaction_id,
+            use_candidate, pc->ice_role != RTC_ICE_ROLE_CONTROLLED,
+            RTC_ICE_TIE_BREAKER, &request_len);
+    }
     if (status != RTC_STATUS_OK) {
         transaction->in_use = 0;
         pc->stun_transaction_count--;
@@ -556,6 +571,100 @@ static void rtc_ice_select_pair(rtc_peer_connection_t *pc, size_t pair_id)
         rtc_observer_emit_error(&pc->observer, security_status, "security",
                                 "on_ice_connected", 0);
     }
+}
+
+static size_t rtc_ice_first_usable_pair(rtc_peer_connection_t *pc)
+{
+    size_t i;
+
+    for (i = 0; i < pc->candidate_pair_count; ++i) {
+        if (pc->candidate_pairs[i].state != RTC_ICE_PAIR_FAILED) {
+            return i;
+        }
+    }
+    return pc->candidate_pair_count;
+}
+
+static rtc_status_t rtc_ice_send_binding_success_response(
+    rtc_peer_connection_t *pc, const rtc_stun_header_t *header, size_t pair_id)
+{
+    uint8_t response[128];
+    rtc_ice_candidate_summary_t *remote;
+    size_t response_len = 0;
+    rtc_status_t status;
+
+    if (pair_id >= pc->candidate_pair_count) {
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+    remote = &pc->remote_candidate_summaries
+                  [pc->candidate_pairs[pair_id].remote_candidate_id];
+    status = rtc_stun_write_binding_success_response_authenticated(
+        response, sizeof(response), header->transaction_id, remote->address,
+        remote->port, pc->sdp.ice_pwd, pc->sdp.ice_pwd_len, &response_len);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    if (pc->observer.on_datagram != 0) {
+        pc->observer.on_datagram(pc->observer.user_data, response,
+                                 response_len);
+    }
+    pc->counters.stun.transactions_sent++;
+    return RTC_STATUS_OK;
+}
+
+static rtc_status_t rtc_ice_handle_binding_request(
+    rtc_peer_connection_t *pc, const uint8_t *data, size_t data_len,
+    const rtc_stun_header_t *header)
+{
+    rtc_stun_binding_request_attrs_t request_attrs;
+    size_t pair_id;
+    rtc_status_t status;
+
+    if (pc->remote_summary.ice_ufrag[0] != '\0') {
+        status = rtc_stun_parse_binding_request_attrs_auth(
+            data, data_len, pc->sdp.ice_ufrag, pc->sdp.ice_ufrag_len,
+            pc->remote_summary.ice_ufrag,
+            strlen(pc->remote_summary.ice_ufrag), pc->sdp.ice_pwd,
+            pc->sdp.ice_pwd_len, &request_attrs);
+    } else {
+        status = rtc_stun_parse_binding_request_attrs(data, data_len,
+                                                      &request_attrs);
+    }
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+
+    if ((request_attrs.has_ice_controlling &&
+         pc->ice_role == RTC_ICE_ROLE_CONTROLLING) ||
+        (request_attrs.has_ice_controlled &&
+         pc->ice_role == RTC_ICE_ROLE_CONTROLLED)) {
+        rtc_ice_fail(pc, "binding_request", RTC_ICE_FAILURE_ROLE_CONFLICT);
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    pair_id = rtc_ice_first_usable_pair(pc);
+    if (pair_id >= pc->candidate_pair_count) {
+        rtc_observer_emit_error(&pc->observer, RTC_STATUS_PROTOCOL_ERROR, "ice",
+                                "binding_request", 0);
+        return RTC_STATUS_PROTOCOL_ERROR;
+    }
+
+    status = rtc_ice_send_binding_success_response(pc, header, pair_id);
+    if (status != RTC_STATUS_OK) {
+        return status;
+    }
+    pc->counters.stun.transactions_received++;
+
+    if (request_attrs.use_candidate &&
+        pc->ice_role == RTC_ICE_ROLE_CONTROLLED) {
+        pc->candidate_pairs[pair_id].state = RTC_ICE_PAIR_NOMINATED;
+        rtc_ice_select_pair(pc, pair_id);
+    } else if (pc->candidate_pairs[pair_id].state == RTC_ICE_PAIR_FROZEN ||
+               pc->candidate_pairs[pair_id].state == RTC_ICE_PAIR_WAITING ||
+               pc->candidate_pairs[pair_id].state == RTC_ICE_PAIR_IN_PROGRESS) {
+        pc->candidate_pairs[pair_id].state = RTC_ICE_PAIR_SUCCEEDED;
+    }
+    return RTC_STATUS_OK;
 }
 
 rtc_status_t rtc_ice_start_connectivity_checks(rtc_peer_connection_t *pc)
@@ -694,19 +803,8 @@ rtc_status_t rtc_ice_handle_stun_response(rtc_peer_connection_t *pc,
     }
 
     if (header.type == RTC_STUN_BINDING_REQUEST) {
-        status = rtc_stun_parse_binding_request_attrs(data, data_len,
-                                                      &request_attrs);
-        if (status != RTC_STATUS_OK) {
-            return status;
-        }
-        if (request_attrs.use_candidate &&
-            pc->ice_role == RTC_ICE_ROLE_CONTROLLED &&
-            pc->candidate_pair_count > 0) {
-            pc->candidate_pairs[0].state = RTC_ICE_PAIR_NOMINATED;
-            rtc_ice_select_pair(pc, 0);
-            return RTC_STATUS_OK;
-        }
-        return RTC_STATUS_PROTOCOL_ERROR;
+        (void)request_attrs;
+        return rtc_ice_handle_binding_request(pc, data, data_len, &header);
     }
 
     for (i = 0; i < pc->limits.ice.max_transactions; ++i) {

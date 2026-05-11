@@ -43,7 +43,7 @@ completed: 2026-05-11
 
 # Phase 06 Plan 10: Secure E2E 与人工 UAT Summary
 
-`06-10` 已执行默认构建和自动化 gate，并准确记录 secure full E2E 的环境阻断。`ACC-01` 未关闭。
+`06-10` 已执行默认构建和自动化 gate，并准确记录当时 secure full E2E 的环境阻断。20260511 quick task 后，当前机器已安装用户级 OpenSSL 1.1.1w 和 libsrtp 2.6.0，secure ON 配置与 `rtc_chrome_e2e` 构建已通过；`ACC-01` 仍因 secure full E2E 和 VLC/ffplay 人工批准未执行而未关闭。
 
 ## Performance
 
@@ -140,6 +140,17 @@ ffplay -f h264 examples/chrome_e2e/out/full-secure/received-h264.264
 - `REQUIREMENTS.md`、`PROJECT.md`、`ROADMAP.md`、`STATE.md` 均明确 `ACC-01` 未关闭。
 - 默认 OFF configure/build、dry-run、security-gate 和 ctest 均通过。
 - secure ON 配置失败被记录为环境阻断，没有被误报为验收通过。
+
+## 20260511 补充记录
+
+quick task `20260511-install-openssl111-libsrtp` 已解除本机缺少可选安全依赖的 blocker：
+
+- OpenSSL 1.1.1w 安装于 `~/.local/rtc-deps/openssl-1.1.1w`。
+- libsrtp 2.6.0 安装于 `~/.local/rtc-deps/libsrtp-2.6.0`。
+- `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY=ON` 配置通过，CMake 发现 `OpenSSL=1.1.1w` 和用户级 `libsrtp2.a`。
+- `cmake --build build-secure --target rtc_chrome_e2e` 通过。
+
+该补充只解除环境 blocker；`ACC-01` 仍需 secure full E2E 成功 summary 与 VLC/ffplay 人工媒体批准。
 
 ---
 *Phase: 06-chrome-end-to-end-acceptance*

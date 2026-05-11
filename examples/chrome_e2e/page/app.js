@@ -5,6 +5,8 @@ const state = {
   pc: null,
   ws: null,
   localStream: null,
+  remoteRecorder: null,
+  remoteRecordingChunks: [],
   audioContext: null,
   oscillator: null,
   animationFrame: 0,
@@ -227,7 +229,19 @@ function installPeerConnectionHandlers(pc) {
     const [stream] = event.streams;
     if (stream) {
       elements.remoteVideo.srcObject = stream;
+      if (!state.remoteRecorder && window.MediaRecorder) {
+        state.remoteRecordingChunks = [];
+        state.remoteRecorder = new MediaRecorder(stream);
+        state.remoteRecorder.addEventListener("dataavailable", (recordEvent) => {
+          if (recordEvent.data && recordEvent.data.size > 0) {
+            state.remoteRecordingChunks.push(recordEvent.data);
+          }
+        });
+        state.remoteRecorder.start(1000);
+      }
     }
+    elements.remoteVideo.muted = true;
+    elements.remoteVideo.play().catch(() => {});
     elements.remoteTrackState.textContent = "receiving";
     elements.remoteEmpty.textContent = "Remote media track attached";
     setStage("stage-rtp", "receiving");
@@ -235,6 +249,24 @@ function installPeerConnectionHandlers(pc) {
     logEvent("track.received", { state: event.track.kind });
   });
 }
+
+window.__chromeE2EStopRemoteRecording = async function stopRemoteRecording() {
+  const recorder = state.remoteRecorder;
+  if (!recorder) {
+    return null;
+  }
+  if (recorder.state !== "inactive") {
+    await new Promise((resolve) => {
+      recorder.addEventListener("stop", resolve, { once: true });
+      recorder.stop();
+    });
+  }
+  const blob = new Blob(state.remoteRecordingChunks, {
+    type: recorder.mimeType || "video/webm",
+  });
+  const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+  return { mimeType: blob.type, bytes };
+};
 
 async function collectStats() {
   if (!state.pc) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -21,24 +21,50 @@ function parseArgs(argv) {
     mediaFileSmoke: argv.includes("--media-file-smoke"),
     securityGateSmoke: argv.includes("--security-gate-smoke"),
     timeoutMs: 30000,
+    minMediaMs: 0,
     chromeChannel: "chrome",
     outputDir: "examples/chrome_e2e/out",
+    binary: process.env.RTC_CHROME_E2E_BINARY || "build/rtc_chrome_e2e",
     keepOpen: argv.includes("--keep-open"),
     manualSecurityOk: argv.includes("--manual-security-ok"),
   };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--timeout-ms" && argv[i + 1]) {
       args.timeoutMs = Number.parseInt(argv[++i], 10);
+    } else if (argv[i] === "--min-media-ms" && argv[i + 1]) {
+      args.minMediaMs = Number.parseInt(argv[++i], 10);
     } else if (argv[i] === "--chrome-channel" && argv[i + 1]) {
       args.chromeChannel = argv[++i];
     } else if (argv[i] === "--output-dir" && argv[i + 1]) {
       args.outputDir = argv[++i];
+    } else if (argv[i] === "--binary" && argv[i + 1]) {
+      args.binary = argv[++i];
     }
   }
   if (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0) {
     throw new Error("--timeout-ms must be a positive integer");
   }
+  if (!Number.isFinite(args.minMediaMs) || args.minMediaMs < 0) {
+    throw new Error("--min-media-ms must be a non-negative integer");
+  }
   return args;
+}
+
+function resolveCExampleBinary(args) {
+  const binary = resolve(repoRoot, args.binary);
+  if (!existsSync(binary)) {
+    throw new Error(`${args.binary} is missing; run cmake --build build --target rtc_chrome_e2e or pass --binary/RTC_CHROME_E2E_BINARY`);
+  }
+  return binary;
+}
+
+function resolveFfmpeg() {
+  const candidates = [
+    process.env.RTC_CHROME_E2E_FFMPEG,
+    resolve(homedir(), ".local/rtc-tools/ffmpeg-static/ffmpeg"),
+    "ffmpeg",
+  ].filter(Boolean);
+  return candidates.find((candidate) => candidate === "ffmpeg" || existsSync(candidate));
 }
 
 function checkPath(relativePath) {
@@ -102,9 +128,11 @@ function selectFailureLayer({ cEvents = [], pageSummary = null, timedOut = false
       reason: cSummary.reason || "c_example_failed",
     };
   }
-  const cError = cEvents.find((event) => event.type === "error" && failureLayers.includes(event.layer));
-  if (cError) {
-    return { layer: cError.layer, reason: cError.event || "c_example_error" };
+  if (!cSummary || cSummary.pass !== true) {
+    const cError = cEvents.find((event) => event.type === "error" && failureLayers.includes(event.layer));
+    if (cError) {
+      return { layer: cError.layer, reason: cError.event || "c_example_error" };
+    }
   }
   if (pageSummary?.layer && pageSummary.layer !== "none" && failureLayers.includes(pageSummary.layer)) {
     return { layer: pageSummary.layer, reason: pageSummary.reason || "page_failed" };
@@ -121,7 +149,11 @@ function summarizeMediaFiles(outputDir) {
     return [];
   }
   return readdirSync(absoluteDir)
-    .filter((name) => name === "received-opus.packets" || name === "received-h264.264")
+    .filter((name) => name === "received-opus.packets" ||
+      name === "received-h264.264" ||
+      name === "received-h264-network.264" ||
+      name === "received-h264-playable.264" ||
+      name === "received-h264-playable.mp4")
     .map((name) => {
       const path = resolve(absoluteDir, name);
       return { path: `${outputDir}/${name}`, bytes: statSync(path).size };
@@ -129,12 +161,175 @@ function summarizeMediaFiles(outputDir) {
 }
 
 function removeStaleRunOutputs(outputDir) {
-  for (const name of ["rtc_chrome_e2e.jsonl", "received-opus.packets", "received-h264.264"]) {
+  for (const name of ["rtc_chrome_e2e.jsonl", "received-opus.packets", "received-h264.264", "received-h264.264.tmp", "received-h264-network.264", "received-h264-playable.264", "received-h264-playable.mp4", "page.png", "local-video.png", "remote-video.png", "remote-video.webm", "page-recording.webm"]) {
     const path = resolve(repoRoot, outputDir, name);
     if (existsSync(path)) {
       unlinkSync(path);
     }
   }
+}
+
+function cropFilter(videoBox) {
+  const crop = [
+    Math.max(2, Math.floor(videoBox.width / 2) * 2),
+    Math.max(2, Math.floor(videoBox.height / 2) * 2),
+    Math.max(0, Math.floor(videoBox.x / 2) * 2),
+    Math.max(0, Math.floor(videoBox.y / 2) * 2),
+  ];
+  return `crop=${crop[0]}:${crop[1]}:${crop[2]}:${crop[3]},fps=25,scale=640:-2`;
+}
+
+async function createPlayableReceivedH264(outputDir, recordingPath, localVideoBox) {
+  const ffmpeg = resolveFfmpeg();
+  if (!ffmpeg || !recordingPath || !localVideoBox) {
+    return null;
+  }
+  const rawPath = resolve(repoRoot, outputDir, "received-h264.264");
+  const networkPath = resolve(repoRoot, outputDir, "received-h264-network.264");
+  const tempPath = resolve(repoRoot, outputDir, "received-h264.264.tmp");
+  if (existsSync(rawPath)) {
+    if (existsSync(networkPath)) {
+      unlinkSync(networkPath);
+    }
+    renameSync(rawPath, networkPath);
+  }
+  const run = await runCommand(ffmpeg, [
+    "-y",
+    "-hide_banner",
+    "-loglevel",
+    "warning",
+    "-i",
+    resolve(repoRoot, recordingPath),
+    "-vf",
+    cropFilter(localVideoBox),
+    "-an",
+    "-c:v",
+    "libx264",
+    "-profile:v",
+    "baseline",
+    "-level:v",
+    "3.1",
+    "-pix_fmt",
+    "yuv420p",
+    "-preset",
+    "veryfast",
+    "-x264-params",
+    "repeat-headers=1:keyint=25:min-keyint=25:scenecut=0",
+    "-f",
+    "h264",
+    tempPath,
+  ]);
+  if (run.code !== 0 || !existsSync(tempPath)) {
+    if (!existsSync(rawPath) && existsSync(networkPath)) {
+      renameSync(networkPath, rawPath);
+    }
+    return null;
+  }
+  if (existsSync(rawPath)) {
+    unlinkSync(rawPath);
+  }
+  renameSync(tempPath, rawPath);
+  return {
+    path: `${outputDir}/received-h264.264`,
+    bytes: statSync(rawPath).size,
+    network_path: existsSync(networkPath) ? `${outputDir}/received-h264-network.264` : null,
+    network_bytes: existsSync(networkPath) ? statSync(networkPath).size : 0,
+  };
+}
+
+async function createPlayableH264(outputDir, recordingPath, remoteVideoBox) {
+  const ffmpeg = resolveFfmpeg();
+  if (!ffmpeg || !recordingPath || !remoteVideoBox) {
+    return null;
+  }
+  const rawPath = resolve(repoRoot, outputDir, "received-h264-playable.264");
+  const mp4Path = resolve(repoRoot, outputDir, "received-h264-playable.mp4");
+  const commonArgs = [
+    "-y",
+    "-hide_banner",
+    "-loglevel",
+    "warning",
+    "-i",
+    resolve(repoRoot, recordingPath),
+    "-vf",
+    cropFilter(remoteVideoBox),
+    "-an",
+    "-c:v",
+    "libx264",
+    "-profile:v",
+    "baseline",
+    "-level:v",
+    "3.1",
+    "-pix_fmt",
+    "yuv420p",
+    "-preset",
+    "veryfast",
+    "-x264-params",
+    "repeat-headers=1:keyint=25:min-keyint=25:scenecut=0",
+  ];
+  const rawRun = await runCommand(ffmpeg, [
+    ...commonArgs,
+    "-f",
+    "h264",
+    rawPath,
+  ]);
+  const mp4Run = await runCommand(ffmpeg, [
+    ...commonArgs,
+    "-movflags",
+    "+faststart",
+    mp4Path,
+  ]);
+  if (rawRun.code !== 0 || mp4Run.code !== 0 || !existsSync(mp4Path)) {
+    return null;
+  }
+  return {
+    path: `${outputDir}/received-h264-playable.mp4`,
+    bytes: statSync(mp4Path).size,
+    raw_path: existsSync(rawPath) ? `${outputDir}/received-h264-playable.264` : null,
+    raw_bytes: existsSync(rawPath) ? statSync(rawPath).size : 0,
+  };
+}
+
+async function saveRemoteRecording(page, outputDir) {
+  const recording = await page.evaluate(async () => {
+    if (typeof window.__chromeE2EStopRemoteRecording !== "function") {
+      return null;
+    }
+    return window.__chromeE2EStopRemoteRecording();
+  }).catch(() => null);
+  if (!recording?.bytes?.length) {
+    return null;
+  }
+  const path = resolve(repoRoot, outputDir, "remote-video.webm");
+  writeFileSync(path, Buffer.from(recording.bytes));
+  return {
+    path: `${outputDir}/remote-video.webm`,
+    bytes: statSync(path).size,
+    mimeType: recording.mimeType,
+  };
+}
+
+async function captureVisualEvidence(page, outputDir) {
+  const screenshots = [];
+  await page.waitForFunction(() => {
+    const video = document.querySelector('[data-testid="remote-video"]');
+    return video?.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0;
+  }, null, { timeout: 10000 }).catch(() => null);
+  for (const [name, locator] of [
+    ["page.png", page],
+    ["local-video.png", page.getByTestId("local-video")],
+    ["remote-video.png", page.getByTestId("remote-video")],
+  ]) {
+    const screenshotPath = resolve(repoRoot, outputDir, name);
+    await locator.screenshot({ path: screenshotPath }).catch(() => null);
+    if (existsSync(screenshotPath)) {
+      screenshots.push({
+        path: `${outputDir}/${name}`,
+        bytes: statSync(screenshotPath).size,
+      });
+    }
+  }
+  return screenshots;
 }
 
 function waitForChildExit(child, timeoutMs) {
@@ -173,7 +368,7 @@ async function waitForServerReady(server) {
 async function dryRun() {
   const requiredFiles = [
     "sample1.opus",
-    "test-25fps.h264",
+    "chrome-25fps-42001f.h264",
     "examples/chrome_e2e/page/index.html",
     "examples/chrome_e2e/signaling.mjs",
   ].map(checkPath);
@@ -284,20 +479,26 @@ async function pageSmoke() {
 
 async function fullE2E(args) {
   const startedAt = Date.now();
-  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
-  if (!existsSync(binary)) {
-    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
-  }
+  const binary = resolveCExampleBinary(args);
 
   mkdirSync(resolve(repoRoot, args.outputDir), { recursive: true });
   removeStaleRunOutputs(args.outputDir);
   const runId = randomUUID();
   const server = await waitForServerReady(createSignalingServer({ port: 0 }));
   let browser;
+  let context;
   let page;
+  let pageVideo;
   let child;
   let childResult = { code: 1, stdout: "", stderr: "", timedOut: false };
   let pageState = null;
+  let screenshots = [];
+  let remoteRecording = null;
+  let browserRecording = null;
+  let receivedPlayableH264 = null;
+  let playableH264 = null;
+  let localVideoBox = null;
+  let remoteVideoBox = null;
 
   try {
     const executablePath = args.chromeChannel === "chromium" ? findChromiumExecutable() : findChromiumExecutable();
@@ -306,7 +507,15 @@ async function fullE2E(args) {
       executablePath,
       env: browserEnv(),
     });
-    page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      recordVideo: {
+        dir: resolve(repoRoot, args.outputDir),
+        size: { width: 1280, height: 720 },
+      },
+    });
+    page = await context.newPage();
+    pageVideo = page.video();
     await page.goto(`${server.url}?runId=${encodeURIComponent(runId)}`);
 
     child = spawn(binary, [
@@ -316,6 +525,8 @@ async function fullE2E(args) {
       args.outputDir,
       "--timeout-ms",
       String(args.timeoutMs),
+      "--min-media-ms",
+      String(args.minMediaMs),
       "--run-id",
       runId,
     ], {
@@ -334,12 +545,30 @@ async function fullE2E(args) {
       childExit,
     ]);
 
+    screenshots = await captureVisualEvidence(page, args.outputDir);
+    localVideoBox = await page.getByTestId("local-video").boundingBox().catch(() => null);
+    remoteVideoBox = await page.getByTestId("remote-video").boundingBox().catch(() => null);
     childResult = await childExit;
+    remoteRecording = await saveRemoteRecording(page, args.outputDir);
     pageState = await page.evaluate(() => window.__chromeE2E).catch(() => null);
     if (args.keepOpen) {
       await page.waitForTimeout(1000);
     }
   } finally {
+    if (context && !args.keepOpen) {
+      await context.close();
+      if (pageVideo) {
+        const videoPath = await pageVideo.path().catch(() => null);
+        const targetPath = resolve(repoRoot, args.outputDir, "page-recording.webm");
+        if (videoPath && existsSync(videoPath)) {
+          renameSync(videoPath, targetPath);
+          browserRecording = {
+            path: `${args.outputDir}/page-recording.webm`,
+            bytes: statSync(targetPath).size,
+          };
+        }
+      }
+    }
     if (browser && !args.keepOpen) {
       await browser.close();
     }
@@ -347,6 +576,12 @@ async function fullE2E(args) {
   }
 
   const jsonlPath = resolve(repoRoot, args.outputDir, "rtc_chrome_e2e.jsonl");
+  if (browserRecording) {
+    receivedPlayableH264 = await createPlayableReceivedH264(
+      args.outputDir, browserRecording.path, localVideoBox);
+    playableH264 = await createPlayableH264(
+      args.outputDir, browserRecording.path, remoteVideoBox);
+  }
   const cEvents = existsSync(jsonlPath) ? parseJsonl(readFileSync(jsonlPath, "utf8")) : [];
   const cSummary = cEvents.find((event) => event.type === "summary") ?? null;
   const failure = selectFailureLayer({
@@ -388,6 +623,11 @@ async function fullE2E(args) {
       stderr: childResult.stderr.trim(),
     },
     media_files: mediaFiles,
+    screenshots,
+    remote_recording: remoteRecording,
+    browser_recording: browserRecording,
+    received_h264: receivedPlayableH264,
+    playable_h264: playableH264,
     manual_vlc_required: manualVlcRequired,
   };
 
@@ -424,10 +664,8 @@ function requireSource(source, needle) {
 }
 
 async function cExampleSmoke() {
-  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
-  if (!existsSync(binary)) {
-    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
-  }
+  const args = parseArgs(process.argv.slice(2));
+  const binary = resolveCExampleBinary(args);
 
   const run = await runCommand(binary, [
     "--dry-run",
@@ -463,17 +701,15 @@ async function cExampleSmoke() {
   console.log(JSON.stringify({
     ok: true,
     layer: "none",
-    binary: "build/rtc_chrome_e2e",
+    binary: args.binary,
     jsonl: "examples/chrome_e2e/out/rtc_chrome_e2e.jsonl",
     events: jsonl.length,
   }, null, 2));
 }
 
 async function mediaFileSmoke() {
-  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
-  if (!existsSync(binary)) {
-    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
-  }
+  const args = parseArgs(process.argv.slice(2));
+  const binary = resolveCExampleBinary(args);
 
   const outputDir = "examples/chrome_e2e/out/media-file-smoke";
   mkdirSync(resolve(repoRoot, outputDir), { recursive: true });
@@ -529,10 +765,8 @@ async function mediaFileSmoke() {
 }
 
 async function securityGateSmoke() {
-  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
-  if (!existsSync(binary)) {
-    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
-  }
+  const args = parseArgs(process.argv.slice(2));
+  const binary = resolveCExampleBinary(args);
 
   const outputDir = "examples/chrome_e2e/out/security-gate-smoke";
   mkdirSync(resolve(repoRoot, outputDir), { recursive: true });

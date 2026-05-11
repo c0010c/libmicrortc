@@ -36,6 +36,7 @@ typedef struct e2e_options_t {
     uint16_t udp_port;
     const char *output_dir;
     uint32_t timeout_ms;
+    uint32_t min_media_ms;
     const char *sample_opus;
     const char *sample_h264;
     const char *run_id;
@@ -79,6 +80,7 @@ typedef struct e2e_context_t {
     const char *last_failure_reason;
     rtc_peer_connection_t *pc;
     const e2e_options_t *options;
+    uint32_t media_ready_elapsed_ms;
     FILE *received_opus;
     FILE *received_h264;
     rtc_e2e_sample_reader_t opus_reader;
@@ -88,6 +90,7 @@ typedef struct e2e_context_t {
     uint64_t now_us;
     uint64_t next_opus_due_us;
     uint64_t next_h264_due_us;
+    uint64_t next_pli_due_us;
     unsigned long audio_frames_received;
     unsigned long video_frames_received;
     unsigned long audio_bytes_received;
@@ -154,8 +157,9 @@ static void e2e_defaults(e2e_options_t *options)
     options->udp_port = 50000;
     options->output_dir = "examples/chrome_e2e/out";
     options->timeout_ms = 30000;
+    options->min_media_ms = 0;
     options->sample_opus = "sample1.opus";
-    options->sample_h264 = "test-25fps.h264";
+    options->sample_h264 = "chrome-25fps-42001f.h264";
     options->run_id = "c-example";
 }
 
@@ -219,6 +223,11 @@ static int parse_args(int argc, char **argv, e2e_options_t *options)
         } else if (strcmp(argv[i], "--timeout-ms") == 0 && i + 1 < argc &&
                    require_value(argc, argv, i)) {
             if (parse_u32(argv[++i], &options->timeout_ms) != 0) {
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--min-media-ms") == 0 && i + 1 < argc &&
+                   require_value(argc, argv, i)) {
+            if (parse_u32(argv[++i], &options->min_media_ms) != 0) {
                 return -1;
             }
         } else if (strcmp(argv[i], "--sample-opus") == 0 && i + 1 < argc &&
@@ -832,6 +841,55 @@ static void queue_datagram(e2e_context_t *ctx, const uint8_t *data,
     ctx->queue_count++;
 }
 
+static int datagram_looks_like_stun(const uint8_t *data, size_t data_len)
+{
+    if (data == 0 || data_len < 20u || (data[0] & 0xc0u) != 0u) {
+        return 0;
+    }
+    return data[4] == 0x21u && data[5] == 0x12u && data[6] == 0xa4u &&
+           data[7] == 0x42u;
+}
+
+static void maybe_add_peer_reflexive_candidate(rtc_peer_connection_t *pc,
+                                               e2e_context_t *ctx,
+                                               const struct sockaddr *from)
+{
+#if defined(_WIN32)
+    (void)pc;
+    (void)ctx;
+    (void)from;
+#else
+    const struct sockaddr_in *addr;
+    char ip[INET_ADDRSTRLEN];
+    char candidate[256];
+
+    if (ctx == 0 || pc == 0 || ctx->have_remote_candidate ||
+        from == 0 || from->sa_family != AF_INET) {
+        return;
+    }
+    addr = (const struct sockaddr_in *)from;
+    if (inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip)) == 0) {
+        return;
+    }
+    snprintf(candidate, sizeof(candidate),
+             "candidate:prflx 1 udp 1845501695 %s %u typ host", ip,
+             (unsigned)ntohs(addr->sin_port));
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    if (rtc_peer_connection_add_ice_candidate(pc, candidate,
+                                              strlen(candidate)) ==
+        RTC_STATUS_OK) {
+        ctx->have_remote_candidate = 1;
+        rtc_e2e_jsonl_event(ctx->jsonl, "status", "ice", "ok",
+                            "peer_reflexive_candidate.received");
+    }
+    if (ctx->have_local_candidate && ctx->have_remote_candidate) {
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
+        (void)rtc_peer_connection_start_connectivity_checks(pc);
+    }
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+#endif
+}
+
 static void flush_datagrams(e2e_context_t *ctx)
 {
 #if defined(_WIN32)
@@ -1110,9 +1168,9 @@ static void fill_pc_config(rtc_peer_connection_config_t *config,
     config->limits.dtls.max_session_storage_bytes = 4096;
     config->limits.rtp.max_packet_cache = 32;
     config->limits.rtp.max_payload_bytes = 1200;
-    config->limits.rtp.max_packets_per_frame = 8;
+    config->limits.rtp.max_packets_per_frame = 32;
     config->limits.rtp.max_reassembly_bytes = 65536;
-    config->limits.rtp.max_media_queue_slots = 4;
+    config->limits.rtp.max_media_queue_slots = 32;
     config->limits.rtcp.max_reports = 8;
     config->limits.rtcp.max_feedback_packets = 8;
     config->limits.rtcp.max_sdes_cname_bytes = 64;
@@ -1320,6 +1378,16 @@ static int pump_media(e2e_context_t *ctx)
     if (ctx->now_us >= ctx->next_h264_due_us) {
         send_sample_frame(ctx, RTC_MEDIA_KIND_VIDEO_H264);
     }
+    if (ctx->video_frames_received > 0u && ctx->now_us >= ctx->next_pli_due_us) {
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
+        if (rtc_peer_connection_request_keyframe(
+                ctx->pc, RTC_MEDIA_KIND_VIDEO_H264) == RTC_STATUS_OK) {
+            rtc_e2e_jsonl_event(ctx->jsonl, "status", "rtcp", "ok",
+                                "pli.sent");
+        }
+        rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+        ctx->next_pli_due_us = ctx->now_us + 1000000u;
+    }
     return 0;
 }
 
@@ -1428,6 +1496,10 @@ static void pump_udp(rtc_peer_connection_t *pc, e2e_context_t *ctx)
         memcpy(&ctx->remote_addr, &from, from_len);
         ctx->remote_addr_len = from_len;
         ctx->have_remote_addr = 1;
+        if (datagram_looks_like_stun(buffer, (size_t)n)) {
+            maybe_add_peer_reflexive_candidate(pc, ctx,
+                                               (const struct sockaddr *)&from);
+        }
         rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
         (void)rtc_peer_connection_receive_datagram(pc, buffer, (size_t)n);
         rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
@@ -1608,8 +1680,13 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
         pump_udp(pc, &ctx);
         (void)pump_media(&ctx);
         flush_datagrams(&ctx);
+        if (ctx.media_files_ready &&
+            ctx.media_ready_elapsed_ms <= 0xffffffffu - 10u) {
+            ctx.media_ready_elapsed_ms += 10u;
+        }
         if (ctx.offer_received && ctx.answer_sent && ctx.ice_connected &&
-            ctx.srtp_ready && ctx.media_files_ready) {
+            ctx.srtp_ready && ctx.media_files_ready &&
+            ctx.media_ready_elapsed_ms >= options->min_media_ms) {
             cleanup_runtime(&ctx);
             rtc_e2e_jsonl_summary_media(jsonl, 1, "none", "e2e passed",
                                         ctx.audio_frames_received,
