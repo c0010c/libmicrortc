@@ -14,6 +14,7 @@ function parseArgs(argv) {
     dryRun: argv.includes("--dry-run"),
     pageSmoke: argv.includes("--page-smoke"),
     cExampleSmoke: argv.includes("--c-example-smoke"),
+    mediaFileSmoke: argv.includes("--media-file-smoke"),
   };
 }
 
@@ -224,6 +225,64 @@ async function cExampleSmoke() {
   }, null, 2));
 }
 
+async function mediaFileSmoke() {
+  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
+  if (!existsSync(binary)) {
+    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
+  }
+
+  const outputDir = "examples/chrome_e2e/out/media-file-smoke";
+  const run = await runCommand(binary, [
+    "--dry-run",
+    "--output-dir",
+    outputDir,
+  ]);
+  if (run.code !== 0) {
+    throw new Error(`rtc_chrome_e2e media-file smoke failed: ${run.stderr || run.stdout}`);
+  }
+
+  const jsonlPath = resolve(repoRoot, outputDir, "rtc_chrome_e2e.jsonl");
+  const jsonl = readFileSync(jsonlPath, "utf8").trim().split(/\n+/).map((line) => JSON.parse(line));
+  const summary = jsonl.find((event) => event.type === "summary");
+  if (!summary?.pass || summary.layer !== "none") {
+    throw new Error("media-file smoke summary did not pass");
+  }
+  for (const field of [
+    "audio_frames_received",
+    "video_frames_received",
+    "audio_bytes_received",
+    "video_bytes_received",
+  ]) {
+    if (typeof summary[field] !== "number" || summary[field] <= 0) {
+      throw new Error(`media-file smoke summary missing positive ${field}`);
+    }
+  }
+
+  const opusPath = resolve(repoRoot, outputDir, "received-opus.packets");
+  const h264Path = resolve(repoRoot, outputDir, "received-h264.264");
+  if (!existsSync(opusPath) || !existsSync(h264Path)) {
+    throw new Error("media-file smoke did not create received media files");
+  }
+
+  const source = readFileSync(resolve(repoRoot, "examples/chrome_e2e/rtc_chrome_e2e.c"), "utf8");
+  [
+    "rtc_peer_connection_send_media_frame",
+    "srtp.ready",
+    "received-opus.packets",
+    "received-h264.264",
+    "audio_frames_received",
+    "video_frames_received",
+    "media_file",
+  ].forEach((needle) => requireSource(source, needle));
+
+  console.log(JSON.stringify({
+    ok: true,
+    layer: "none",
+    outputDir,
+    summary,
+  }, null, 2));
+}
+
 const args = parseArgs(process.argv.slice(2));
 
 if (args.dryRun) {
@@ -232,6 +291,8 @@ if (args.dryRun) {
   await pageSmoke();
 } else if (args.cExampleSmoke) {
   await cExampleSmoke();
+} else if (args.mediaFileSmoke) {
+  await mediaFileSmoke();
 } else {
   await dryRun();
 }

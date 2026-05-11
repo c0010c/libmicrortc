@@ -1,4 +1,5 @@
 #include "jsonl.h"
+#include "media_samples.h"
 #include "executor/executor.h"
 #include "rtc/rtc.h"
 
@@ -27,6 +28,7 @@
 #define E2E_WS_KEY "dGhlIHNhbXBsZSBub25jZQ=="
 #define E2E_DATAGRAM_QUEUE_CAPACITY 8u
 #define E2E_DATAGRAM_MAX_BYTES 1500u
+#define E2E_SAMPLE_BUFFER_BYTES 65536u
 
 typedef struct e2e_options_t {
     const char *ws_url;
@@ -57,6 +59,23 @@ typedef struct e2e_context_t {
     size_t queue_head;
     size_t queue_tail;
     size_t queue_count;
+    int media_ready;
+    int media_started;
+    rtc_peer_connection_t *pc;
+    const e2e_options_t *options;
+    FILE *received_opus;
+    FILE *received_h264;
+    rtc_e2e_sample_reader_t opus_reader;
+    rtc_e2e_sample_reader_t h264_reader;
+    int opus_reader_open;
+    int h264_reader_open;
+    uint64_t now_us;
+    uint64_t next_opus_due_us;
+    uint64_t next_h264_due_us;
+    unsigned long audio_frames_received;
+    unsigned long video_frames_received;
+    unsigned long audio_bytes_received;
+    unsigned long video_bytes_received;
 } e2e_context_t;
 
 static rtc_status_t e2e_post(void *user_data, rtc_executor_task_fn task,
@@ -694,6 +713,9 @@ static void on_state(void *user_data, const char *state)
 {
     e2e_context_t *ctx = (e2e_context_t *)user_data;
     rtc_e2e_jsonl_event(ctx->jsonl, "state", "none", "ok", state);
+    if (strcmp(state, "srtp.ready") == 0) {
+        ctx->media_ready = 1;
+    }
     send_status(ctx, state);
 }
 
@@ -757,6 +779,54 @@ static void on_datagram(void *user_data, const uint8_t *data, size_t data_len)
                         "queued", "on_datagram");
 }
 
+static int write_be32(FILE *file, uint32_t value)
+{
+    uint8_t bytes[4];
+    bytes[0] = (uint8_t)(value >> 24);
+    bytes[1] = (uint8_t)((value >> 16) & 0xffu);
+    bytes[2] = (uint8_t)((value >> 8) & 0xffu);
+    bytes[3] = (uint8_t)(value & 0xffu);
+    return fwrite(bytes, 1u, sizeof(bytes), file) == sizeof(bytes) ? 0 : -1;
+}
+
+static void on_media_frame_typed(void *user_data,
+                                 const rtc_media_frame_t *frame)
+{
+    e2e_context_t *ctx = (e2e_context_t *)user_data;
+
+    if (ctx == 0 || frame == 0 || frame->data == 0 ||
+        frame->data_len == 0u) {
+        return;
+    }
+    if (frame->kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
+        if (ctx->received_opus == 0 ||
+            write_be32(ctx->received_opus, (uint32_t)frame->data_len) != 0 ||
+            fwrite(frame->data, 1u, frame->data_len, ctx->received_opus) !=
+                frame->data_len) {
+            rtc_e2e_jsonl_event(ctx->jsonl, "error", "media_file", "failed",
+                                "received-opus.packets.write_failed");
+            return;
+        }
+        fflush(ctx->received_opus);
+        ctx->audio_frames_received++;
+        ctx->audio_bytes_received += (unsigned long)frame->data_len;
+    } else if (frame->kind == RTC_MEDIA_KIND_VIDEO_H264) {
+        static const uint8_t start_code[4] = {0x00u, 0x00u, 0x00u, 0x01u};
+        if (ctx->received_h264 == 0 ||
+            fwrite(start_code, 1u, sizeof(start_code), ctx->received_h264) !=
+                sizeof(start_code) ||
+            fwrite(frame->data, 1u, frame->data_len, ctx->received_h264) !=
+                frame->data_len) {
+            rtc_e2e_jsonl_event(ctx->jsonl, "error", "media_file", "failed",
+                                "received-h264.264.write_failed");
+            return;
+        }
+        fflush(ctx->received_h264);
+        ctx->video_frames_received++;
+        ctx->video_bytes_received += (unsigned long)frame->data_len;
+    }
+}
+
 static void fill_pc_config(rtc_peer_connection_config_t *config,
                            unsigned char *arena, size_t arena_size,
                            const e2e_options_t *options,
@@ -802,8 +872,127 @@ static void fill_pc_config(rtc_peer_connection_config_t *config,
     config->observer.on_error = on_error;
     config->observer.on_trace = on_trace;
     config->observer.on_local_candidate = on_local_candidate;
+    config->observer.on_media_frame_typed = on_media_frame_typed;
     config->observer.on_datagram = on_datagram;
     config->observer.user_data = ctx;
+}
+
+static int open_media_outputs(e2e_context_t *ctx, const char *output_dir)
+{
+    char path[512];
+
+    if (make_path(path, sizeof(path), output_dir, "received-opus.packets") !=
+        0) {
+        return -1;
+    }
+    ctx->received_opus = fopen(path, "wb");
+    if (ctx->received_opus == 0) {
+        rtc_e2e_jsonl_event(ctx->jsonl, "error", "media_file", "failed",
+                            "received-opus.packets.open_failed");
+        return -1;
+    }
+    if (make_path(path, sizeof(path), output_dir, "received-h264.264") != 0) {
+        return -1;
+    }
+    ctx->received_h264 = fopen(path, "wb");
+    if (ctx->received_h264 == 0) {
+        rtc_e2e_jsonl_event(ctx->jsonl, "error", "media_file", "failed",
+                            "received-h264.264.open_failed");
+        return -1;
+    }
+    return 0;
+}
+
+static void close_media(e2e_context_t *ctx)
+{
+    if (ctx->received_opus != 0) {
+        fclose(ctx->received_opus);
+        ctx->received_opus = 0;
+    }
+    if (ctx->received_h264 != 0) {
+        fclose(ctx->received_h264);
+        ctx->received_h264 = 0;
+    }
+    if (ctx->opus_reader_open) {
+        rtc_e2e_sample_close(&ctx->opus_reader);
+        ctx->opus_reader_open = 0;
+    }
+    if (ctx->h264_reader_open) {
+        rtc_e2e_sample_close(&ctx->h264_reader);
+        ctx->h264_reader_open = 0;
+    }
+}
+
+static int start_sample_senders(e2e_context_t *ctx)
+{
+    if (ctx->media_started) {
+        return 0;
+    }
+    if (rtc_e2e_sample_open_ogg_opus(ctx->options->sample_opus,
+                                     &ctx->opus_reader) != 0 ||
+        rtc_e2e_sample_open_h264(ctx->options->sample_h264,
+                                 &ctx->h264_reader) != 0) {
+        rtc_e2e_jsonl_event(ctx->jsonl, "error", "media_file", "failed",
+                            "sample.open_failed");
+        return -1;
+    }
+    ctx->opus_reader_open = 1;
+    ctx->h264_reader_open = 1;
+    ctx->media_started = 1;
+    ctx->next_opus_due_us = ctx->now_us;
+    ctx->next_h264_due_us = ctx->now_us;
+    rtc_e2e_jsonl_event(ctx->jsonl, "status", "media_file", "ok",
+                        "samples.started");
+    return 0;
+}
+
+static void send_sample_frame(e2e_context_t *ctx, rtc_media_kind_t kind)
+{
+    uint8_t buffer[E2E_SAMPLE_BUFFER_BYTES];
+    rtc_e2e_sample_frame_t sample;
+    rtc_media_frame_t frame;
+    int rc;
+
+    if (kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
+        rc = rtc_e2e_sample_next_opus(&ctx->opus_reader, &sample, buffer,
+                                      sizeof(buffer));
+    } else {
+        rc = rtc_e2e_sample_next_h264(&ctx->h264_reader, &sample, buffer,
+                                      sizeof(buffer));
+    }
+    if (rc != 0) {
+        return;
+    }
+
+    memset(&frame, 0, sizeof(frame));
+    frame.kind = sample.kind;
+    frame.data = sample.data;
+    frame.data_len = sample.data_len;
+    frame.capture_time_us = ctx->now_us;
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    (void)rtc_peer_connection_send_media_frame(ctx->pc, &frame);
+    if (kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
+        ctx->next_opus_due_us = ctx->now_us + sample.duration_us;
+    } else {
+        ctx->next_h264_due_us = ctx->now_us + sample.duration_us;
+    }
+}
+
+static int pump_media(e2e_context_t *ctx)
+{
+    if (!ctx->media_ready) {
+        return 0;
+    }
+    if (!ctx->media_started && start_sample_senders(ctx) != 0) {
+        return -1;
+    }
+    if (ctx->now_us >= ctx->next_opus_due_us) {
+        send_sample_frame(ctx, RTC_MEDIA_KIND_AUDIO_OPUS);
+    }
+    if (ctx->now_us >= ctx->next_h264_due_us) {
+        send_sample_frame(ctx, RTC_MEDIA_KIND_VIDEO_H264);
+    }
+    return 0;
 }
 
 static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
@@ -939,6 +1128,11 @@ static void pump_ws(rtc_peer_connection_t *pc, e2e_context_t *ctx)
 
 static int run_dry_run(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
 {
+    e2e_context_t ctx;
+    rtc_e2e_sample_reader_t reader;
+    rtc_e2e_sample_frame_t frame;
+    uint8_t buffer[E2E_SAMPLE_BUFFER_BYTES];
+
     if (!file_exists(options->sample_opus)) {
         rtc_e2e_jsonl_summary(jsonl, 0, "media_file", "sample opus missing");
         return 1;
@@ -947,9 +1141,47 @@ static int run_dry_run(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
         rtc_e2e_jsonl_summary(jsonl, 0, "media_file", "sample h264 missing");
         return 1;
     }
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.jsonl = jsonl;
+    if (open_media_outputs(&ctx, options->output_dir) != 0) {
+        close_media(&ctx);
+        rtc_e2e_jsonl_summary(jsonl, 0, "media_file",
+                              "media output open failed");
+        return 1;
+    }
+    if (rtc_e2e_sample_open_ogg_opus(options->sample_opus, &reader) != 0 ||
+        rtc_e2e_sample_next_opus(&reader, &frame, buffer, sizeof(buffer)) !=
+            0) {
+        rtc_e2e_sample_close(&reader);
+        close_media(&ctx);
+        rtc_e2e_jsonl_summary(jsonl, 0, "media_file", "opus parse failed");
+        return 1;
+    }
+    rtc_e2e_sample_close(&reader);
+    on_media_frame_typed(&ctx, (const rtc_media_frame_t *)&frame);
+    if (rtc_e2e_sample_open_h264(options->sample_h264, &reader) != 0 ||
+        rtc_e2e_sample_next_h264(&reader, &frame, buffer, sizeof(buffer)) !=
+            0) {
+        rtc_e2e_sample_close(&reader);
+        close_media(&ctx);
+        rtc_e2e_jsonl_summary_media(jsonl, 0, "media_file",
+                                    "h264 parse failed",
+                                    ctx.audio_frames_received,
+                                    ctx.video_frames_received,
+                                    ctx.audio_bytes_received,
+                                    ctx.video_bytes_received);
+        return 1;
+    }
+    rtc_e2e_sample_close(&reader);
+    on_media_frame_typed(&ctx, (const rtc_media_frame_t *)&frame);
     rtc_e2e_jsonl_event(jsonl, "status", "media_file", "ok",
                         "samples.available");
-    rtc_e2e_jsonl_summary(jsonl, 1, "none", "dry-run passed");
+    close_media(&ctx);
+    rtc_e2e_jsonl_summary_media(jsonl, 1, "none", "dry-run passed",
+                                ctx.audio_frames_received,
+                                ctx.video_frames_received,
+                                ctx.audio_bytes_received,
+                                ctx.video_bytes_received);
     return 0;
 }
 
@@ -965,8 +1197,15 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.jsonl = jsonl;
+    ctx.options = options;
     ctx.udp_fd = -1;
     ctx.ws_fd = -1;
+    if (open_media_outputs(&ctx, options->output_dir) != 0) {
+        close_media(&ctx);
+        rtc_e2e_jsonl_summary(jsonl, 0, "media_file",
+                              "media output open failed");
+        return 1;
+    }
     ctx.udp_fd = udp_open(options, jsonl);
     if (ctx.udp_fd < 0) {
         rtc_e2e_jsonl_summary(jsonl, 0, "ice", "UDP socket failed");
@@ -993,19 +1232,27 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
                               "PeerConnection create failed");
         return 1;
     }
+    ctx.pc = pc;
 
     rtc_e2e_jsonl_event(jsonl, "status", "signaling", "pending",
                         "waiting.offer");
     while (elapsed_ms < options->timeout_ms) {
         pump_ws(pc, &ctx);
         pump_udp(pc, &ctx);
+        (void)pump_media(&ctx);
         flush_datagrams(&ctx);
         sleep_10ms();
         elapsed_ms += 10u;
+        ctx.now_us += 10000u;
     }
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     (void)rtc_peer_connection_destroy(pc);
-    rtc_e2e_jsonl_summary(jsonl, 0, "signaling", "no offer received");
+    close_media(&ctx);
+    rtc_e2e_jsonl_summary_media(jsonl, 0, "signaling", "no offer received",
+                                ctx.audio_frames_received,
+                                ctx.video_frames_received,
+                                ctx.audio_bytes_received,
+                                ctx.video_bytes_received);
 #if !defined(_WIN32)
     close(ctx.ws_fd);
     close(ctx.udp_fd);

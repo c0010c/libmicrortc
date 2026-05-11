@@ -89,6 +89,16 @@ void rtc_e2e_jsonl_event(rtc_e2e_jsonl_t *jsonl, const char *type,
 void rtc_e2e_jsonl_summary(rtc_e2e_jsonl_t *jsonl, int pass,
                            const char *layer, const char *reason)
 {
+    rtc_e2e_jsonl_summary_media(jsonl, pass, layer, reason, 0, 0, 0, 0);
+}
+
+void rtc_e2e_jsonl_summary_media(rtc_e2e_jsonl_t *jsonl, int pass,
+                                 const char *layer, const char *reason,
+                                 unsigned long audio_frames_received,
+                                 unsigned long video_frames_received,
+                                 unsigned long audio_bytes_received,
+                                 unsigned long video_bytes_received)
+{
     FILE *file;
 
     if (jsonl == 0 || jsonl->file == 0) {
@@ -102,6 +112,11 @@ void rtc_e2e_jsonl_summary(rtc_e2e_jsonl_t *jsonl, int pass,
     json_string(file, layer == 0 ? "none" : layer);
     fputs(",\"reason\":", file);
     json_string(file, reason == 0 ? "" : reason);
+    fprintf(file,
+            ",\"audio_frames_received\":%lu,\"video_frames_received\":%lu,"
+            "\"audio_bytes_received\":%lu,\"video_bytes_received\":%lu",
+            audio_frames_received, video_frames_received,
+            audio_bytes_received, video_bytes_received);
     fputs("}\n", file);
     fflush(file);
 }

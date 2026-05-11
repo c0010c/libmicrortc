@@ -18,6 +18,12 @@ void rtc_e2e_jsonl_event(rtc_e2e_jsonl_t *jsonl, const char *type,
                          const char *detail);
 void rtc_e2e_jsonl_summary(rtc_e2e_jsonl_t *jsonl, int pass,
                            const char *layer, const char *reason);
+void rtc_e2e_jsonl_summary_media(rtc_e2e_jsonl_t *jsonl, int pass,
+                                 const char *layer, const char *reason,
+                                 unsigned long audio_frames_received,
+                                 unsigned long video_frames_received,
+                                 unsigned long audio_bytes_received,
+                                 unsigned long video_bytes_received);
 
 #ifdef __cplusplus
 }
