@@ -9,7 +9,7 @@ const state = {
   statsTimer: 0,
   candidateCount: 0,
   offerCreated: false,
-  summary: { layer: "none", ok: false },
+  summary: { layer: "none", ok: false, manual_vlc_required: true },
   events: [],
 };
 
@@ -51,16 +51,31 @@ function logEvent(type, detail = {}) {
   const event = { at: new Date().toISOString(), type, ...detail };
   state.events.push(event);
   state.events = state.events.slice(-5);
+  const latestEvents = state.events.map((item) => ({
+    type: item.type,
+    state: item.state,
+    layer: item.layer,
+  }));
   elements.eventLog.replaceChildren(...state.events.map((item) => {
     const li = document.createElement("li");
     li.textContent = `${item.type} ${item.state ?? item.layer ?? ""}`.trim();
     return li;
   }));
+  window.__chromeE2E = {
+    ...(window.__chromeE2E ?? {}),
+    latestEvents,
+  };
 }
 
 function updateSummary(summary) {
-  state.summary = { ...state.summary, ...summary };
-  elements.summaryLayer.textContent = state.summary.layer ?? "none";
+  state.summary = { manual_vlc_required: true, ...state.summary, ...summary };
+  const displayLayer =
+    (state.summary.pass === true || state.summary.ok === true) &&
+    state.summary.manual_vlc_required === true &&
+    (!state.summary.layer || state.summary.layer === "none")
+      ? "manual_vlc_pending"
+      : state.summary.layer ?? "none";
+  elements.summaryLayer.textContent = displayLayer;
   if (state.summary.layer && state.summary.layer !== "none") {
     elements.failureTitle.textContent = `${state.summary.layer} failed`;
     elements.failureDetail.textContent = "Check the latest JSONL event and rerun after fixing the reported layer.";
@@ -252,6 +267,7 @@ async function collectStats() {
     offerCreated: state.offerCreated,
     candidateCount: state.candidateCount,
     summary: state.summary,
+    latestEvents: state.events,
   };
 }
 
@@ -280,7 +296,12 @@ async function startCall() {
   await pc.setLocalDescription(offer);
   await signalingReady;
   state.offerCreated = true;
-  window.__chromeE2E = { offerCreated: true, candidateCount: state.candidateCount, summary: state.summary };
+  window.__chromeE2E = {
+    offerCreated: true,
+    candidateCount: state.candidateCount,
+    summary: state.summary,
+    latestEvents: state.events,
+  };
   sendSignal({ type: "offer", sdp: offer.sdp });
   logEvent("offer.sent");
 
@@ -323,4 +344,5 @@ window.__chromeE2E = {
   offerCreated: false,
   candidateCount: 0,
   summary: state.summary,
+  latestEvents: [],
 };

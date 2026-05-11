@@ -10,6 +10,7 @@ import { createSignalingServer } from "./signaling.mjs";
 const repoRoot = resolve(new URL("../..", import.meta.url).pathname);
 const failureLayers = ["signaling","ice","dtls","srtp","rtp","rtcp","media_file"];
 const requiredCEvents = ["offer.received", "answer.sent", "ice.connected", "dtls.connected", "srtp.ready"];
+const manualVlcPending = "manual_vlc_pending";
 
 function parseArgs(argv) {
   const args = {
@@ -363,6 +364,7 @@ async function fullE2E(args) {
     pass: pass || (args.manualSecurityOk && optionalSecurityGate),
     layer: failure.layer,
     reason: args.manualSecurityOk && optionalSecurityGate ? "manual_security_ok" : failure.reason,
+    manual_vlc_state: manualVlcRequired ? manualVlcPending : "manual_vlc_approved",
     duration_ms: Date.now() - startedAt,
     failureLayers,
     page: pageState ?? { summary: null },

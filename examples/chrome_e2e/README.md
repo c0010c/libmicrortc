@@ -38,9 +38,24 @@ JSONL `summary` 会报告 `audio_frames_received`、`video_frames_received`、`a
 npm run e2e:chrome:dry-run
 node examples/chrome_e2e/run_e2e.mjs --c-example-smoke
 node examples/chrome_e2e/run_e2e.mjs --media-file-smoke
+node examples/chrome_e2e/run_e2e.mjs --timeout-ms 30000
 ```
 
-后续计划会把 C 示例、样本媒体解析和完整 E2E 编排接入同一入口。
+完整编排会启动本机信令服务、`rtc_chrome_e2e` C 示例和 Chrome 页面，然后输出一行 compact JSON summary。summary 字段包含 `pass`、`layer`、`reason`、`duration_ms`、`page`、`c_example`、`media_files`、`manual_vlc_required` 和最近 5 条 `latestEvents`。`manual_vlc_required` 当前始终为 `true`；自动化只验证 SDP/ICE/DTLS/SRTP/RTP/RTCP 状态、counter 和媒体文件产物，不替代 VLC 人工播放验收。页面成功但未人工确认时，`summary-layer` 会显示 `manual_vlc_pending`。
+
+当前默认构建未启用可选安全 backend，因此 full run 会以非零退出并报告 `layer:"dtls"`、`reason:"optional_security_backend_disabled"`。开发 smoke 如需确认编排路径可使用 `--manual-security-ok`，但该选项只允许脚本以 0 退出，不表示真实 Chrome DTLS/SRTP 或 VLC 媒体验收通过。
+
+## 失败层级排查表
+
+| layer | 下一步检查 |
+|-------|------------|
+| `signaling` | 检查 `signaling.mjs` 是否 ready、WebSocket `/ws` 是否可连接、页面是否发送 `offer`、C JSONL 是否包含 `offer.received` 与 `answer.sent`。 |
+| `ice` | 检查 Chrome/C candidate 数量、本机 host candidate IP/port、UDP bind 是否成功，以及 JSONL 是否出现 `ice.connected`。 |
+| `dtls` | 检查 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY` 是否启用、fingerprint/handshake trace，以及默认 gate 是否为 `optional_security_backend_disabled`。 |
+| `srtp` | 检查 `key_export`、`srtp_init` 和 `srtp.ready` 事件；SRTP 初始化失败不应继续宣称媒体可用。 |
+| `rtp` | 检查 RTP protect/unprotect trace、发送/接收 counter 是否增长，以及页面 `stats-frames` / `stats-bytes` 是否变化。 |
+| `rtcp` | 检查 SRTCP protect/unprotect、SR/RR/SDES 或 feedback trace，以及 RTCP counter 是否增长。 |
+| `media_file` | 检查输出目录中的 `received-opus.packets` 与 `received-h264.264` 是否存在且字节数大于 0，然后再用 VLC/ffplay 做人工播放确认。 |
 
 ## 可选 Chrome 安全 backend
 
