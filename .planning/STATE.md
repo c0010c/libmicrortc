@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 research and validation strategy complete; UI-SPEC gate blocks PLAN.md creation; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T12:57:37+08:00"
+status: Phase 6 UI-SPEC approved; ready for PLAN.md creation; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T13:12:00+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -23,7 +23,7 @@ progress:
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收准备；`06-RESEARCH.md` 与 `06-VALIDATION.md` 已完成，因 Chrome 页面属于 frontend/UI 工作，规划阶段在 `06-UI-SPEC.md` 缺失门禁处暂停；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
+**当前焦点：** Phase 6: Chrome 端到端验收准备；`06-RESEARCH.md`、`06-VALIDATION.md` 与 `06-UI-SPEC.md` 已完成，下一步可继续 `$gsd-plan-phase 6`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
 
 ## 工作流配置
 
@@ -42,26 +42,20 @@ progress:
 
 **目标：** 完成 1 路 Opus 音频和 1 路 H264 视频的 RTP/RTCP 媒体平面，并把关键反馈事件暴露给用户。
 
-**状态：** 6/6 plans 已完成，阶段级验证通过；第 4 阶段仍待 `$gsd-verify-work 4`；第 6 阶段已完成 research/validation，待 UI-SPEC 后继续 PLAN.md
+**状态：** 6/6 plans 已完成，阶段级验证通过；第 4 阶段仍待 `$gsd-verify-work 4`；第 6 阶段已完成 research/validation/UI-SPEC，待继续 PLAN.md
 
 **计划数量：** 6
 
 **下一步：**
 
 ```bash
-$gsd-ui-phase 6
+$gsd-plan-phase 6
 ```
 
 **也建议：**
 
 ```bash
 $gsd-verify-work 4
-```
-
-UI-SPEC 完成后继续：
-
-```bash
-$gsd-plan-phase 6
 ```
 
 **计划入口：** `.planning/phases/05-rtp-rtcp-media-plane/`
@@ -155,6 +149,7 @@ $gsd-plan-phase 6
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-DISCUSSION-LOG.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-RESEARCH.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-VALIDATION.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-UI-SPEC.md`
 
 ---
 ## 最近会话
@@ -174,6 +169,7 @@ $gsd-plan-phase 6
 - 2026-05-11T00:48:00+08:00：完成 `05-06-PLAN.md`，收口媒体 API/执行器/内存契约、设计边界、05-UAT、需求追踪、PROJECT/ROADMAP/STATE；第 5 阶段只声明 typed media/RTP/RTCP 本地 deterministic tests 完成，Chrome 真实端到端仍属于第 6 阶段。
 - 2026-05-11T01:06:17+08:00：完成第 5 阶段 code review、blocker 修复、复审和阶段级验证；10/10 must-have 通过，异步 executor 语义由开发者批准作为非阻塞 advisory 保留。
 - 2026-05-11T12:57:37+08:00：完成第 6 阶段 `06-RESEARCH.md` 与 `06-VALIDATION.md`；规划流程在 UI-SPEC gate 暂停，因为第 6 阶段包含 Chrome 页面和状态面板，需先运行 `$gsd-ui-phase 6` 生成设计契约。
+- 2026-05-11T13:12:00+08:00：完成并批准第 6 阶段 `06-UI-SPEC.md`；契约固定原生 HTML/CSS/JS 诊断工具界面、紧凑媒体预览、阶段状态条、diagnostics 面板、copywriting、颜色/字体/间距和 registry safety，下一步可继续 `$gsd-plan-phase 6`。
 
 ## 执行决策
 
