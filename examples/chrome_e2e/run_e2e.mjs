@@ -15,6 +15,7 @@ function parseArgs(argv) {
     pageSmoke: argv.includes("--page-smoke"),
     cExampleSmoke: argv.includes("--c-example-smoke"),
     mediaFileSmoke: argv.includes("--media-file-smoke"),
+    securityGateSmoke: argv.includes("--security-gate-smoke"),
   };
 }
 
@@ -283,6 +284,49 @@ async function mediaFileSmoke() {
   }, null, 2));
 }
 
+async function securityGateSmoke() {
+  const binary = resolve(repoRoot, "build/rtc_chrome_e2e");
+  if (!existsSync(binary)) {
+    throw new Error("build/rtc_chrome_e2e is missing; run cmake --build build --target rtc_chrome_e2e");
+  }
+
+  const outputDir = "examples/chrome_e2e/out/security-gate-smoke";
+  const run = await runCommand(binary, [
+    "--output-dir",
+    outputDir,
+    "--timeout-ms",
+    "1",
+  ]);
+  if (run.code === 0) {
+    throw new Error("security gate smoke unexpectedly passed full E2E");
+  }
+
+  const jsonlPath = resolve(repoRoot, outputDir, "rtc_chrome_e2e.jsonl");
+  const jsonl = readFileSync(jsonlPath, "utf8").trim().split(/\n+/).map((line) => JSON.parse(line));
+  const summary = jsonl.find((event) => event.type === "summary");
+  if (!summary || summary.pass !== false || summary.layer !== "dtls" || summary.reason !== "optional_security_backend_disabled") {
+    throw new Error("security gate smoke did not stop at dtls optional_security_backend_disabled");
+  }
+
+  const source = readFileSync(resolve(repoRoot, "examples/chrome_e2e/rtc_chrome_e2e.c"), "utf8");
+  [
+    "fingerprint",
+    "RTC_SECURITY_DETAIL_FINGERPRINT_MISMATCH",
+    "key_export",
+    "protect_rtp",
+    "unprotect_rtp",
+    "protect_rtcp",
+    "unprotect_rtcp",
+  ].forEach((needle) => requireSource(source, needle));
+
+  console.log(JSON.stringify({
+    ok: true,
+    layer: "dtls",
+    reason: "optional_security_backend_disabled",
+    summary,
+  }, null, 2));
+}
+
 const args = parseArgs(process.argv.slice(2));
 
 if (args.dryRun) {
@@ -293,6 +337,8 @@ if (args.dryRun) {
   await cExampleSmoke();
 } else if (args.mediaFileSmoke) {
   await mediaFileSmoke();
+} else if (args.securityGateSmoke) {
+  await securityGateSmoke();
 } else {
   await dryRun();
 }
