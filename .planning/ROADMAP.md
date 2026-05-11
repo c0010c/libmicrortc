@@ -14,7 +14,7 @@
 | 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 执行完成，待验证 |
 | 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 执行完成，待阶段验证 |
 | 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 已完成 |
-| 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | gap closure 进行中，06-07 已完成，ACC-01 仍待 |
+| 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | gap closure 进行中，06-08 已完成，ACC-01 仍待 |
 
 ## 阶段详情
 
@@ -199,7 +199,7 @@
 
 **需求：** TST-01, EXM-01, EXM-02, ACC-01
 
-**状态：** gap closure 进行中。`06-01` 已完成 Chrome 合成媒体页面、WebSocket 信令服务和 page smoke；`06-02` 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O、PeerConnection observer 和 JSONL summary；`06-03` 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；`06-04` 已完成可选真实安全 backend gate、许可证检查和安全失败分层；`06-05` 已完成端到端自动化编排、compact JSON summary 和七层失败诊断；`06-06` 已完成中文文档、`06-UAT.md`、需求追踪和状态收口，见 `06-06-SUMMARY.md`；`06-07` 已完成共享 runId、C 示例 `--run-id` 和 WebSocket 分片读取状态机，见 `06-07-SUMMARY.md`。`ACC-01` 仍被 C runtime 成功条件、media executor 亲和、真实可选安全 backend 和人工媒体验收阻断。
+**状态：** gap closure 进行中。`06-01` 已完成 Chrome 合成媒体页面、WebSocket 信令服务和 page smoke；`06-02` 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O、PeerConnection observer 和 JSONL summary；`06-03` 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；`06-04` 已完成可选真实安全 backend gate、许可证检查和安全失败分层；`06-05` 已完成端到端自动化编排、compact JSON summary 和七层失败诊断；`06-06` 已完成中文文档、`06-UAT.md`、需求追踪和状态收口，见 `06-06-SUMMARY.md`；`06-07` 已完成共享 runId、C 示例 `--run-id` 和 WebSocket 分片读取状态机，见 `06-07-SUMMARY.md`；`06-08` 已完成 C runtime 成功状态机、media executor 亲和修复、full E2E pass 判定和 smoke 脚本入口，见 `06-08-SUMMARY.md`。`ACC-01` 仍被真实可选安全 backend、secure full E2E 和人工媒体验收阻断。
 
 **成功标准：**
 1. 自动化测试覆盖 SDP/JSEP、ICE/STUN、DTLS/SRTP、RTP/RTCP、固定内存和关键错误路径。
@@ -232,7 +232,7 @@
 - `06-07-PLAN.md`：共享 runId、C 示例 `--run-id` 和 WebSocket 分片读取状态机，修复页面与 C 示例信令互达。已完成，见 `06-07-SUMMARY.md`。
 
 **Wave 8** *(blocked on Wave 7 completion)*
-- `06-08-PLAN.md`：C runtime 成功状态机、media executor 亲和修复、full E2E pass 判定和 smoke 脚本入口。
+- `06-08-PLAN.md`：C runtime 成功状态机、media executor 亲和修复、full E2E pass 判定和 smoke 脚本入口。已完成，见 `06-08-SUMMARY.md`。
 
 **Wave 9** *(blocked on Wave 8 completion)*
 - `06-09-PLAN.md`：实现默认关闭的真实可选 OpenSSL/libsrtp DTLS/SRTP backend，保持默认构建无系统安全依赖。
@@ -256,4 +256,4 @@
 | 阶段总数 | 6 |
 
 ---
-*最后更新：2026-05-11，06-07 Chrome E2E 信令互达 gap closure 后*
+*最后更新：2026-05-11，06-08 Chrome E2E runtime 状态机和 pass 判定收紧后*
