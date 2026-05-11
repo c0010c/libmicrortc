@@ -67,6 +67,16 @@ typedef struct e2e_context_t {
     size_t queue_count;
     int media_ready;
     int media_started;
+    int offer_received;
+    int answer_sent;
+    int ice_connected;
+    int dtls_connected;
+    int srtp_ready;
+    int rtp_seen;
+    int rtcp_seen;
+    int media_files_ready;
+    const char *last_failure_layer;
+    const char *last_failure_reason;
     rtc_peer_connection_t *pc;
     const e2e_options_t *options;
     FILE *received_opus;
@@ -83,6 +93,16 @@ typedef struct e2e_context_t {
     unsigned long audio_bytes_received;
     unsigned long video_bytes_received;
 } e2e_context_t;
+
+static void set_failure(e2e_context_t *ctx, const char *layer,
+                        const char *reason)
+{
+    if (ctx == 0) {
+        return;
+    }
+    ctx->last_failure_layer = layer;
+    ctx->last_failure_reason = reason;
+}
 
 static rtc_status_t e2e_post(void *user_data, rtc_executor_task_fn task,
                              void *task_user_data)
@@ -779,8 +799,14 @@ static void on_state(void *user_data, const char *state)
 {
     e2e_context_t *ctx = (e2e_context_t *)user_data;
     rtc_e2e_jsonl_event(ctx->jsonl, "state", "none", "ok", state);
+    if (strcmp(state, "ice.connected") == 0) {
+        ctx->ice_connected = 1;
+    } else if (strcmp(state, "dtls.connected") == 0) {
+        ctx->dtls_connected = 1;
+    }
     if (strcmp(state, "srtp.ready") == 0) {
         ctx->media_ready = 1;
+        ctx->srtp_ready = 1;
     }
     send_status(ctx, state);
 }
@@ -857,6 +883,7 @@ static void on_error(void *user_data, rtc_status_t status,
              operation == 0 ? "unknown" : operation, (int)status,
              detail_code, security_detail_name(detail_code));
     e2e_context_t *ctx = (e2e_context_t *)user_data;
+    set_failure(ctx, layer, detail);
     rtc_e2e_jsonl_event(ctx->jsonl, "error", layer, "failed", detail);
 }
 
@@ -881,6 +908,11 @@ static void on_trace(void *user_data, const char *event,
         }
     }
     layer = security_failure_layer(subsystem, operation, 0);
+    if (strcmp(layer, "rtp") == 0) {
+        ctx->rtp_seen = 1;
+    } else if (strcmp(layer, "rtcp") == 0) {
+        ctx->rtcp_seen = 1;
+    }
     snprintf(detail, sizeof(detail), "%s operation=%s reason=%s",
              event == 0 ? "trace" : event,
              operation == 0 ? "unknown" : operation,
@@ -969,6 +1001,9 @@ static void on_media_frame_typed(void *user_data,
         fflush(ctx->received_h264);
         ctx->video_frames_received++;
         ctx->video_bytes_received += (unsigned long)frame->data_len;
+    }
+    if (ctx->audio_bytes_received > 0u && ctx->video_bytes_received > 0u) {
+        ctx->media_files_ready = 1;
     }
 }
 
@@ -1069,6 +1104,58 @@ static void close_media(e2e_context_t *ctx)
     }
 }
 
+static void cleanup_runtime(e2e_context_t *ctx)
+{
+    if (ctx == 0) {
+        return;
+    }
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
+    if (ctx->pc != 0) {
+        (void)rtc_peer_connection_destroy(ctx->pc);
+        ctx->pc = 0;
+    }
+    close_media(ctx);
+#if !defined(_WIN32)
+    if (ctx->ws_fd >= 0) {
+        close(ctx->ws_fd);
+        ctx->ws_fd = -1;
+    }
+    if (ctx->udp_fd >= 0) {
+        close(ctx->udp_fd);
+        ctx->udp_fd = -1;
+    }
+#endif
+}
+
+static void timeout_failure(const e2e_context_t *ctx, const char **out_layer,
+                            const char **out_reason)
+{
+    if (!ctx->offer_received) {
+        *out_layer = "signaling";
+        *out_reason = "offer_not_received";
+    } else if (!ctx->answer_sent) {
+        *out_layer = "signaling";
+        *out_reason = "answer_not_sent";
+    } else if (!ctx->ice_connected) {
+        *out_layer = "ice";
+        *out_reason = "ice_not_connected";
+    } else if (!ctx->dtls_connected) {
+        *out_layer = "dtls";
+        *out_reason = "dtls_not_connected";
+    } else if (!ctx->srtp_ready) {
+        *out_layer = "srtp";
+        *out_reason = "srtp_not_ready";
+    } else if (!ctx->media_files_ready) {
+        *out_layer = "media_file";
+        *out_reason = "media_files_not_ready";
+    } else {
+        *out_layer = ctx->last_failure_layer == 0 ? "signaling"
+                                                  : ctx->last_failure_layer;
+        *out_reason = ctx->last_failure_reason == 0 ? "timeout"
+                                                    : ctx->last_failure_reason;
+    }
+}
+
 static int start_sample_senders(e2e_context_t *ctx)
 {
     if (ctx->media_started) {
@@ -1097,6 +1184,7 @@ static void send_sample_frame(e2e_context_t *ctx, rtc_media_kind_t kind)
     uint8_t buffer[E2E_SAMPLE_BUFFER_BYTES];
     rtc_e2e_sample_frame_t sample;
     rtc_media_frame_t frame;
+    rtc_status_t status;
     int rc;
 
     if (kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
@@ -1115,8 +1203,16 @@ static void send_sample_frame(e2e_context_t *ctx, rtc_media_kind_t kind)
     frame.data = sample.data;
     frame.data_len = sample.data_len;
     frame.capture_time_us = ctx->now_us;
+    rtc_executor_set_current_for_test(RTC_EXECUTOR_MEDIA);
+    status = rtc_peer_connection_send_media_frame(ctx->pc, &frame);
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
-    (void)rtc_peer_connection_send_media_frame(ctx->pc, &frame);
+    if (status != RTC_STATUS_OK) {
+        set_failure(ctx, "rtp", "send_media_frame_failed");
+        rtc_e2e_jsonl_event(ctx->jsonl, "error", "rtp", "failed",
+                            "send_media_frame_failed");
+        return;
+    }
+    ctx->rtp_seen = 1;
     if (kind == RTC_MEDIA_KIND_AUDIO_OPUS) {
         ctx->next_opus_due_us = ctx->now_us + sample.duration_us;
     } else {
@@ -1154,21 +1250,25 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
     status = rtc_peer_connection_set_remote_description(
         pc, offer_sdp, strlen(offer_sdp));
     if (status != RTC_STATUS_OK) {
+        set_failure(ctx, "signaling", "offer.set_remote_description_failed");
         rtc_e2e_jsonl_event(ctx->jsonl, "error", "signaling", "failed",
                             "offer.set_remote_description_failed");
         return -1;
     }
+    ctx->offer_received = 1;
     rtc_e2e_jsonl_event(ctx->jsonl, "status", "signaling", "ok",
                         "offer.received");
 
     status = rtc_peer_connection_create_answer(pc, answer, &answer_len);
     if (status != RTC_STATUS_OK) {
+        set_failure(ctx, "signaling", "answer.create_failed");
         rtc_e2e_jsonl_event(ctx->jsonl, "error", "signaling", "failed",
                             "answer.create_failed");
         return -1;
     }
     status = rtc_peer_connection_set_local_description(pc, answer, answer_len);
     if (status != RTC_STATUS_OK) {
+        set_failure(ctx, "signaling", "answer.set_local_description_failed");
         rtc_e2e_jsonl_event(ctx->jsonl, "error", "signaling", "failed",
                             "answer.set_local_description_failed");
         return -1;
@@ -1185,6 +1285,7 @@ static int handle_offer(rtc_peer_connection_t *pc, e2e_context_t *ctx,
              "{\"type\":\"answer\",\"runId\":\"%s\",\"sdp\":\"%s\"}",
              ctx->options->run_id, escaped_answer);
     (void)ws_send_text(ctx->ws_fd, message);
+    ctx->answer_sent = 1;
     rtc_e2e_jsonl_event(ctx->jsonl, "status", "signaling", "ok",
                         "answer.sent");
     rtc_executor_set_current_for_test(RTC_EXECUTOR_NETWORK);
@@ -1363,6 +1464,7 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
     }
     ctx.udp_fd = udp_open(options, jsonl);
     if (ctx.udp_fd < 0) {
+        close_media(&ctx);
         rtc_e2e_jsonl_summary(jsonl, 0, "ice", "UDP socket failed");
         return 1;
     }
@@ -1371,6 +1473,7 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
 #if !defined(_WIN32)
         close(ctx.udp_fd);
 #endif
+        close_media(&ctx);
         rtc_e2e_jsonl_summary(jsonl, 0, "signaling",
                               "WebSocket connection failed");
         return 1;
@@ -1386,6 +1489,7 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
     rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
     status = rtc_peer_connection_create(&config, &diag, &pc);
     if (status != RTC_STATUS_OK) {
+        cleanup_runtime(&ctx);
         rtc_e2e_jsonl_summary(jsonl, 0, "signaling",
                               "PeerConnection create failed");
         return 1;
@@ -1399,22 +1503,31 @@ static int run_runtime(const e2e_options_t *options, rtc_e2e_jsonl_t *jsonl)
         pump_udp(pc, &ctx);
         (void)pump_media(&ctx);
         flush_datagrams(&ctx);
+        if (ctx.offer_received && ctx.answer_sent && ctx.ice_connected &&
+            ctx.srtp_ready && ctx.media_files_ready) {
+            cleanup_runtime(&ctx);
+            rtc_e2e_jsonl_summary_media(jsonl, 1, "none", "e2e passed",
+                                        ctx.audio_frames_received,
+                                        ctx.video_frames_received,
+                                        ctx.audio_bytes_received,
+                                        ctx.video_bytes_received);
+            return 0;
+        }
         sleep_10ms();
         elapsed_ms += 10u;
         ctx.now_us += 10000u;
     }
-    rtc_executor_set_current_for_test(RTC_EXECUTOR_SIGNALING);
-    (void)rtc_peer_connection_destroy(pc);
-    close_media(&ctx);
-    rtc_e2e_jsonl_summary_media(jsonl, 0, "signaling", "no offer received",
+    {
+        const char *layer;
+        const char *reason;
+        timeout_failure(&ctx, &layer, &reason);
+        cleanup_runtime(&ctx);
+        rtc_e2e_jsonl_summary_media(jsonl, 0, layer, reason,
                                 ctx.audio_frames_received,
                                 ctx.video_frames_received,
                                 ctx.audio_bytes_received,
                                 ctx.video_bytes_received);
-#if !defined(_WIN32)
-    close(ctx.ws_fd);
-    close(ctx.udp_fd);
-#endif
+    }
     return 1;
 }
 
