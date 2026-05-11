@@ -51,6 +51,11 @@ typedef struct e2e_context_t {
     rtc_e2e_jsonl_t *jsonl;
     int udp_fd;
     int ws_fd;
+    uint8_t ws_rx_buffer[8192];
+    size_t ws_rx_used;
+    size_t ws_rx_expected;
+    size_t ws_rx_header_len;
+    size_t ws_rx_payload_len;
     int have_remote_addr;
     int have_local_candidate;
     int have_remote_candidate;
@@ -616,44 +621,100 @@ static int ws_send_text(int fd, const char *text)
 #endif
 }
 
-static int ws_recv_text(int fd, char *out, size_t out_len)
+static int ws_rx_fail(e2e_context_t *ctx, const char *reason)
+{
+    if (ctx != 0 && ctx->jsonl != 0) {
+        rtc_e2e_jsonl_event(ctx->jsonl, "error", "signaling", "failed",
+                            reason);
+    }
+    return -1;
+}
+
+static int ws_recv_text(e2e_context_t *ctx, char *out, size_t out_len)
 {
 #if defined(_WIN32)
-    (void)fd;
+    (void)ctx;
     (void)out;
     (void)out_len;
     return -1;
 #else
-    uint8_t header[4];
-    uint8_t *payload;
-    ssize_t n;
-    size_t len;
+    for (;;) {
+        ssize_t n;
+        if (ctx->ws_rx_used == sizeof(ctx->ws_rx_buffer)) {
+            return ws_rx_fail(ctx, "ws.frame_too_large");
+        }
+        n = recv(ctx->ws_fd, ctx->ws_rx_buffer + ctx->ws_rx_used,
+                 sizeof(ctx->ws_rx_buffer) - ctx->ws_rx_used, 0);
+        if (n > 0) {
+            ctx->ws_rx_used += (size_t)n;
+            continue;
+        }
+        if (n == 0) {
+            return ws_rx_fail(ctx, "ws.closed");
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+        return ws_rx_fail(ctx, "ws.recv_failed");
+    }
 
-    n = recv(fd, header, 2, 0);
-    if (n <= 0) {
+    if (ctx->ws_rx_used < 2u) {
         return 0;
     }
-    if (n != 2 || (header[0] & 0x0fu) != 0x01u) {
-        return -1;
-    }
-    len = header[1] & 0x7fu;
-    if (len == 126u) {
-        if (recv(fd, header + 2, 2, 0) != 2) {
-            return -1;
+    {
+        uint8_t opcode = ctx->ws_rx_buffer[0] & 0x0fu;
+        uint8_t len = ctx->ws_rx_buffer[1] & 0x7fu;
+        size_t payload_len;
+        size_t header_len = 2u;
+        size_t frame_len;
+
+        if (opcode == 0x08u) {
+            return ws_rx_fail(ctx, "ws.close_frame");
         }
-        len = ((size_t)header[2] << 8) | header[3];
-    } else if (len == 127u) {
-        return -1;
+        if (opcode != 0x01u) {
+            return ws_rx_fail(ctx, "ws.unsupported_frame");
+        }
+        if (ctx->ws_rx_buffer[1] & 0x80u) {
+            return ws_rx_fail(ctx, "ws.masked_server_frame");
+        }
+        if (len == 126u) {
+            if (ctx->ws_rx_used < 4u) {
+                ctx->ws_rx_header_len = 4u;
+                return 0;
+            }
+            header_len = 4u;
+            payload_len = ((size_t)ctx->ws_rx_buffer[2] << 8) |
+                          ctx->ws_rx_buffer[3];
+        } else if (len == 127u) {
+            return ws_rx_fail(ctx, "ws.payload_len_127_unsupported");
+        } else {
+            payload_len = (size_t)len;
+        }
+
+        frame_len = header_len + payload_len;
+        ctx->ws_rx_header_len = header_len;
+        ctx->ws_rx_payload_len = payload_len;
+        ctx->ws_rx_expected = frame_len;
+        if (frame_len > sizeof(ctx->ws_rx_buffer)) {
+            return ws_rx_fail(ctx, "ws.frame_too_large");
+        }
+        if (payload_len >= out_len) {
+            return ws_rx_fail(ctx, "ws.output_too_small");
+        }
+        if (ctx->ws_rx_used < frame_len) {
+            return 0;
+        }
+        memcpy(out, ctx->ws_rx_buffer + header_len, payload_len);
+        out[payload_len] = '\0';
+        if (ctx->ws_rx_used > frame_len) {
+            memmove(ctx->ws_rx_buffer, ctx->ws_rx_buffer + frame_len,
+                    ctx->ws_rx_used - frame_len);
+        }
+        ctx->ws_rx_used -= frame_len;
+        ctx->ws_rx_expected = 0u;
+        ctx->ws_rx_header_len = 0u;
+        ctx->ws_rx_payload_len = 0u;
     }
-    if (len >= out_len) {
-        return -1;
-    }
-    payload = (uint8_t *)out;
-    n = recv(fd, payload, len, 0);
-    if (n != (ssize_t)len) {
-        return -1;
-    }
-    out[len] = '\0';
     return 1;
 #endif
 }
@@ -1185,7 +1246,7 @@ static void pump_ws(rtc_peer_connection_t *pc, e2e_context_t *ctx)
     char message[8192];
     char type[32];
     char value[7000];
-    int rc = ws_recv_text(ctx->ws_fd, message, sizeof(message));
+    int rc = ws_recv_text(ctx, message, sizeof(message));
 
     if (rc <= 0) {
         return;
