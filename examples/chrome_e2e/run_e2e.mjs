@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { chromium } from "@playwright/test";
+import { createSignalingServer } from "./signaling.mjs";
 
 const repoRoot = resolve(new URL("../..", import.meta.url).pathname);
 
@@ -21,6 +24,22 @@ function checkPath(relativePath) {
 
 function loadPackage() {
   return JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
+}
+
+function findChromiumExecutable() {
+  const candidates = [
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+    resolve(homedir(), ".cache/ms-playwright/chromium-1217/chrome-linux64/chrome"),
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
+function browserEnv() {
+  const localLib = resolve(repoRoot, ".cache/playwright-libs/root/usr/lib/x86_64-linux-gnu");
+  const libraryPath = [existsSync(localLib) ? localLib : null, process.env.LD_LIBRARY_PATH]
+    .filter(Boolean)
+    .join(":");
+  return libraryPath ? { ...process.env, LD_LIBRARY_PATH: libraryPath } : process.env;
 }
 
 async function dryRun() {
@@ -51,8 +70,84 @@ async function dryRun() {
 }
 
 async function pageSmoke() {
-  console.error("--page-smoke will be implemented by Task 2");
-  process.exitCode = 1;
+  const server = createSignalingServer({ port: 0 });
+  await server.listen();
+
+  let browser;
+  try {
+    const executablePath = findChromiumExecutable();
+    browser = await chromium.launch({
+      headless: true,
+      executablePath,
+      env: browserEnv(),
+    });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.addInitScript(() => {
+      window.__mediaPermissionRequests = 0;
+      const mediaDevices = navigator.mediaDevices ?? {};
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          ...mediaDevices,
+          getUserMedia: async () => {
+            window.__mediaPermissionRequests += 1;
+            throw new Error("getUserMedia must not be used by Chrome E2E smoke");
+          },
+        },
+      });
+    });
+
+    await page.goto(server.url);
+    const testIds = [
+      "local-video",
+      "remote-video",
+      "stage-signaling",
+      "stage-ice",
+      "stage-dtls",
+      "stage-srtp",
+      "stage-rtp",
+      "stage-rtcp",
+      "stage-media-files",
+      "summary-layer",
+      "candidate-count",
+      "stats-frames",
+    ];
+
+    for (const testId of testIds) {
+      await page.getByTestId(testId).waitFor({ state: "attached" });
+    }
+
+    const beforeRequests = await page.evaluate(() => window.__mediaPermissionRequests);
+    if (beforeRequests !== 0) {
+      throw new Error("unexpected permission request before Start Call");
+    }
+
+    await page.getByRole("button", { name: "Start Call" }).click();
+    await page.waitForFunction(() => window.__chromeE2E?.offerCreated === true, null, { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const stage = document.querySelector('[data-testid="stage-signaling"]');
+      return stage?.dataset.state === "running" || stage?.dataset.state === "connected";
+    });
+
+    const afterRequests = await page.evaluate(() => window.__mediaPermissionRequests);
+    if (afterRequests !== 0) {
+      throw new Error("page requested camera or microphone permissions");
+    }
+
+    const summary = {
+      ok: true,
+      layer: "none",
+      offerCreated: true,
+      permissionRequests: afterRequests,
+      url: server.url,
+    };
+    console.log(JSON.stringify(summary, null, 2));
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+    await server.close();
+  }
 }
 
 const args = parseArgs(process.argv.slice(2));

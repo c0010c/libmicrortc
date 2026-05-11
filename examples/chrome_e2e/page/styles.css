@@ -1,0 +1,287 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: #1F2937;
+  background: #F7F8FA;
+}
+
+* {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+body {
+  margin: 0;
+  background: #F7F8FA;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button {
+  min-height: 40px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  padding: 8px 16px;
+  color: #1F2937;
+  background: #FFFFFF;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid #0B6B5E;
+  outline-offset: 2px;
+}
+
+button.primary {
+  border-color: #0B6B5E;
+  color: #FFFFFF;
+  background: #0B6B5E;
+}
+
+button.danger {
+  border-color: #B42318;
+  color: #FFFFFF;
+  background: #B42318;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 65fr) minmax(320px, 35fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.main-column {
+  display: grid;
+  gap: 16px;
+}
+
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.media-panel,
+.diagnostics {
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+h2 {
+  margin-bottom: 16px;
+}
+
+.media-panel {
+  position: relative;
+}
+
+video {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #F7F8FA;
+}
+
+#synthetic-canvas {
+  display: none;
+}
+
+.empty-state {
+  min-height: 24px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.pill {
+  flex: 0 0 auto;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7280;
+  background: #F7F8FA;
+}
+
+.stage-bar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  grid-template-rows: 14px 14px;
+  column-gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #FFFFFF;
+  overflow: hidden;
+}
+
+.dot {
+  grid-row: 1 / span 2;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6B7280;
+}
+
+.label,
+.state-text,
+dt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.label,
+dt {
+  font-weight: 600;
+}
+
+.state-text {
+  color: #6B7280;
+}
+
+.stage[data-state="running"] .dot {
+  background: #B7791F;
+}
+
+.stage[data-state="connected"] .dot,
+.stage[data-state="ready"] .dot,
+.stage[data-state="receiving"] .dot {
+  background: #0B6B5E;
+}
+
+.stage[data-state="failed"] .dot {
+  background: #B42318;
+}
+
+.stage[data-state="failed"] .state-text {
+  color: #B42318;
+}
+
+.diagnostics {
+  display: grid;
+  gap: 16px;
+}
+
+dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+dl div {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) minmax(96px, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.failure {
+  border: 1px solid #B42318;
+  border-radius: 8px;
+  padding: 16px;
+  color: #7A271A;
+  background: #FFFFFF;
+}
+
+.failure p {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+.log-strip {
+  min-height: 140px;
+}
+
+.log-strip ol {
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  margin: 0;
+  padding-left: 16px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+@media (max-width: 959px) {
+  .workbench {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 639px) {
+  .shell {
+    padding: 16px;
+  }
+
+  .media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

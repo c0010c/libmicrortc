@@ -2,7 +2,7 @@
 
 import { createServer } from "node:http";
 import { createReadStream, existsSync } from "node:fs";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
@@ -168,8 +168,16 @@ export function createSignalingServer(options = {}) {
     port,
     httpServer,
     wsServer,
-    url: `http://${host}:${port}/`,
-    wsUrl: `ws://${host}:${port}/ws`,
+    get url() {
+      const address = httpServer.address();
+      const actualPort = typeof address === "object" && address ? address.port : port;
+      return `http://${host}:${actualPort}/`;
+    },
+    get wsUrl() {
+      const address = httpServer.address();
+      const actualPort = typeof address === "object" && address ? address.port : port;
+      return `ws://${host}:${actualPort}/ws`;
+    },
     listen() {
       return new Promise((resolveListen, rejectListen) => {
         httpServer.once("error", rejectListen);

@@ -4,10 +4,105 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Chrome E2E Acceptance</title>
+    <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
-    <main>
-      <p>Waiting for Chrome E2E run</p>
+    <main class="shell">
+      <section class="workbench" aria-label="Chrome E2E acceptance tool">
+        <div class="main-column">
+          <div class="action-bar" aria-label="Run controls">
+            <button id="start-call" class="primary" type="button">Start Call</button>
+            <button id="stop-run" class="danger" type="button">Stop Run</button>
+            <button id="copy-summary" type="button">Copy Summary</button>
+          </div>
+
+          <div class="media-grid">
+            <section class="media-panel" aria-label="Local synthetic media">
+              <div class="panel-heading">
+                <h1>Local synthetic media</h1>
+                <span id="local-track-state" class="pill">no track</span>
+              </div>
+              <video data-testid="local-video" id="local-video" autoplay muted playsinline aria-label="Local synthetic media preview"></video>
+              <canvas id="synthetic-canvas" width="1280" height="720" aria-hidden="true"></canvas>
+              <p id="local-empty" class="empty-state">Synthetic canvas and oscillator are not started</p>
+            </section>
+
+            <section class="media-panel" aria-label="Remote C sample media">
+              <div class="panel-heading">
+                <h1>Remote C sample media</h1>
+                <span id="remote-track-state" class="pill">no track</span>
+              </div>
+              <video data-testid="remote-video" id="remote-video" autoplay playsinline controls aria-label="Remote C sample media playback"></video>
+              <p id="remote-empty" class="empty-state">No remote media from C sample yet</p>
+            </section>
+          </div>
+
+          <div class="stage-bar" aria-label="E2E stages">
+            <div class="stage" data-testid="stage-signaling" data-state="pending" title="Signaling pending">
+              <span class="dot"></span><span class="label">Signaling</span><span class="state-text">pending</span>
+            </div>
+            <div class="stage" data-testid="stage-ice" data-state="pending" title="ICE pending">
+              <span class="dot"></span><span class="label">ICE</span><span class="state-text">pending</span>
+            </div>
+            <div class="stage" data-testid="stage-dtls" data-state="pending" title="DTLS pending">
+              <span class="dot"></span><span class="label">DTLS</span><span class="state-text">pending</span>
+            </div>
+            <div class="stage" data-testid="stage-srtp" data-state="pending" title="SRTP pending">
+              <span class="dot"></span><span class="label">SRTP</span><span class="state-text">pending</span>
+            </div>
+            <div class="stage" data-testid="stage-rtp" data-state="pending" title="RTP pending">
+              <span class="dot"></span><span class="label">RTP</span><span class="state-text">pending</span>
+            </div>
+            <div class="stage" data-testid="stage-rtcp" data-state="pending" title="RTCP pending">
+              <span class="dot"></span><span class="label">RTCP</span><span class="state-text">pending</span>
+            </div>
+            <div class="stage" data-testid="stage-media-files" data-state="pending" title="Media files pending">
+              <span class="dot"></span><span class="label">Media files</span><span class="state-text">pending</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="diagnostics" aria-label="Compact diagnostics">
+          <h2>Diagnostics</h2>
+          <dl>
+            <div>
+              <dt>Summary layer</dt>
+              <dd data-testid="summary-layer" id="summary-layer">none</dd>
+            </div>
+            <div>
+              <dt>Candidates</dt>
+              <dd data-testid="candidate-count" id="candidate-count">0</dd>
+            </div>
+            <div>
+              <dt>Frames</dt>
+              <dd data-testid="stats-frames" id="stats-frames">0</dd>
+            </div>
+            <div>
+              <dt>Bytes</dt>
+              <dd id="stats-bytes">0</dd>
+            </div>
+            <div>
+              <dt>Connection</dt>
+              <dd id="connection-state">new</dd>
+            </div>
+            <div>
+              <dt>Tracks</dt>
+              <dd id="track-summary">audio 0 / video 0</dd>
+            </div>
+          </dl>
+
+          <section id="failure-callout" class="failure" hidden>
+            <h2 id="failure-title">signaling failed</h2>
+            <p id="failure-detail">Check the latest JSONL event and rerun after fixing the reported layer.</p>
+          </section>
+
+          <section class="log-strip" aria-label="Latest events">
+            <h2>Latest events</h2>
+            <ol id="event-log"></ol>
+          </section>
+        </aside>
+      </section>
     </main>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>
