@@ -182,6 +182,10 @@ async function dryRun() {
   const scripts = {
     "e2e:chrome": pkg.scripts?.["e2e:chrome"] === "node examples/chrome_e2e/run_e2e.mjs",
     "e2e:chrome:dry-run": pkg.scripts?.["e2e:chrome:dry-run"] === "node examples/chrome_e2e/run_e2e.mjs --dry-run",
+    "e2e:chrome:page-smoke": pkg.scripts?.["e2e:chrome:page-smoke"] === "node examples/chrome_e2e/run_e2e.mjs --page-smoke",
+    "e2e:chrome:c-smoke": pkg.scripts?.["e2e:chrome:c-smoke"] === "node examples/chrome_e2e/run_e2e.mjs --c-example-smoke",
+    "e2e:chrome:media-smoke": pkg.scripts?.["e2e:chrome:media-smoke"] === "node examples/chrome_e2e/run_e2e.mjs --media-file-smoke",
+    "e2e:chrome:security-gate": pkg.scripts?.["e2e:chrome:security-gate"] === "node examples/chrome_e2e/run_e2e.mjs --security-gate-smoke",
   };
 
   const ok = requiredFiles.every((item) => item.exists) && Object.values(scripts).every(Boolean);
@@ -352,6 +356,10 @@ async function fullE2E(args) {
     exitCode: childResult.code ?? 1,
   });
   const mediaFiles = summarizeMediaFiles(args.outputDir);
+  const hasRequiredMediaFiles = ["received-opus.packets", "received-h264.264"].every((name) => {
+    const mediaFile = mediaFiles.find((file) => file.path.endsWith(`/${name}`));
+    return mediaFile !== undefined && mediaFile.bytes > 0;
+  });
   const manualVlcRequired = true;
   const optionalSecurityGate =
     failure.layer === "dtls" &&
@@ -362,12 +370,12 @@ async function fullE2E(args) {
     failure.layer === "none" &&
     childResult.code === 0 &&
     cSummary?.pass === true &&
-    mediaFiles.length > 0 &&
-    mediaFiles.every((file) => file.bytes > 0);
+    hasRequiredMediaFiles;
   const summary = {
-    pass: pass || (args.manualSecurityOk && optionalSecurityGate),
+    pass,
     layer: failure.layer,
-    reason: args.manualSecurityOk && optionalSecurityGate ? "manual_security_ok" : failure.reason,
+    reason: failure.reason,
+    manual_security_override: args.manualSecurityOk && optionalSecurityGate,
     manual_vlc_state: manualVlcRequired ? manualVlcPending : "manual_vlc_approved",
     duration_ms: Date.now() - startedAt,
     failureLayers,

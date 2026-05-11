@@ -1,7 +1,11 @@
 {
   "scripts": {
     "e2e:chrome": "node examples/chrome_e2e/run_e2e.mjs",
-    "e2e:chrome:dry-run": "node examples/chrome_e2e/run_e2e.mjs --dry-run"
+    "e2e:chrome:dry-run": "node examples/chrome_e2e/run_e2e.mjs --dry-run",
+    "e2e:chrome:page-smoke": "node examples/chrome_e2e/run_e2e.mjs --page-smoke",
+    "e2e:chrome:c-smoke": "node examples/chrome_e2e/run_e2e.mjs --c-example-smoke",
+    "e2e:chrome:media-smoke": "node examples/chrome_e2e/run_e2e.mjs --media-file-smoke",
+    "e2e:chrome:security-gate": "node examples/chrome_e2e/run_e2e.mjs --security-gate-smoke"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
