@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 in progress; 06-01..06-04 complete; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T06:36:48.152Z"
+status: Phase 6 in progress; 06-01..06-05 complete; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T06:45:26.964Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 30
-  completed_plans: 28
-  percent: 93
+  completed_plans: 29
+  percent: 97
 ---
 
 # 项目状态
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-04 已完成，06-05..06-06 待执行；第 4 阶段计划执行完成后仍等待阶段级验证
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01..06-05 已完成，06-06 待执行；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收执行；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，`06-03-PLAN.md` 已交付样本解析、按节奏发送、接收媒体落盘和 media-file smoke，`06-04-PLAN.md` 已交付默认关闭的可选 Chrome DTLS/SRTP backend gate 和安全失败分层，下一步继续 `06-05-PLAN.md`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
+**当前焦点：** Phase 6: Chrome 端到端验收执行；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，`06-02-PLAN.md` 已交付 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer，`06-03-PLAN.md` 已交付样本解析、按节奏发送、接收媒体落盘和 media-file smoke，`06-04-PLAN.md` 已交付默认关闭的可选 Chrome DTLS/SRTP backend gate 和安全失败分层，`06-05-PLAN.md` 已交付 full E2E 编排、compact JSON summary 和七层失败诊断，下一步继续 `06-06-PLAN.md` 文档/UAT 收口；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
 
 ## 工作流配置
 
@@ -42,7 +42,7 @@ progress:
 
 **目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 4/6 plans 已执行；`06-01-SUMMARY.md`、`06-02-SUMMARY.md`、`06-03-SUMMARY.md` 与 `06-04-SUMMARY.md` 已完成；第 4 阶段仍待 `$gsd-verify-work 4`
+**状态：** 5/6 plans 已执行；`06-01-SUMMARY.md`、`06-02-SUMMARY.md`、`06-03-SUMMARY.md`、`06-04-SUMMARY.md` 与 `06-05-SUMMARY.md` 已完成；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 6
 
@@ -185,6 +185,7 @@ $gsd-verify-work 4
 - 2026-05-11T14:16:29+08:00：完成 `06-02-PLAN.md`，新增 `rtc_chrome_e2e` C 示例 target、dry-run、WebSocket client、UDP socket pump、PeerConnection observer JSONL 输出和 `--c-example-smoke`；后续 `06-03` 接入样本解析与媒体文件。
 - 2026-05-11T14:26:46+08:00：完成 `06-03-PLAN.md`，新增示例层 H264/Ogg Opus 样本 parser、parser deterministic tests、`srtp.ready` 后按节奏发送、typed media 接收落盘、JSONL 媒体统计和 `--media-file-smoke`；后续 `06-04` 接入真实 DTLS/SRTP backend gate。
 - 2026-05-11T14:34:19+08:00：完成 `06-04-PLAN.md`，新增默认关闭的 `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY` gate、可选 OpenSSL/libsrtp 依赖探测、`rtc_chrome_e2e_configure_security_backend` 入口、`--security-gate-smoke` 和 DTLS/SRTP/RTP/RTCP JSONL 失败分层；默认构建不强制真实安全依赖，`ACC-01` 仍待 `06-05` full E2E 与 `06-06` UAT 收口。
+- 2026-05-11T14:44:24+08:00：完成 `06-05-PLAN.md`，`run_e2e.mjs` full run 统一编排信令服务、C 示例和 Chrome 页面，输出 compact JSON summary，并把失败层级限定为 signaling/ice/dtls/srtp/rtp/rtcp/media_file；默认安全 backend OFF 时正确停在 `dtls/optional_security_backend_disabled`，`manual_vlc_required` 保持 true。
 
 ## 执行决策
 
@@ -215,6 +216,7 @@ $gsd-verify-work 4
 - `06-03` C 示例接收媒体落盘为 `received-opus.packets` 和 `received-h264.264`，JSONL summary 使用 `audio_frames_received`、`video_frames_received`、`audio_bytes_received`、`video_bytes_received` 报告媒体文件统计。
 - `06-04` `RTC_CHROME_E2E_WITH_OPTIONAL_SECURITY` 默认 `OFF`；默认构建不查找、不链接 OpenSSL/libsrtp，full E2E 在未启用可选 backend 时先于 WebSocket/UDP I/O 停在 `dtls/optional_security_backend_disabled`。
 - `06-04` 安全失败分层在示例 JSONL 中保持明确：fingerprint/handshake 属于 `dtls`，`key_export`/`srtp_init` 属于 `srtp`，RTP protect/unprotect 属于 `rtp`，RTCP/SRTCP protect/unprotect 属于 `rtcp`。
+- `06-05` E2E 自动化 summary 的一级失败层级固定为 `signaling`、`ice`、`dtls`、`srtp`、`rtp`、`rtcp`、`media_file`；自动化只验证状态、counter 和媒体文件产物，`manual_vlc_required` 保持 true，不替代 VLC 人工播放验收。
 
 ---
-*最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*
+*最后更新：2026-05-11，06-05 端到端自动化编排和失败分层后*

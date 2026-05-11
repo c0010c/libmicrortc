@@ -157,10 +157,10 @@
 | RTCP-03 | 第 5 阶段 | 已完成：05-05 实现 `rtc_peer_connection_request_keyframe(video)` 生成受保护 PLI datagram，并在远端 PLI 后通过 `on_media_feedback` 上报；05-06 文档化显式 PLI 与用户编码器责任 |
 | RTCP-04 | 第 5 阶段 | 已完成：05-05 实现 Generic NACK PID/BLP 固定数组展开和 observer 上报，`retransmit_performed = 0` 且不执行重传；05-06 文档和 UAT 明确 NACK 不触发重传 |
 | OBS-04 | 第 5 阶段 | 已完成：05-05 为 PLI/NACK 输出 typed feedback、counter 和 trace；NACK reason 固定为 `nack_no_retransmit`；05-06 在 API 契约、UAT 和项目状态中收口可观测语义 |
-| TST-01 | 第 6 阶段 | 已规划：06-05 端到端自动化编排与失败分层，06-06 文档/UAT 收口 |
+| TST-01 | 第 6 阶段 | 执行中：06-05 已完成端到端自动化编排、页面 smoke、C JSONL summary 解析和七层失败分层；06-06 文档/UAT 收口仍待完成 |
 | EXM-01 | 第 6 阶段 | 已完成：06-01 新增本地 Chrome 合成媒体页面、双视频预览、七阶段状态条、compact diagnostics 和 Playwright page smoke |
 | EXM-02 | 第 6 阶段 | 已完成：06-01 新增本机 WebSocket 信令服务，支持 SDP offer/answer 与 trickle ICE candidate JSON 转发并拒绝媒体 payload |
-| ACC-01 | 第 6 阶段 | 执行中：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 已完成默认关闭的可选真实安全 backend gate、许可证说明和 DTLS/SRTP/RTP/RTCP 失败分层；06-05 full E2E、06-06 VLC 人工验收仍待完成 |
+| ACC-01 | 第 6 阶段 | 执行中：06-02 已完成 C 示例运行时、WebSocket/UDP 示例层 I/O 和 JSONL observer；06-03 已完成样本解析、按节奏发送、接收媒体落盘和 media-file smoke；06-04 已完成默认关闭的可选真实安全 backend gate、许可证说明和 DTLS/SRTP/RTP/RTCP 失败分层；06-05 已完成 full E2E 自动化编排和 `manual_vlc_required:true` 报告；06-06 VLC 人工验收仍待完成 |
 
 **覆盖情况：**
 - v1 需求：48 项
