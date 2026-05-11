@@ -14,7 +14,7 @@
 | 3 | ICE/STUN 与 Datagram 网络层 | 实现 host/srflx、Full ICE、trickle ICE、状态事件和 datagram demux | SDP-05, ICE-01, ICE-02, ICE-03, ICE-04, ICE-05, NET-01, NET-02, NET-03 | 执行完成，待验证 |
 | 4 | DTLS-SRTP 安全传输 | 建立安全 backend vtable，完成 DTLS fingerprint、key export 和 SRTP/SRTCP 保护 | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 执行完成，待阶段验证 |
 | 5 | RTP/RTCP 媒体平面 | 支持 Opus、H264、SR/RR、SDES、PLI、NACK 上报和媒体可观测性 | RTP-01, RTP-02, RTP-03, RTP-04, RTP-05, RTCP-01, RTCP-02, RTCP-03, RTCP-04, OBS-04 | 已完成 |
-| 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | 待开始 |
+| 6 | Chrome 端到端验收 | 完成测试、Chrome 页面、信令示例和 1v1 音视频通话验收 | TST-01, EXM-01, EXM-02, ACC-01 | 执行中（1/6 plans 已完成） |
 
 ## 阶段详情
 
@@ -199,7 +199,7 @@
 
 **需求：** TST-01, EXM-01, EXM-02, ACC-01
 
-**状态：** 待开始。第 5 阶段只完成 typed media/RTP/RTCP 媒体平面和本地 deterministic tests；本地 Chrome 页面、信令示例和真实 1v1 音视频验收仍在本阶段完成。
+**状态：** 执行中。`06-01` 已完成 Chrome 合成媒体页面、WebSocket 信令服务和 page smoke；`06-02` 到 `06-06` 仍待执行。
 
 **成功标准：**
 1. 自动化测试覆盖 SDP/JSEP、ICE/STUN、DTLS/SRTP、RTP/RTCP、固定内存和关键错误路径。
@@ -207,6 +207,32 @@
 3. 最小信令示例可以完成本地页面与 C 库示例进程之间的消息交换。
 4. 用户可以完成 1v1 音视频通话，并观察到 ICE、DTLS、SRTP、RTP/RTCP 和媒体事件。
 5. 端到端失败时，trace、计数器和错误事件足以定位失败阶段。
+
+**计划：**
+
+**Wave 1**
+- `06-01-PLAN.md`：E2E harness 契约、WebSocket 信令服务、Chrome 合成媒体页面和 page smoke。已完成，见 `06-01-SUMMARY.md`。
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- `06-02-PLAN.md`：C 示例运行时、WebSocket client、UDP socket pump、PeerConnection observer 和 JSONL summary。已规划。
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- `06-03-PLAN.md`：`sample1.opus` / `test-25fps.h264` 样本解析、按节奏发送、接收媒体落盘和 media-file smoke。已规划。
+
+**Wave 4** *(blocked on Wave 2 completion)*
+- `06-04-PLAN.md`：真实 Chrome DTLS/SRTP 可选安全 backend gate、许可证检查和安全失败分层。已规划。
+
+**Wave 5** *(blocked on Wave 1-4 completion)*
+- `06-05-PLAN.md`：端到端自动化编排、页面断言、JSONL summary 解析和 signaling/ICE/DTLS/SRTP/RTP/RTCP/media_file 失败分层。已规划。
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- `06-06-PLAN.md`：中文文档、VLC 人工 UAT、需求追踪、项目状态和路线图收口。已规划。
+
+**跨计划约束：**
+- 保持纯 C、固定内存、无线程、用户负责 UDP/socket 收发。
+- 不引入 GPL/LGPL 依赖；可选安全 backend 默认关闭，默认构建不得强制 OpenSSL/libsrtp 或其他系统依赖。
+- Chrome 页面使用合成媒体，不请求摄像头或麦克风权限。
+- 自动化只能验证连接链路、状态、counter 和媒体文件产物；媒体播放质量仍由 VLC 人工验收确认。
 
 ## 覆盖验证
 
@@ -218,4 +244,4 @@
 | 阶段总数 | 6 |
 
 ---
-*最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*
+*最后更新：2026-05-11，06-01 Chrome E2E harness 完成后*

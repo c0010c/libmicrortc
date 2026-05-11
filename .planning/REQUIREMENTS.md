@@ -73,8 +73,8 @@
 - [x] **BLD-01**: 项目提供 CMake 静态库构建目标。
 - [x] **BLD-02**: 项目提供公共头文件安装或导出规则。
 - [ ] **TST-01**: 项目包含 SDP/JSEP、ICE/STUN、RTP/RTCP、固定内存和错误路径的自动化测试。
-- [ ] **EXM-01**: 项目提供本地 Chrome 页面用于发起或接听 1v1 音视频通话。
-- [ ] **EXM-02**: 项目提供最小信令示例，用于交换 SDP 和 trickle ICE candidate。
+- [x] **EXM-01**: 项目提供本地 Chrome 页面用于发起或接听 1v1 音视频通话。
+- [x] **EXM-02**: 项目提供最小信令示例，用于交换 SDP 和 trickle ICE candidate。
 - [ ] **ACC-01**: 用户可以通过本地 Chrome 页面和信令示例完成 1v1 音视频通话验收。
 
 ## v2 需求
@@ -157,10 +157,10 @@
 | RTCP-03 | 第 5 阶段 | 已完成：05-05 实现 `rtc_peer_connection_request_keyframe(video)` 生成受保护 PLI datagram，并在远端 PLI 后通过 `on_media_feedback` 上报；05-06 文档化显式 PLI 与用户编码器责任 |
 | RTCP-04 | 第 5 阶段 | 已完成：05-05 实现 Generic NACK PID/BLP 固定数组展开和 observer 上报，`retransmit_performed = 0` 且不执行重传；05-06 文档和 UAT 明确 NACK 不触发重传 |
 | OBS-04 | 第 5 阶段 | 已完成：05-05 为 PLI/NACK 输出 typed feedback、counter 和 trace；NACK reason 固定为 `nack_no_retransmit`；05-06 在 API 契约、UAT 和项目状态中收口可观测语义 |
-| TST-01 | 第 6 阶段 | 待开始 |
-| EXM-01 | 第 6 阶段 | 待开始 |
-| EXM-02 | 第 6 阶段 | 待开始 |
-| ACC-01 | 第 6 阶段 | 待开始 |
+| TST-01 | 第 6 阶段 | 已规划：06-05 端到端自动化编排与失败分层，06-06 文档/UAT 收口 |
+| EXM-01 | 第 6 阶段 | 已完成：06-01 新增本地 Chrome 合成媒体页面、双视频预览、七阶段状态条、compact diagnostics 和 Playwright page smoke |
+| EXM-02 | 第 6 阶段 | 已完成：06-01 新增本机 WebSocket 信令服务，支持 SDP offer/answer 与 trickle ICE candidate JSON 转发并拒绝媒体 payload |
+| ACC-01 | 第 6 阶段 | 已规划：06-02 C 示例运行时，06-03 双向媒体文件，06-04 可选真实安全 backend gate，06-05 full E2E，06-06 VLC 人工验收 |
 
 **覆盖情况：**
 - v1 需求：48 项

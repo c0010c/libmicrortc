@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 6 UI-SPEC approved; ready for PLAN.md creation; Phase 4 still pending phase-level verification
-last_updated: "2026-05-11T13:12:00+08:00"
+status: Phase 6 in progress; 06-01 complete; Phase 4 still pending phase-level verification
+last_updated: "2026-05-11T06:07:10.138Z"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 24
-  completed_plans: 24
+  total_plans: 30
+  completed_plans: 25
   percent: 83
 ---
 
@@ -16,14 +16,14 @@ progress:
 
 **项目：** WebRTC 纯 C 库
 **状态日期：** 2026-05-10
-**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 4 阶段计划执行完成后仍等待阶段级验证；Chrome 真实端到端验收仍属于第 6 阶段范围
+**当前状态：** 第 5 阶段 05-01..05-06 已完成并通过阶段级验证；第 6 阶段 06-01 已完成，06-02..06-06 待执行；第 4 阶段计划执行完成后仍等待阶段级验证
 
 ## 项目引用
 
 参见：`.planning/PROJECT.md`（2026-05-10 更新）
 
 **核心价值：** 在固定内存、无线程、跨平台约束下，稳定完成与 Chrome 的 1v1 音视频 `PeerConnection` 互通。
-**当前焦点：** Phase 6: Chrome 端到端验收准备；`06-RESEARCH.md`、`06-VALIDATION.md` 与 `06-UI-SPEC.md` 已完成，下一步可继续 `$gsd-plan-phase 6`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
+**当前焦点：** Phase 6: Chrome 端到端验收执行；`06-01-PLAN.md` 已交付 Chrome 合成媒体页面、WebSocket 信令和 page smoke，下一步继续 `06-02-PLAN.md`；同时保留第 4 阶段 `$gsd-verify-work 4` 阶段级验证待办
 
 ## 工作流配置
 
@@ -38,18 +38,18 @@ progress:
 
 ## 当前阶段
 
-### 第 5 阶段：RTP/RTCP 媒体平面
+### 第 6 阶段：Chrome 端到端验收
 
-**目标：** 完成 1 路 Opus 音频和 1 路 H264 视频的 RTP/RTCP 媒体平面，并把关键反馈事件暴露给用户。
+**目标：** 把所有层集成成可验收的 `PeerConnection`，通过本地 Chrome 页面和信令示例完成 1v1 音视频通话。
 
-**状态：** 6/6 plans 已完成，阶段级验证通过；第 4 阶段仍待 `$gsd-verify-work 4`；第 6 阶段已完成 research/validation/UI-SPEC，待继续 PLAN.md
+**状态：** 1/6 plans 已执行；`06-01-SUMMARY.md` 已完成；第 4 阶段仍待 `$gsd-verify-work 4`
 
 **计划数量：** 6
 
 **下一步：**
 
 ```bash
-$gsd-plan-phase 6
+$gsd-execute-phase 6
 ```
 
 **也建议：**
@@ -58,7 +58,7 @@ $gsd-plan-phase 6
 $gsd-verify-work 4
 ```
 
-**计划入口：** `.planning/phases/05-rtp-rtcp-media-plane/`
+**计划入口：** `.planning/phases/06-chrome-end-to-end-acceptance/`
 
 ## 已创建工件
 
@@ -150,6 +150,15 @@ $gsd-verify-work 4
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-RESEARCH.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-VALIDATION.md`
 - `.planning/phases/06-chrome-end-to-end-acceptance/06-UI-SPEC.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-PATTERNS.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-01-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-01-SUMMARY.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/deferred-items.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-02-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-03-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-04-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-05-PLAN.md`
+- `.planning/phases/06-chrome-end-to-end-acceptance/06-06-PLAN.md`
 
 ---
 ## 最近会话
@@ -170,6 +179,8 @@ $gsd-verify-work 4
 - 2026-05-11T01:06:17+08:00：完成第 5 阶段 code review、blocker 修复、复审和阶段级验证；10/10 must-have 通过，异步 executor 语义由开发者批准作为非阻塞 advisory 保留。
 - 2026-05-11T12:57:37+08:00：完成第 6 阶段 `06-RESEARCH.md` 与 `06-VALIDATION.md`；规划流程在 UI-SPEC gate 暂停，因为第 6 阶段包含 Chrome 页面和状态面板，需先运行 `$gsd-ui-phase 6` 生成设计契约。
 - 2026-05-11T13:12:00+08:00：完成并批准第 6 阶段 `06-UI-SPEC.md`；契约固定原生 HTML/CSS/JS 诊断工具界面、紧凑媒体预览、阶段状态条、diagnostics 面板、copywriting、颜色/字体/间距和 registry safety，下一步可继续 `$gsd-plan-phase 6`。
+- 2026-05-11T13:30:00+08:00：完成第 6 阶段规划，新增 `06-PATTERNS.md` 和 `06-01` 到 `06-06` 六个 PLAN.md；范围覆盖 Chrome 页面/信令、C 示例 I/O、样本解析、真实 DTLS/SRTP backend gate、E2E 自动化和中文 UAT 收口，下一步可运行 `$gsd-execute-phase 6`。
+- 2026-05-11T14:04:41+08:00：完成 `06-01-PLAN.md`，新增 Chrome 合成媒体页面、JSON-only WebSocket 信令服务、dry-run/page-smoke 编排入口；`EXM-01` 与 `EXM-02` 已完成，后续 `06-02` 接入 C 示例信令和 UDP pump。
 
 ## 执行决策
 
@@ -191,6 +202,8 @@ $gsd-verify-work 4
 - `05-05` PLI 发送固定为 media executor 显式 `request_keyframe(video)`，network executor 进行 SRTCP protect 后输出 datagram；远端 PLI/NACK 只通过 `observer.on_media_feedback`、counter 和 trace 上报。
 - `05-05` NACK 首版只解析 PID/BLP 并展开到固定 17 项 lost sequence 数组，`retransmit_performed = 0`，trace reason 固定为 `nack_no_retransmit`，不得引入重传缓存、RTX、resend 或发送节奏逻辑。
 - `05-06` 文档收口只声明第 5 阶段 typed media/RTP/RTCP 媒体平面通过本地 deterministic tests；Chrome 页面、信令示例、真实 1v1 音视频和 `ACC-01` 留给第 6 阶段。
+- `06-01` 信令服务只转发同一 `runId` 内的 JSON SDP/candidate/status/summary/error，不接受二进制或 `media`/`payload`/`binary` 字段。
+- `06-01` Chrome 页面只使用 canvas `captureStream(25)` 与 Web Audio oscillator 合成媒体，不调用 `getUserMedia`。
 
 ---
 *最后更新：2026-05-11，05-06 媒体 API 文档、UAT 和需求追踪收口后*
