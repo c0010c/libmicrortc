@@ -111,57 +111,57 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BASE-01 | TBD | Pending |
-| BASE-02 | TBD | Pending |
-| BASE-03 | TBD | Pending |
-| BASE-04 | TBD | Pending |
-| BUILD-01 | TBD | Pending |
-| BUILD-02 | TBD | Pending |
-| BUILD-03 | TBD | Pending |
-| BUILD-04 | TBD | Pending |
-| API-01 | TBD | Pending |
-| API-02 | TBD | Pending |
-| API-03 | TBD | Pending |
-| API-04 | TBD | Pending |
-| API-05 | TBD | Pending |
-| API-06 | TBD | Pending |
-| PROTO-01 | TBD | Pending |
-| PROTO-02 | TBD | Pending |
-| PROTO-03 | TBD | Pending |
-| PROTO-04 | TBD | Pending |
-| PROTO-05 | TBD | Pending |
-| PROTO-06 | TBD | Pending |
-| PROTO-07 | TBD | Pending |
-| MEDIA-01 | TBD | Pending |
-| MEDIA-02 | TBD | Pending |
-| MEDIA-03 | TBD | Pending |
-| MEDIA-04 | TBD | Pending |
-| MEDIA-05 | TBD | Pending |
-| MEDIA-06 | TBD | Pending |
-| MEDIA-07 | TBD | Pending |
-| NET-01 | TBD | Pending |
-| NET-02 | TBD | Pending |
-| NET-03 | TBD | Pending |
-| NET-04 | TBD | Pending |
-| NET-05 | TBD | Pending |
-| E2E-01 | TBD | Pending |
-| E2E-02 | TBD | Pending |
-| E2E-03 | TBD | Pending |
-| E2E-04 | TBD | Pending |
-| E2E-05 | TBD | Pending |
-| E2E-06 | TBD | Pending |
-| E2E-07 | TBD | Pending |
-| E2E-08 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| TEST-04 | TBD | Pending |
+| BASE-01 | Phase 1 | Pending |
+| BASE-02 | Phase 1 | Pending |
+| BASE-03 | Phase 1 | Pending |
+| BASE-04 | Phase 1 | Pending |
+| BUILD-01 | Phase 2 | Pending |
+| BUILD-02 | Phase 2 | Pending |
+| BUILD-03 | Phase 2 | Pending |
+| BUILD-04 | Phase 2 | Pending |
+| API-01 | Phase 3 | Pending |
+| API-02 | Phase 3 | Pending |
+| API-03 | Phase 3 | Pending |
+| API-04 | Phase 5 | Pending |
+| API-05 | Phase 4 | Pending |
+| API-06 | Phase 3 | Pending |
+| PROTO-01 | Phase 4 | Pending |
+| PROTO-02 | Phase 4 | Pending |
+| PROTO-03 | Phase 4 | Pending |
+| PROTO-04 | Phase 5 | Pending |
+| PROTO-05 | Phase 4 | Pending |
+| PROTO-06 | Phase 3 | Pending |
+| PROTO-07 | Phase 3 | Pending |
+| MEDIA-01 | Phase 5 | Pending |
+| MEDIA-02 | Phase 5 | Pending |
+| MEDIA-03 | Phase 5 | Pending |
+| MEDIA-04 | Phase 5 | Pending |
+| MEDIA-05 | Phase 5 | Pending |
+| MEDIA-06 | Phase 5 | Pending |
+| MEDIA-07 | Phase 5 | Pending |
+| NET-01 | Phase 4 | Pending |
+| NET-02 | Phase 4 | Pending |
+| NET-03 | Phase 4 | Pending |
+| NET-04 | Phase 6 | Pending |
+| NET-05 | Phase 3 | Pending |
+| E2E-01 | Phase 6 | Pending |
+| E2E-02 | Phase 6 | Pending |
+| E2E-03 | Phase 6 | Pending |
+| E2E-04 | Phase 6 | Pending |
+| E2E-05 | Phase 6 | Pending |
+| E2E-06 | Phase 6 | Pending |
+| E2E-07 | Phase 6 | Pending |
+| E2E-08 | Phase 6 | Pending |
+| TEST-01 | Phase 6 | Pending |
+| TEST-02 | Phase 6 | Pending |
+| TEST-03 | Phase 6 | Pending |
+| TEST-04 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 45 total
-- Mapped to phases: 0
-- Unmapped: 45
+- Mapped to phases: 45
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after initialization*
+*Last updated: 2026-05-12 after roadmap creation*
