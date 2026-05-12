@@ -1,5 +1,5 @@
 {
-  "model_profile": "balanced",
+  "model_profile": "quality",
   "commit_docs": true,
   "parallelization": true,
   "search_gitignored": false,
@@ -37,6 +37,6 @@
   "agent_skills": {},
   "features": {},
   "resolve_model_ids": "omit",
-  "mode": "supervised",
+  "mode": "yolo",
   "granularity": "standard"
 }
