@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 3 — AWS 风格 API 与 signaling-free PeerConnection
-status: phase_complete
-last_updated: "2026-05-12T13:58:07.280Z"
+status: ready_to_execute
+last_updated: "2026-05-12T14:25:00.000Z"
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 2
+  total_plans: 3
   completed_plans: 2
-  percent: 100
+  percent: 67
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 3 context gathered — ready to plan.
+**Current focus:** Phase 3 planned — ready to execute after restoring local `reflib/kvs-webrtc-sdk` baseline.
 
 ## Artifacts
 
@@ -44,7 +44,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 |-------|--------|--------------|----------|
 | 1. 基线、范围与合规边界 | Complete | 4 | 100% |
 | 2. 独立构建与库骨架 | Complete | 4 | 100% |
-| 3. AWS 风格 API 与 signaling-free PeerConnection | Pending | 7 | 0% |
+| 3. AWS 风格 API 与 signaling-free PeerConnection | Ready to execute | 7 | 0% |
 | 4. 传输、安全与 DataChannel 协议核心 | Pending | 8 | 0% |
 | 5. H264/Opus 媒体路径 | Pending | 9 | 0% |
 | 6. Chrome 自动化 E2E 与测试收口 | Pending | 13 | 0% |
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Run `$gsd-verify-work 2` to verify Phase 2, or `$gsd-discuss-phase 3` to prepare the API and signaling-free PeerConnection phase.
+Run `$gsd-execute-phase 3` after restoring `reflib/kvs-webrtc-sdk` to local baseline commit `9eebcc4`.
 
 ---
-*Last updated: 2026-05-12 after Phase 2 execution*
+*Last updated: 2026-05-12 after Phase 3 planning*

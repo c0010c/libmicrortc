@@ -57,6 +57,14 @@
 3. SDP 序列化和反序列化模块已脱离 AWS signaling client。
 4. C 端 Answerer 路径先可用，并为同一 v1 路线内的 Offerer 路径保留明确接口。
 
+**Plans:**
+- Wave 1: `.planning/phases/03-aws-api-signaling-free-peerconnection/03-01-PLAN.md` — 恢复本地 KVS 基线，裁剪 public PeerConnection API，实现 signaling-free SDP/Answerer 基础流程，并补齐 CTest、package consumer 和来源追溯。
+
+**Cross-cutting constraints:**
+- 必须先恢复 `reflib/kvs-webrtc-sdk` 到 commit `9eebcc4`；不得用 GitHub upstream latest 替代本地基线。
+- Public header 不暴露 AWS/PIC 基础类型；核心库不依赖 KVS signaling、libwebsockets、AWS SDK C++ 或 credential/storage。
+- Phase 3 只做 Answerer 基础路径和 Offerer API 预留；真实 ICE/DTLS/SRTP/DataChannel/媒体/E2E 留给后续阶段。
+
 ### Phase 4: 传输、安全与 DataChannel 协议核心
 
 **Goal:** 剥离传输、安全和 DataChannel 所需协议模块，使 PeerConnection 能在 host、STUN 和 TURN relay 路径上建立受保护连接。
