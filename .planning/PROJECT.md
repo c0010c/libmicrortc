@@ -45,6 +45,8 @@ v1 面向 Linux x86_64，优先保证 Chrome 浏览器与 C 端 demo 建立 WebR
 
 参考项目为 AWS Labs 的 `amazon-kinesis-video-streams-webrtc-sdk-c`。该项目是 Apache-2.0 许可的 C WebRTC SDK，包含音视频、DataChannel、NACK、STUN/TURN、IPv4/IPv6、signaling client、存储相关能力，以及 OpenSSL、libsrtp、libjsmn、libusrsctp、libwebsockets 等依赖。
 
+剥离基线以当前项目目录下的 `reflib/kvs-webrtc-sdk` 为准，而不是以 GitHub 上游最新状态为准。初始化时该本地参考库为 `v1.18.1`，短提交 `9eebcc4`，工作区干净。
+
 本项目要利用其协议栈实现基础，但项目优先级不是保留 AWS 产品集成，而是把协议栈从 AWS/KVS 业务边界中分离出来。剥离策略暂不在初始化阶段锁死，需要后续单独讨论；当前只确定最终方向：独立 C 库、清晰模块边界、可自动验证的浏览器互通能力。
 
 v1 demo 的理想形态是一个 C 端进程和一个浏览器页面。C 端先实现 Answerer 路径，后续也需要支持 Offerer；自动化验收应尽可能启动 C demo 和 Chrome，自动完成 SDP/candidate 交换，并断言双向 H264/Opus 媒体实际流动。C 端 E2E 媒体源优先读取固定 H264/Opus 测试文件。
@@ -52,6 +54,7 @@ v1 demo 的理想形态是一个 C 端进程和一个浏览器页面。C 端先�
 ## Constraints
 
 - **来源项目**: 以 AWS KVS WebRTC C SDK 为参考和代码来源 — 需要保留许可证、NOTICE、文件来源和第三方依赖说明。
+- **源码基线**: 以本地 `reflib/kvs-webrtc-sdk` 的版本为准 — 后续分析、搬迁和差异讨论都应先读取本地参考库，避免无意跟随上游变化。
 - **平台**: v1 先支持 Linux x86_64 — 先把独立构建和互通跑通，再扩展平台矩阵。
 - **构建系统**: 继续使用 CMake — 贴近来源项目和 C/C++ 生态，静态库优先。
 - **依赖策略**: v1 接受 OpenSSL、libsrtp、usrsctp 等现有依赖 — 优先快速剥离并保持协议能力，不在 v1 强行替换依赖。
@@ -66,6 +69,7 @@ v1 demo 的理想形态是一个 C 端进程和一个浏览器页面。C 端先�
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | 项目定位为协议栈抽取，而不是 AWS SDK fork | 用户希望剥离 WebRTC 协议栈，去掉 AWS/KVS 产品耦合 | Pending |
+| 剥离基线锁定为本地 `reflib/kvs-webrtc-sdk` | 用户明确要求以当前项目目录下参考库版本为准，不以远端最新版本为准 | Pending |
 | v1 API 先按 AWS 公共头文件裁剪 | 初期降低迁移成本，保留可用的调用模型 | Pending |
 | 核心库只接收和输出编码后媒体帧 | 保持协议栈边界干净，不把采集和编码拉进核心库 | Pending |
 | 先沿用 AWS 的线程和回调模型 | 降低早期剥离风险，避免同时重构并发模型 | Pending |
