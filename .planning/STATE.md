@@ -10,7 +10,7 @@ progress:
   completed_phases: 1
   total_plans: 1
   completed_plans: 1
-  percent: 100
+  percent: 17
 ---
 
 # State: libmicrortc
