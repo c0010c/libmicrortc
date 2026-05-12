@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 2 — 独立构建与库骨架
-status: ready_to_execute
-last_updated: "2026-05-12T11:48:54.416Z"
+status: phase_complete
+last_updated: "2026-05-12T11:58:23.333Z"
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 100
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 2 — 建立 libmicrortc 的独立 CMake 静态库骨架，并切断非核心组件构建依赖。
+**Current focus:** Phase 2 complete — standalone CMake static library skeleton, smoke test, install/export consumer, and dependency boundary documentation are in place.
 
 ## Artifacts
 
@@ -43,7 +43,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | Phase | Status | Requirements | Progress |
 |-------|--------|--------------|----------|
 | 1. 基线、范围与合规边界 | Complete | 4 | 100% |
-| 2. 独立构建与库骨架 | Ready to execute | 4 | 0% |
+| 2. 独立构建与库骨架 | Complete | 4 | 100% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Pending | 7 | 0% |
 | 4. 传输、安全与 DataChannel 协议核心 | Pending | 8 | 0% |
 | 5. H264/Opus 媒体路径 | Pending | 9 | 0% |
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Run `$gsd-execute-phase 2` to build the independent CMake static library skeleton.
+Run `$gsd-verify-work 2` to verify Phase 2, or `$gsd-discuss-phase 3` to prepare the API and signaling-free PeerConnection phase.
 
 ---
-*Last updated: 2026-05-12 after Phase 2 planning*
+*Last updated: 2026-05-12 after Phase 2 execution*

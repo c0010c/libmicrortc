@@ -14,10 +14,10 @@
 
 ### 构建与库形态
 
-- [ ] **BUILD-01**: 项目必须提供独立 CMake 构建入口，不依赖 AWS/KVS sample 工程才能构建核心库。
-- [ ] **BUILD-02**: 项目必须生成面向 Linux x86_64 的静态库构建产物。
-- [ ] **BUILD-03**: v1 构建可以继续使用 OpenSSL、libsrtp、usrsctp 等参考库依赖。
-- [ ] **BUILD-04**: 构建系统必须排除或可关闭 AWS/KVS signaling、credential、storage、GStreamer sample 等非核心库组件。
+- [x] **BUILD-01**: 项目必须提供独立 CMake 构建入口，不依赖 AWS/KVS sample 工程才能构建核心库。
+- [x] **BUILD-02**: 项目必须生成面向 Linux x86_64 的静态库构建产物。
+- [x] **BUILD-03**: v1 构建可以继续使用 OpenSSL、libsrtp、usrsctp 等参考库依赖。
+- [x] **BUILD-04**: 构建系统必须排除或可关闭 AWS/KVS signaling、credential、storage、GStreamer sample 等非核心库组件。
 
 ### API 与运行模型
 
@@ -115,10 +115,10 @@
 | BASE-02 | Phase 1 | Complete |
 | BASE-03 | Phase 1 | Complete |
 | BASE-04 | Phase 1 | Complete |
-| BUILD-01 | Phase 2 | Pending |
-| BUILD-02 | Phase 2 | Pending |
-| BUILD-03 | Phase 2 | Pending |
-| BUILD-04 | Phase 2 | Pending |
+| BUILD-01 | Phase 2 | Complete |
+| BUILD-02 | Phase 2 | Complete |
+| BUILD-03 | Phase 2 | Complete |
+| BUILD-04 | Phase 2 | Complete |
 | API-01 | Phase 3 | Pending |
 | API-02 | Phase 3 | Pending |
 | API-03 | Phase 3 | Pending |
