@@ -61,7 +61,31 @@ PeerConnection 使用 opaque handle，create 时一次性传入 config、callbac
 
 当前可用路径是 C 端 Answerer：调用方设置 remote offer 后，可以通过 `mrtc_peer_connection_create_answer()` 生成 local answer，再调用 `mrtc_peer_connection_set_local_description()`。`mrtc_peer_connection_create_offer()` 已预留接口，但在 Phase 3 明确返回 `MRTC_STATUS_NOT_IMPLEMENTED`。
 
-transceiver、DataChannel、RTP/RTCP、DTLS、SRTP、SCTP、真实 ICE connected、TURN relay 和媒体收发 API 都保留到后续阶段实现。
+Phase 4 已开始加入传输层能力：public API 提供 ICE server 配置、连接状态回调、DataChannel opaque handle、create/send/close 和 DataChannel callback table；SDP answer 会写入本地 ICE ufrag/pwd、DTLS fingerprint、`setup` role，并在存在 DataChannel 时加入 `m=application ... webrtc-datachannel` 和 `a=sctp-port:5000`。
+
+当前实现仍处于 Phase 4 分层迁入过程中：host/STUN/TURN、DTLS/SRTP、SCTP/DataChannel 的真实互通会随后续计划逐步替换骨架实现。RTP/RTCP、H264/Opus 和媒体收发 API 仍保留到 Phase 5。
+
+## Phase 4 本地 ICE 配置
+
+仓库提供不含秘密的 `mrtc-ice-servers.example.json`：
+
+```json
+{
+  "ice_servers": [
+    {
+      "urls": "turn:<host>:3478?transport=udp",
+      "username": "<username>",
+      "credential": "<credential>"
+    }
+  ]
+}
+```
+
+真实 STUN/TURN 配置应放在项目根目录的 `mrtc-ice-servers.local.json`，该文件已被 `.gitignore` 忽略，不能提交真实 hostname、username、password、token 或 credential。真实网络验收命令会把配置缺失视为硬失败：
+
+```bash
+./build/tests/integration/mrtc_phase4_network_verify --config ./mrtc-ice-servers.local.json --require-host --require-srflx --require-relay
+```
 
 ## 依赖边界
 

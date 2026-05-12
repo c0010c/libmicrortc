@@ -1,6 +1,8 @@
 #include <micrortc/micrortc.h>
 
+#include "common/mrtc_common.h"
 #include "data_channel/data_channel.h"
+#include "dtls/dtls_session.h"
 #include "ice/ice_agent.h"
 #include "sdp.h"
 
@@ -18,6 +20,11 @@ struct MRTC_PEER_CONNECTION {
     char *local_description_type;
     char *local_description_sdp;
     char *last_remote_candidate;
+    char local_ice_ufrag[17];
+    char local_ice_pwd[33];
+    char local_fingerprint[96];
+    char *remote_fingerprint;
+    char *remote_setup;
     MRTC_PEER_CONNECTION_STATE state;
     int has_remote_description;
     int has_local_description;
@@ -82,6 +89,27 @@ static MRTC_STATUS mrtc_replace_string(char **target, const char *value)
 
     free(*target);
     *target = copy;
+    return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_fill_token(char *buffer, size_t buffer_len)
+{
+    static const char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    uint8_t random_bytes[32];
+    size_t i;
+
+    if (buffer == 0 || buffer_len < 2 || buffer_len - 1 > sizeof(random_bytes)) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    if (mrtc_random_bytes(random_bytes, buffer_len - 1) != MRTC_STATUS_OK) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    for (i = 0; i + 1 < buffer_len; ++i) {
+        buffer[i] = alphabet[random_bytes[i] % (sizeof(alphabet) - 1)];
+    }
+    buffer[buffer_len - 1] = '\0';
     return MRTC_STATUS_OK;
 }
 
@@ -185,6 +213,17 @@ MRTC_STATUS mrtc_peer_connection_create(const MRTC_PEER_CONNECTION_CONFIG *confi
     created->user_data = user_data;
     created->state = MRTC_PEER_CONNECTION_STATE_NEW;
     created->next_stream_id = 0;
+    {
+        size_t fingerprint_len = 0;
+        if (mrtc_fill_token(created->local_ice_ufrag, sizeof(created->local_ice_ufrag)) != MRTC_STATUS_OK ||
+            mrtc_fill_token(created->local_ice_pwd, sizeof(created->local_ice_pwd)) != MRTC_STATUS_OK ||
+            mrtc_dtls_generate_fingerprint(created->local_fingerprint, sizeof(created->local_fingerprint), &fingerprint_len) != MRTC_STATUS_OK) {
+            mrtc_free_ice_servers(created);
+            free(created->bundle_policy);
+            free(created);
+            return MRTC_STATUS_INVALID_STATE;
+        }
+    }
 
     *peer_connection = created;
     return MRTC_STATUS_OK;
@@ -201,6 +240,8 @@ void mrtc_peer_connection_free(MRTC_PEER_CONNECTION_HANDLE peer_connection)
     free(peer_connection->local_description_type);
     free(peer_connection->local_description_sdp);
     free(peer_connection->last_remote_candidate);
+    free(peer_connection->remote_fingerprint);
+    free(peer_connection->remote_setup);
     while (peer_connection->data_channels != 0) {
         MRTC_DATA_CHANNEL_HANDLE next = peer_connection->data_channels->next;
         mrtc_data_channel_free_internal(peer_connection->data_channels);
@@ -229,6 +270,20 @@ MRTC_STATUS mrtc_peer_connection_set_remote_description(MRTC_PEER_CONNECTION_HAN
     status = mrtc_sdp_parse(sdp, &parsed);
     if (status != MRTC_STATUS_OK) {
         return MRTC_STATUS_PARSE_ERROR;
+    }
+    if (mrtc_sdp_get_fingerprint(parsed) != 0) {
+        status = mrtc_replace_string(&peer_connection->remote_fingerprint, mrtc_sdp_get_fingerprint(parsed));
+        if (status != MRTC_STATUS_OK) {
+            mrtc_sdp_free(parsed);
+            return status;
+        }
+    }
+    if (mrtc_sdp_get_setup(parsed) != 0) {
+        status = mrtc_replace_string(&peer_connection->remote_setup, mrtc_sdp_get_setup(parsed));
+        if (status != MRTC_STATUS_OK) {
+            mrtc_sdp_free(parsed);
+            return status;
+        }
     }
     mrtc_sdp_free(parsed);
 
@@ -260,7 +315,14 @@ MRTC_STATUS mrtc_peer_connection_create_answer(MRTC_PEER_CONNECTION_HANDLE peer_
         return MRTC_STATUS_INVALID_STATE;
     }
 
-    return mrtc_sdp_create_answer(peer_connection->remote_description_sdp, buffer, buffer_len, required_len);
+    return mrtc_sdp_create_answer_ex(peer_connection->remote_description_sdp,
+                                     peer_connection->data_channels != 0,
+                                     peer_connection->local_ice_ufrag,
+                                     peer_connection->local_ice_pwd,
+                                     peer_connection->local_fingerprint,
+                                     buffer,
+                                     buffer_len,
+                                     required_len);
 }
 
 MRTC_STATUS mrtc_peer_connection_set_local_description(MRTC_PEER_CONNECTION_HANDLE peer_connection,
@@ -295,6 +357,13 @@ MRTC_STATUS mrtc_peer_connection_set_local_description(MRTC_PEER_CONNECTION_HAND
     }
 
     peer_connection->has_local_description = 1;
+    if (peer_connection->callbacks.on_ice_candidate != 0) {
+        char candidate[128];
+        size_t candidate_len = 0;
+        if (mrtc_ice_format_host_candidate(candidate, sizeof(candidate), &candidate_len) == MRTC_STATUS_OK) {
+            peer_connection->callbacks.on_ice_candidate(peer_connection->user_data, candidate);
+        }
+    }
     return MRTC_STATUS_OK;
 }
 
@@ -327,7 +396,15 @@ MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE p
         return MRTC_STATUS_PARSE_ERROR;
     }
 
-    return mrtc_replace_string(&peer_connection->last_remote_candidate, candidate);
+    if (mrtc_replace_string(&peer_connection->last_remote_candidate, candidate) != MRTC_STATUS_OK) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    if (peer_connection->has_remote_description && peer_connection->has_local_description) {
+        mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTED);
+    }
+
+    return MRTC_STATUS_OK;
 }
 
 MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE peer_connection,

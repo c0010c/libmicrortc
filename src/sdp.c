@@ -7,8 +7,15 @@
 struct MRTC_SDP {
     char *normalized;
     char *first_media_line;
+    char *ice_ufrag;
+    char *ice_pwd;
+    char *fingerprint;
+    char *setup;
     size_t media_count;
     size_t attribute_count;
+    int has_application;
+    int has_sctp_port;
+    int has_candidate;
 };
 
 static int mrtc_has_prefix(const char *line, size_t line_len, const char *prefix)
@@ -31,6 +38,79 @@ static MRTC_STATUS mrtc_copy_string(const char *source, size_t len, char **targe
     copy[len] = '\0';
     *target = copy;
     return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_replace_sdp_string(char **target, const char *source, size_t len)
+{
+    char *copy;
+
+    if (target == 0 || source == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    copy = 0;
+    if (mrtc_copy_string(source, len, &copy) != MRTC_STATUS_OK) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    free(*target);
+    *target = copy;
+    return MRTC_STATUS_OK;
+}
+
+static int mrtc_line_equals(const char *line, size_t line_len, const char *value)
+{
+    size_t value_len = strlen(value);
+    return line_len == value_len && memcmp(line, value, value_len) == 0;
+}
+
+static MRTC_STATUS mrtc_parse_attribute_value(char **target,
+                                             const char *line_start,
+                                             size_t line_len,
+                                             const char *prefix)
+{
+    size_t prefix_len = strlen(prefix);
+
+    if (!mrtc_has_prefix(line_start, line_len, prefix)) {
+        return MRTC_STATUS_OK;
+    }
+
+    return mrtc_replace_sdp_string(target, line_start + prefix_len, line_len - prefix_len);
+}
+
+static int mrtc_fingerprint_value_is_valid(const char *value)
+{
+    size_t len;
+    size_t i;
+
+    if (value == 0) {
+        return 0;
+    }
+
+    len = strlen(value);
+    if (len < 8) {
+        return 0;
+    }
+
+    for (i = 0; i < len; ++i) {
+        char ch = value[i];
+        if (!((ch >= '0' && ch <= '9') ||
+              (ch >= 'A' && ch <= 'F') ||
+              (ch >= 'a' && ch <= 'f') ||
+              ch == ':')) {
+            return 0;
+        }
+    }
+
+    return strchr(value, ':') != 0;
+}
+
+static const char *mrtc_local_setup_from_remote(const char *remote_setup)
+{
+    if (remote_setup != 0 && strcmp(remote_setup, "active") == 0) {
+        return "passive";
+    }
+    return "active";
 }
 
 static MRTC_STATUS mrtc_append_line(char **buffer, size_t *len, size_t *capacity, const char *line, size_t line_len)
@@ -123,6 +203,9 @@ MRTC_STATUS mrtc_sdp_parse(const char *sdp, MRTC_SDP **parsed_sdp)
             saw_version = 1;
         } else if (mrtc_has_prefix(line_start, line_len, "m=")) {
             result->media_count++;
+            if (mrtc_has_prefix(line_start, line_len, "m=application")) {
+                result->has_application = 1;
+            }
             if (result->first_media_line == 0) {
                 status = mrtc_copy_string(line_start, line_len, &result->first_media_line);
                 if (status != MRTC_STATUS_OK) {
@@ -133,6 +216,42 @@ MRTC_STATUS mrtc_sdp_parse(const char *sdp, MRTC_SDP **parsed_sdp)
             }
         } else if (mrtc_has_prefix(line_start, line_len, "a=")) {
             result->attribute_count++;
+            if (mrtc_has_prefix(line_start, line_len, "a=ice-ufrag:")) {
+                status = mrtc_parse_attribute_value(&result->ice_ufrag, line_start, line_len, "a=ice-ufrag:");
+            } else if (mrtc_has_prefix(line_start, line_len, "a=ice-pwd:")) {
+                status = mrtc_parse_attribute_value(&result->ice_pwd, line_start, line_len, "a=ice-pwd:");
+            } else if (mrtc_has_prefix(line_start, line_len, "a=setup:")) {
+                status = mrtc_parse_attribute_value(&result->setup, line_start, line_len, "a=setup:");
+                if (status == MRTC_STATUS_OK &&
+                    !mrtc_line_equals(result->setup, strlen(result->setup), "actpass") &&
+                    !mrtc_line_equals(result->setup, strlen(result->setup), "active") &&
+                    !mrtc_line_equals(result->setup, strlen(result->setup), "passive")) {
+                    status = MRTC_STATUS_PARSE_ERROR;
+                }
+            } else if (mrtc_has_prefix(line_start, line_len, "a=fingerprint:")) {
+                const char *prefix = "a=fingerprint:sha-256 ";
+                if (!mrtc_has_prefix(line_start, line_len, prefix)) {
+                    status = MRTC_STATUS_PARSE_ERROR;
+                } else {
+                    status = mrtc_parse_attribute_value(&result->fingerprint, line_start, line_len, prefix);
+                    if (status == MRTC_STATUS_OK && !mrtc_fingerprint_value_is_valid(result->fingerprint)) {
+                        status = MRTC_STATUS_PARSE_ERROR;
+                    }
+                }
+            } else if (mrtc_has_prefix(line_start, line_len, "a=candidate:")) {
+                result->has_candidate = 1;
+                status = MRTC_STATUS_OK;
+            } else if (mrtc_has_prefix(line_start, line_len, "a=sctp-port:")) {
+                result->has_sctp_port = 1;
+                status = MRTC_STATUS_OK;
+            } else {
+                status = MRTC_STATUS_OK;
+            }
+            if (status != MRTC_STATUS_OK) {
+                mrtc_sdp_free(result);
+                free(normalized);
+                return MRTC_STATUS_PARSE_ERROR;
+            }
         }
 
         status = mrtc_append_line(&normalized, &normalized_len, &normalized_capacity, line_start, line_len);
@@ -169,28 +288,103 @@ MRTC_STATUS mrtc_sdp_serialize(const MRTC_SDP *parsed_sdp, char *buffer, size_t 
 
 MRTC_STATUS mrtc_sdp_create_answer(const char *remote_offer, char *buffer, size_t buffer_len, size_t *required_len)
 {
+    return mrtc_sdp_create_answer_ex(remote_offer,
+                                     0,
+                                     "mrtcufrag",
+                                     "mrtcpassword000000000000",
+                                     "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF",
+                                     buffer,
+                                     buffer_len,
+                                     required_len);
+}
+
+MRTC_STATUS mrtc_sdp_create_answer_ex(const char *remote_offer,
+                                      int include_data_channel,
+                                      const char *local_ice_ufrag,
+                                      const char *local_ice_pwd,
+                                      const char *local_fingerprint,
+                                      char *buffer,
+                                      size_t buffer_len,
+                                      size_t *required_len)
+{
     MRTC_STATUS status;
     MRTC_SDP *offer = 0;
-    char answer[1024];
+    char answer[2048];
+    const char *local_setup;
+
+    if (local_ice_ufrag == 0 || local_ice_pwd == 0 || local_fingerprint == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
 
     status = mrtc_sdp_parse(remote_offer, &offer);
     if (status != MRTC_STATUS_OK) {
         return MRTC_STATUS_PARSE_ERROR;
     }
 
+    local_setup = mrtc_local_setup_from_remote(offer->setup);
     (void) snprintf(answer,
                    sizeof(answer),
                    "v=0\r\n"
                    "o=- 0 0 IN IP4 127.0.0.1\r\n"
                    "s=libmicrortc\r\n"
                    "t=0 0\r\n"
+                   "a=group:BUNDLE 0%s\r\n"
                    "%s\r\n"
                    "c=IN IP4 0.0.0.0\r\n"
+                   "a=mid:0\r\n"
                    "a=recvonly\r\n",
+                   include_data_channel ? " data" : "",
                    offer->first_media_line);
+
+    if (strlen(answer) + 512 < sizeof(answer)) {
+        size_t answer_len = strlen(answer);
+        (void) snprintf(answer + answer_len,
+                        sizeof(answer) - answer_len,
+                        "a=ice-ufrag:%s\r\n"
+                        "a=ice-pwd:%s\r\n"
+                        "a=fingerprint:sha-256 %s\r\n"
+                        "a=setup:%s\r\n",
+                        local_ice_ufrag,
+                        local_ice_pwd,
+                        local_fingerprint,
+                        local_setup);
+    }
+
+    if (include_data_channel && strlen(answer) + 700 < sizeof(answer)) {
+        size_t answer_len = strlen(answer);
+        (void) snprintf(answer + answer_len,
+                        sizeof(answer) - answer_len,
+                        "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+                        "c=IN IP4 0.0.0.0\r\n"
+                        "a=mid:data\r\n"
+                        "a=ice-ufrag:%s\r\n"
+                        "a=ice-pwd:%s\r\n"
+                        "a=fingerprint:sha-256 %s\r\n"
+                        "a=setup:%s\r\n"
+                        "a=sctp-port:5000\r\n",
+                        local_ice_ufrag,
+                        local_ice_pwd,
+                        local_fingerprint,
+                        local_setup);
+    }
 
     mrtc_sdp_free(offer);
     return mrtc_write_buffer(answer, buffer, buffer_len, required_len);
+}
+
+const char *mrtc_sdp_get_setup(const MRTC_SDP *parsed_sdp)
+{
+    return parsed_sdp == 0 ? 0 : parsed_sdp->setup;
+}
+
+const char *mrtc_sdp_get_fingerprint(const MRTC_SDP *parsed_sdp)
+{
+    return parsed_sdp == 0 ? 0 : parsed_sdp->fingerprint;
+}
+
+int mrtc_sdp_has_application(const MRTC_SDP *parsed_sdp)
+{
+    return parsed_sdp != 0 && parsed_sdp->has_application;
 }
 
 void mrtc_sdp_free(MRTC_SDP *parsed_sdp)
@@ -201,5 +395,9 @@ void mrtc_sdp_free(MRTC_SDP *parsed_sdp)
 
     free(parsed_sdp->normalized);
     free(parsed_sdp->first_media_line);
+    free(parsed_sdp->ice_ufrag);
+    free(parsed_sdp->ice_pwd);
+    free(parsed_sdp->fingerprint);
+    free(parsed_sdp->setup);
     free(parsed_sdp);
 }

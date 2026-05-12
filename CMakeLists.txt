@@ -44,6 +44,7 @@ add_library(micrortc STATIC
     src/common/mrtc_mutex.c
     src/common/mrtc_socket.c
     src/ice/ice_agent.c
+    src/ice/ice_config.c
     src/stun/stun_message.c
     src/turn/turn_client.c
     src/dtls/dtls_session.c
@@ -121,6 +122,16 @@ if(MRTC_BUILD_TESTS)
     target_link_libraries(mrtc_phase4_transport_smoke_test PRIVATE micrortc::micrortc)
     add_test(NAME mrtc_phase4_transport_smoke_test COMMAND mrtc_phase4_transport_smoke_test)
     set_tests_properties(mrtc_phase4_transport_smoke_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_executable(mrtc_ice_config_test tests/transport/test_ice_config.c)
+    target_link_libraries(mrtc_ice_config_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_ice_config_test COMMAND mrtc_ice_config_test)
+    set_tests_properties(mrtc_ice_config_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_executable(mrtc_stun_message_test tests/transport/test_stun_message.c)
+    target_link_libraries(mrtc_stun_message_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_stun_message_test COMMAND mrtc_stun_message_test)
+    set_tests_properties(mrtc_stun_message_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
     add_executable(mrtc_phase4_network_verify tests/integration/mrtc_phase4_network_verify.c)
     target_link_libraries(mrtc_phase4_network_verify PRIVATE micrortc::micrortc)

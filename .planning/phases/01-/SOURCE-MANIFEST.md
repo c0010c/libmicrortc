@@ -82,6 +82,10 @@
 | `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.c` | `src/sctp/sctp_session.c` | `9eebcc4` | `reference-only` | usrsctp association 和 PPID 行为留给后续 Wave 4；Wave 1 未复制实现。 | `core` | `PROTO-05` | `04` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.h` | `src/data_channel/data_channel.h` | `9eebcc4` | `rewritten-derived` | 参考 DataChannel handle、label 和 callback ownership，重写为 MRTC opaque private 结构。 | `core` | `API-05` | `04` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.c` | `src/data_channel/data_channel.c` | `9eebcc4` | `reference-only` | DCEP open/send/close 行为留给后续 Wave 4；Wave 1 只建立对象生命周期骨架。 | `core` | `PROTO-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/include/com/amazonaws/kinesis/video/webrtcclient/Include.h` | `include/micrortc/peer_connection.h` | `9eebcc4` | `rewritten-derived` | Phase 4 参考 AWS ICE server、connection state 和 DataChannel public API 形态，继续裁剪为 MRTC 命名和 opaque handle。 | `core` | `API-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/SessionDescription.h` | `src/sdp.h` | `9eebcc4` | `rewritten-derived` | 参考 DTLS setup、fingerprint、ICE attributes 与 SCTP/DataChannel SDP 属性边界，扩展 MRTC private SDP API。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/SessionDescription.c` | `src/sdp.c` | `9eebcc4` | `rewritten-derived` | 参考 answer 生成和属性解析模型，重写为 Phase 4 ICE/fingerprint/setup/SCTP answer helper。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls_openssl.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `rewritten-derived` | Phase 4 参考 OpenSSL fingerprint 格式和 DTLS role 边界，当前以 MRTC 私有 wrapper 生成本地 fingerprint 并供 SDP 使用。 | `core` | `PROTO-02` | `04` | `draft` |
 
 ## 后续记录模板
 

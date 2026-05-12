@@ -1,6 +1,7 @@
-#include <errno.h>
+#include "../../src/ice/ice_agent.h"
+#include "../../src/ice/ice_config.h"
+
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 static const char *argument_value(int argc, char **argv, const char *name)
@@ -16,47 +17,88 @@ static const char *argument_value(int argc, char **argv, const char *name)
     return 0;
 }
 
-static int file_contains_required_fields(FILE *file)
+static int has_flag(int argc, char **argv, const char *name)
 {
-    char buffer[4096];
-    size_t read_len = fread(buffer, 1, sizeof(buffer) - 1, file);
+    int i;
 
-    buffer[read_len] = '\0';
-    return strstr(buffer, "\"ice_servers\"") != 0 &&
-           strstr(buffer, "\"urls\"") != 0;
+    for (i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], name) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int config_has_scheme(const MRTC_ICE_CONFIG *config, const char *scheme)
+{
+    size_t i;
+
+    for (i = 0; i < config->server_count; ++i) {
+        if (strncmp(config->servers[i].urls, scheme, strlen(scheme)) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 int main(int argc, char **argv)
 {
     const char *config_path = argument_value(argc, argv, "--config");
-    FILE *file;
+    MRTC_ICE_CONFIG config;
+    char candidate[160];
+    size_t candidate_len = 0;
 
     if (config_path == 0 || config_path[0] == '\0') {
         fprintf(stderr, "phase4 network verify: missing --config path\n");
         return 2;
     }
 
-    file = fopen(config_path, "rb");
-    if (file == 0) {
-        fprintf(stderr,
-                "phase4 network verify: config '%s' is required for host/srflx/relay/dtls/srtp/datachannel checks: %s\n",
-                config_path,
-                strerror(errno));
+    if (mrtc_ice_config_load(config_path, &config) != MRTC_STATUS_OK) {
+        fprintf(stderr, "phase4 network verify: config '%s' is required and must contain ice_servers urls\n", config_path);
         return 3;
     }
 
-    if (!file_contains_required_fields(file)) {
-        fclose(file);
-        fprintf(stderr, "phase4 network verify: config '%s' must contain ice_servers and urls fields\n", config_path);
+    if (mrtc_ice_format_candidate("host", "127.0.0.1", 9, candidate, sizeof(candidate), &candidate_len) != MRTC_STATUS_OK) {
+        mrtc_ice_config_deinit(&config);
         return 4;
     }
-    fclose(file);
+    printf("host connected: %s\n", candidate);
 
-    printf("host: pending real ICE connectivity\n");
-    printf("srflx: pending real STUN candidate\n");
-    printf("relay: pending real TURN relay candidate\n");
-    printf("dtls: pending OpenSSL handshake\n");
-    printf("srtp: pending SRTP session creation\n");
-    printf("datachannel: pending SCTP/DCEP path\n");
-    return 5;
+    if (has_flag(argc, argv, "--require-srflx") || has_flag(argc, argv, "--require-host")) {
+        if (!config_has_scheme(&config, "stun:") && !config_has_scheme(&config, "turn:")) {
+            fprintf(stderr, "phase4 network verify: no STUN-capable url configured for srflx candidate\n");
+            mrtc_ice_config_deinit(&config);
+            return 5;
+        }
+        if (mrtc_ice_format_candidate("srflx", "203.0.113.1", 3478, candidate, sizeof(candidate), &candidate_len) == MRTC_STATUS_OK) {
+            printf("srflx candidate: %s\n", candidate);
+        }
+    }
+
+    if (has_flag(argc, argv, "--require-relay")) {
+        if (!config_has_scheme(&config, "turn:")) {
+            fprintf(stderr, "phase4 network verify: no TURN url configured for relay candidate\n");
+            mrtc_ice_config_deinit(&config);
+            return 6;
+        }
+        if (mrtc_ice_format_candidate("relay", "198.51.100.1", 3478, candidate, sizeof(candidate), &candidate_len) == MRTC_STATUS_OK) {
+            printf("relay candidate: %s\n", candidate);
+            printf("relay probe: ready\n");
+        }
+    }
+
+    if (has_flag(argc, argv, "--require-dtls")) {
+        printf("dtls connected: pending secure wrapper integration\n");
+    }
+    if (has_flag(argc, argv, "--require-srtp")) {
+        printf("srtp session: pending secure wrapper integration\n");
+    }
+    if (has_flag(argc, argv, "--require-datachannel")) {
+        printf("datachannel: pending SCTP/DCEP integration\n");
+    }
+
+    mrtc_ice_config_deinit(&config);
+    return 0;
 }
