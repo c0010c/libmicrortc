@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 4 — 传输、安全与 DataChannel 协议核心
 status: ready_for_next_phase
-last_updated: "2026-05-12T14:45:00.000Z"
+last_updated: "2026-05-12T15:04:18.037Z"
 progress:
   total_phases: 6
   completed_phases: 3
