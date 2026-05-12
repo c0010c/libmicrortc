@@ -21,12 +21,12 @@
 
 ### API 与运行模型
 
-- [ ] **API-01**: v1 对外头文件必须先从 AWS WebRTC 公共 API 裁剪，保留主要调用模型。
-- [ ] **API-02**: API 必须支持创建和释放 PeerConnection。
-- [ ] **API-03**: API 必须支持设置本地/远端 SDP、创建 Offer、创建 Answer，以及添加 ICE candidate。
+- [x] **API-01**: v1 对外头文件必须先从 AWS WebRTC 公共 API 裁剪，保留主要调用模型。
+- [x] **API-02**: API 必须支持创建和释放 PeerConnection。
+- [x] **API-03**: API 必须支持设置本地/远端 SDP、创建 Offer、创建 Answer，以及添加 ICE candidate。
 - [ ] **API-04**: API 必须支持添加音视频 transceiver，并通过 `writeFrame` 类接口发送编码后媒体帧。
 - [ ] **API-05**: API 必须支持 DataChannel 创建、打开、关闭和消息收发。
-- [ ] **API-06**: v1 必须先沿用 AWS SDK 的线程和回调模型。
+- [x] **API-06**: v1 必须先沿用 AWS SDK 的线程和回调模型。
 
 ### 协议栈模块
 
@@ -35,8 +35,8 @@
 - [ ] **PROTO-03**: 核心库必须包含 SRTP 会话模块，用于音视频 RTP 保护。
 - [ ] **PROTO-04**: 核心库必须包含 RTP/RTCP 模块，支持基本 packetize/depacketize、RTCP 处理和 NACK 相关路径。
 - [ ] **PROTO-05**: 核心库必须包含 SCTP/DataChannel 模块。
-- [ ] **PROTO-06**: 核心库必须包含 SDP 序列化和反序列化能力。
-- [ ] **PROTO-07**: 核心库不得依赖 AWS KVS signaling client 才能完成 PeerConnection 协议流程。
+- [x] **PROTO-06**: 核心库必须包含 SDP 序列化和反序列化能力。
+- [x] **PROTO-07**: 核心库不得依赖 AWS KVS signaling client 才能完成 PeerConnection 协议流程。
 
 ### 媒体能力
 
@@ -54,7 +54,7 @@
 - [ ] **NET-02**: v1 必须支持 STUN server-reflexive candidate 路径。
 - [ ] **NET-03**: v1 必须支持 TURN relay candidate 路径。
 - [ ] **NET-04**: TURN relay 路径必须进入自动化或半自动化验收范围，而不是只保留未验证代码。
-- [ ] **NET-05**: C 端必须先支持 Answerer 模式，后续同一 v1 路线内补齐 Offerer 模式。
+- [x] **NET-05**: C 端必须先支持 Answerer 模式，后续同一 v1 路线内补齐 Offerer 模式。
 
 ### Demo 与自动化验收
 
@@ -119,19 +119,19 @@
 | BUILD-02 | Phase 2 | Complete |
 | BUILD-03 | Phase 2 | Complete |
 | BUILD-04 | Phase 2 | Complete |
-| API-01 | Phase 3 | Pending |
-| API-02 | Phase 3 | Pending |
-| API-03 | Phase 3 | Pending |
+| API-01 | Phase 3 | Complete |
+| API-02 | Phase 3 | Complete |
+| API-03 | Phase 3 | Complete |
 | API-04 | Phase 5 | Pending |
 | API-05 | Phase 4 | Pending |
-| API-06 | Phase 3 | Pending |
+| API-06 | Phase 3 | Complete |
 | PROTO-01 | Phase 4 | Pending |
 | PROTO-02 | Phase 4 | Pending |
 | PROTO-03 | Phase 4 | Pending |
 | PROTO-04 | Phase 5 | Pending |
 | PROTO-05 | Phase 4 | Pending |
-| PROTO-06 | Phase 3 | Pending |
-| PROTO-07 | Phase 3 | Pending |
+| PROTO-06 | Phase 3 | Complete |
+| PROTO-07 | Phase 3 | Complete |
 | MEDIA-01 | Phase 5 | Pending |
 | MEDIA-02 | Phase 5 | Pending |
 | MEDIA-03 | Phase 5 | Pending |
@@ -143,7 +143,7 @@
 | NET-02 | Phase 4 | Pending |
 | NET-03 | Phase 4 | Pending |
 | NET-04 | Phase 6 | Pending |
-| NET-05 | Phase 3 | Pending |
+| NET-05 | Phase 3 | Complete |
 | E2E-01 | Phase 6 | Pending |
 | E2E-02 | Phase 6 | Pending |
 | E2E-03 | Phase 6 | Pending |

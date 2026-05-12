@@ -58,7 +58,7 @@
 4. C 端 Answerer 路径先可用，并为同一 v1 路线内的 Offerer 路径保留明确接口。
 
 **Plans:**
-- Wave 1: `.planning/phases/03-aws-api-signaling-free-peerconnection/03-01-PLAN.md` — 恢复本地 KVS 基线，裁剪 public PeerConnection API，实现 signaling-free SDP/Answerer 基础流程，并补齐 CTest、package consumer 和来源追溯。
+- Wave 1: `.planning/phases/03-aws-api-signaling-free-peerconnection/03-01-PLAN.md` — Complete. 恢复本地 KVS 基线，裁剪 public PeerConnection API，实现 signaling-free SDP/Answerer 基础流程，并补齐 CTest、package consumer 和来源追溯。
 
 **Cross-cutting constraints:**
 - 必须先恢复 `reflib/kvs-webrtc-sdk` 到 commit `9eebcc4`；不得用 GitHub upstream latest 替代本地基线。

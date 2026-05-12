@@ -3,6 +3,17 @@
 
 #include <stddef.h>
 
+#ifndef MRTC_STATUS_DEFINED
+#define MRTC_STATUS_DEFINED
+typedef enum MRTC_STATUS {
+    MRTC_STATUS_OK = 0,
+    MRTC_STATUS_INVALID_ARG = 1,
+    MRTC_STATUS_NOT_IMPLEMENTED = 2,
+    MRTC_STATUS_INVALID_STATE = 3,
+    MRTC_STATUS_PARSE_ERROR = 4
+} MRTC_STATUS;
+#endif /* MRTC_STATUS_DEFINED */
+
 #ifdef __cplusplus
 extern "C" {
 #endif

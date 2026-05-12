@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#ifndef MRTC_STATUS_DEFINED
+#define MRTC_STATUS_DEFINED
 typedef enum MRTC_STATUS {
     MRTC_STATUS_OK = 0,
     MRTC_STATUS_INVALID_ARG = 1,
@@ -12,6 +14,7 @@ typedef enum MRTC_STATUS {
     MRTC_STATUS_INVALID_STATE = 3,
     MRTC_STATUS_PARSE_ERROR = 4
 } MRTC_STATUS;
+#endif /* MRTC_STATUS_DEFINED */
 
 const char *mrtc_version_string(void);
 MRTC_STATUS mrtc_initialize(void);
