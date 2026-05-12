@@ -25,8 +25,8 @@ int main(void)
 
     if (!write_file(path,
                     "{ \"ice_servers\": ["
-                    "{ \"urls\": \"turn:example.test:3478?transport=udp\", \"username\": \"user\", \"cre" "dential\": \"secret\" },"
-                    "{ \"urls\": \"stun:stun.example.test:3478\" }"
+                    "{ \"urls\": \"stun:stun.example.test:3478\" },"
+                    "{ \"urls\": \"turn:example.test:3478?transport=udp\", \"username\": \"user\", \"cre" "dential\": \"secret\" }"
                     "] }")) {
         return 1;
     }
@@ -43,9 +43,12 @@ int main(void)
     if (mrtc_ice_config_load(path, &config) != MRTC_STATUS_OK || config.server_count != 2) {
         return 1;
     }
-    if (strcmp(config.servers[0].urls, "turn:example.test:3478?transport=udp") != 0 ||
-        strcmp(config.servers[0].username, "user") != 0 ||
-        strcmp(config.servers[0].password, "secret") != 0) {
+    if (strcmp(config.servers[0].urls, "stun:stun.example.test:3478") != 0 ||
+        config.servers[0].username != 0 ||
+        config.servers[0].password != 0 ||
+        strcmp(config.servers[1].urls, "turn:example.test:3478?transport=udp") != 0 ||
+        strcmp(config.servers[1].username, "user") != 0 ||
+        strcmp(config.servers[1].password, "secret") != 0) {
         mrtc_ice_config_deinit(&config);
         return 1;
     }

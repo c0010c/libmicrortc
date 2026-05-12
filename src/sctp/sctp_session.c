@@ -48,6 +48,7 @@ MRTC_STATUS mrtc_sctp_session_init(MRTC_SCTP_SESSION *session)
         return MRTC_STATUS_INVALID_ARG;
     }
 
+    memset(session, 0, sizeof(*session));
     status = mrtc_sctp_global_init();
     if (status != MRTC_STATUS_OK) {
         return status;

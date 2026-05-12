@@ -59,7 +59,7 @@ static char *mrtc_dup_range(const char *start, const char *end)
     return copy;
 }
 
-static const char *mrtc_find_string_value(const char *cursor, const char *key, char **value)
+static const char *mrtc_find_string_value(const char *cursor, const char *limit, const char *key, char **value)
 {
     const char *key_pos;
     const char *colon;
@@ -68,19 +68,19 @@ static const char *mrtc_find_string_value(const char *cursor, const char *key, c
 
     *value = 0;
     key_pos = strstr(cursor, key);
-    if (key_pos == 0) {
+    if (key_pos == 0 || (limit != 0 && key_pos >= limit)) {
         return 0;
     }
     colon = strchr(key_pos + strlen(key), ':');
-    if (colon == 0) {
+    if (colon == 0 || (limit != 0 && colon >= limit)) {
         return 0;
     }
     quote = strchr(colon + 1, '"');
-    if (quote == 0) {
+    if (quote == 0 || (limit != 0 && quote >= limit)) {
         return 0;
     }
     end = strchr(quote + 1, '"');
-    if (end == 0) {
+    if (end == 0 || (limit != 0 && end > limit)) {
         return 0;
     }
 
@@ -100,6 +100,8 @@ MRTC_STATUS mrtc_ice_config_load(const char *path, MRTC_ICE_CONFIG *config)
     char *json;
     const char *cursor;
     const char *servers;
+    const char *array_start;
+    const char *array_end;
     char secret_key[13];
 
     if (path == 0 || config == 0) {
@@ -117,18 +119,39 @@ MRTC_STATUS mrtc_ice_config_load(const char *path, MRTC_ICE_CONFIG *config)
         free(json);
         return MRTC_STATUS_PARSE_ERROR;
     }
+    array_start = strchr(servers, '[');
+    array_end = array_start == 0 ? 0 : strchr(array_start, ']');
+    if (array_start == 0 || array_end == 0) {
+        free(json);
+        return MRTC_STATUS_PARSE_ERROR;
+    }
 
     mrtc_secret_key(secret_key, sizeof(secret_key));
-    cursor = servers;
+    cursor = array_start + 1;
     while (config->server_count < MRTC_ICE_CONFIG_MAX_SERVERS) {
         char *url = 0;
         char *username = 0;
         char *secret = 0;
-        const char *next = mrtc_find_string_value(cursor, "\"urls\"", &url);
+        const char *object_start = strchr(cursor, '{');
+        const char *object_end;
+        const char *next;
         MRTC_ICE_SERVER_URL parsed_url;
 
-        if (next == 0) {
+        if (object_start == 0 || object_start >= array_end) {
             break;
+        }
+        object_end = strchr(object_start, '}');
+        if (object_end == 0 || object_end > array_end) {
+            mrtc_ice_config_deinit(config);
+            free(json);
+            return MRTC_STATUS_PARSE_ERROR;
+        }
+
+        next = mrtc_find_string_value(object_start, object_end, "\"urls\"", &url);
+        if (next == 0) {
+            mrtc_ice_config_deinit(config);
+            free(json);
+            return MRTC_STATUS_PARSE_ERROR;
         }
         if (url == 0 || url[0] == '\0' || mrtc_ice_server_url_parse(url, &parsed_url) != MRTC_STATUS_OK) {
             free(url);
@@ -137,13 +160,13 @@ MRTC_STATUS mrtc_ice_config_load(const char *path, MRTC_ICE_CONFIG *config)
             return MRTC_STATUS_PARSE_ERROR;
         }
 
-        (void) mrtc_find_string_value(next, "\"username\"", &username);
-        (void) mrtc_find_string_value(next, secret_key, &secret);
+        (void) mrtc_find_string_value(object_start, object_end, "\"username\"", &username);
+        (void) mrtc_find_string_value(object_start, object_end, secret_key, &secret);
         config->servers[config->server_count].urls = url;
         config->servers[config->server_count].username = username;
         config->servers[config->server_count].password = secret;
         ++config->server_count;
-        cursor = next;
+        cursor = object_end + 1;
     }
 
     free(json);
