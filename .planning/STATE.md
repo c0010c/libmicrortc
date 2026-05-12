@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 2 — 独立构建与库骨架
-status: ready_to_plan
-last_updated: "2026-05-12T11:37:41.813Z"
+status: ready_to_execute
+last_updated: "2026-05-12T11:48:54.416Z"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 1
+  total_plans: 2
   completed_plans: 1
-  percent: 17
+  percent: 50
 ---
 
 # State: libmicrortc
@@ -43,7 +43,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | Phase | Status | Requirements | Progress |
 |-------|--------|--------------|----------|
 | 1. 基线、范围与合规边界 | Complete | 4 | 100% |
-| 2. 独立构建与库骨架 | Pending | 4 | 0% |
+| 2. 独立构建与库骨架 | Ready to execute | 4 | 0% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Pending | 7 | 0% |
 | 4. 传输、安全与 DataChannel 协议核心 | Pending | 8 | 0% |
 | 5. H264/Opus 媒体路径 | Pending | 9 | 0% |
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Run `$gsd-discuss-phase 2` to prepare the independent build and library skeleton phase.
+Run `$gsd-execute-phase 2` to build the independent CMake static library skeleton.
 
 ---
-*Last updated: 2026-05-12 after Phase 1 completion*
+*Last updated: 2026-05-12 after Phase 2 planning*
