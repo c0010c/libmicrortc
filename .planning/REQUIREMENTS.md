@@ -7,10 +7,10 @@
 
 ### 源码基线与合规
 
-- [ ] **BASE-01**: 项目必须以本地 `reflib/kvs-webrtc-sdk` 作为剥离基线，而不是以 GitHub 上游最新状态作为实现依据。
-- [ ] **BASE-02**: 项目必须记录本地参考库版本、提交、来源路径和后续搬迁差异。
-- [ ] **BASE-03**: 项目必须保留 Apache-2.0 许可证兼容路径，包括 LICENSE、NOTICE、来源说明和第三方依赖声明。
-- [ ] **BASE-04**: 从 AWS 参考库搬迁或派生的文件必须能追溯到来源模块。
+- [x] **BASE-01**: 项目必须以本地 `reflib/kvs-webrtc-sdk` 作为剥离基线，而不是以 GitHub 上游最新状态作为实现依据。
+- [x] **BASE-02**: 项目必须记录本地参考库版本、提交、来源路径和后续搬迁差异。
+- [x] **BASE-03**: 项目必须保留 Apache-2.0 许可证兼容路径，包括 LICENSE、NOTICE、来源说明和第三方依赖声明。
+- [x] **BASE-04**: 从 AWS 参考库搬迁或派生的文件必须能追溯到来源模块。
 
 ### 构建与库形态
 
@@ -111,10 +111,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BASE-01 | Phase 1 | Pending |
-| BASE-02 | Phase 1 | Pending |
-| BASE-03 | Phase 1 | Pending |
-| BASE-04 | Phase 1 | Pending |
+| BASE-01 | Phase 1 | Complete |
+| BASE-02 | Phase 1 | Complete |
+| BASE-03 | Phase 1 | Complete |
+| BASE-04 | Phase 1 | Complete |
 | BUILD-01 | Phase 2 | Pending |
 | BUILD-02 | Phase 2 | Pending |
 | BUILD-03 | Phase 2 | Pending |
