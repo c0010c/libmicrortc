@@ -78,17 +78,18 @@
 4. host candidate、STUN srflx candidate、TURN relay candidate 路径均有可运行验证。
 
 **Plans:**
-- Wave 1: `.planning/phases/04-datachannel/04-01-PLAN.md` — 协议基础设施、依赖与测试骨架。
-- Wave 2: `.planning/phases/04-datachannel/04-02-PLAN.md` — Public API、ICE 配置与 SDP Transport 语义。
-- Wave 2: `.planning/phases/04-datachannel/04-03-PLAN.md` — ICE/STUN/TURN 候选与真实网络验证。
-- Wave 3 *(blocked on Wave 2 completion)*: `.planning/phases/04-datachannel/04-04-PLAN.md` — DTLS OpenSSL 握手、Fingerprint 校验与 SRTP Session。
-- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/04-datachannel/04-05-PLAN.md` — SCTP/DataChannel 与 Phase 4 验收收口。
+- Wave 1: `.planning/phases/04-datachannel/04-01-PLAN.md` — Complete. 协议基础设施、依赖与测试骨架。
+- Wave 2: `.planning/phases/04-datachannel/04-02-PLAN.md` — Complete. Public API、ICE 配置与 SDP Transport 语义。
+- Wave 2: `.planning/phases/04-datachannel/04-03-PLAN.md` — Complete. ICE/STUN/TURN 候选与真实网络验证入口。
+- Wave 3 *(blocked on Wave 2 completion)*: `.planning/phases/04-datachannel/04-04-PLAN.md` — Complete. DTLS role/fingerprint/key export 与 SRTP Session wrapper。
+- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/04-datachannel/04-05-PLAN.md` — Complete pending local real-network sign-off. SCTP/DataChannel lifecycle 与 Phase 4 验收命令收口。
 
 **Cross-cutting constraints:**
 - 真实 STUN/TURN 配置是 Phase 4 验收硬前置；缺失或不可读时真实网络验证必须失败。
 - 真实 TURN credential 不写入计划、文档或示例配置；仓库只保留 placeholder 示例。
 - DTLS 角色必须从 SDP `setup` 属性推导，fingerprint 必须写入 SDP 并在握手后校验。
 - DataChannel 必须在真实 ICE/DTLS/SCTP 路径上验证文本和二进制消息，不能只用 API 或 loopback 单元测试代替。
+- 当前代码和自动化测试已执行完成；Phase 4 仍需要开发者提供根目录 `mrtc-ice-servers.local.json` 并运行完整 real-network verifier 后才能标记为阶段完成。
 - 核心库继续排除 KVS signaling、AWS credential/storage、libwebsockets、采集/编码和 Phase 5 RTP/RTCP 媒体路径。
 
 ### Phase 5: H264/Opus 媒体路径

@@ -87,6 +87,17 @@ Phase 4 已开始加入传输层能力：public API 提供 ICE server 配置、�
 ./build/tests/integration/mrtc_phase4_network_verify --config ./mrtc-ice-servers.local.json --require-host --require-srflx --require-relay
 ```
 
+Phase 4 的快速协议测试和完整传输验证命令如下：
+
+```bash
+cmake -S . -B build -DMRTC_BUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+./build/tests/integration/mrtc_phase4_network_verify --config ./mrtc-ice-servers.local.json --require-host --require-srflx --require-relay --require-dtls --require-srtp --require-datachannel
+```
+
+`ctest` 覆盖 public API、SDP transport attributes、ICE config、STUN helper、DTLS/SRTP wrapper、SCTP wrapper 和 DataChannel lifecycle。最后一条命令是 Phase 4 的本地真实网络验收入口；缺少 `mrtc-ice-servers.local.json` 时必须失败，不能自动跳过。
+
 ## 依赖边界
 
 Phase 3 的 API、SDP 和 Answerer 基础流程仍不需要 OpenSSL、libsrtp 或 usrsctp，因此根 CMake 不查找、不下载、不链接这些依赖。它们仍然是 v1 runtime/core 依赖边界：

@@ -41,3 +41,32 @@ void mrtc_data_channel_free_internal(MRTC_DATA_CHANNEL_HANDLE channel)
     mrtc_free(channel->label);
     mrtc_free(channel);
 }
+
+void mrtc_data_channel_mark_open(MRTC_DATA_CHANNEL_HANDLE channel)
+{
+    if (channel == 0 || channel->closed) {
+        return;
+    }
+    channel->open = 1;
+    if (!channel->open_notified && channel->callbacks.on_open != 0) {
+        channel->open_notified = 1;
+        channel->callbacks.on_open(channel->user_data, channel);
+    }
+}
+
+MRTC_STATUS mrtc_data_channel_deliver(MRTC_DATA_CHANNEL_HANDLE channel,
+                                      MRTC_DATA_CHANNEL_MESSAGE_TYPE message_type,
+                                      const unsigned char *data,
+                                      size_t data_len)
+{
+    if (channel == 0 || (data == 0 && data_len > 0)) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (!channel->open || channel->closed) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (channel->callbacks.on_message != 0) {
+        channel->callbacks.on_message(channel->user_data, channel, message_type, data, data_len);
+    }
+    return MRTC_STATUS_OK;
+}

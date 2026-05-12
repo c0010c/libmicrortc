@@ -89,6 +89,10 @@
 | `reflib/kvs-webrtc-sdk/src/source/Crypto/Crypto.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `reference-only` | 参考 KVS crypto helper 的 keying material 边界；v1 目标仍是 OpenSSL 路径，当前环境缺 OpenSSL headers 时 wrapper 保持可替换合约。 | `core` | `PROTO-02` | `04` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/Crypto/IOBuffer.h` | `src/dtls/dtls_session.h` | `9eebcc4` | `reference-only` | 参考 DTLS packet buffering 边界；Phase 4 未复制 IOBuffer 实现。 | `core` | `PROTO-02` | `04` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/Srtp/SrtpSession.c` | `src/srtp/srtp_session.c` | `9eebcc4` | `rewritten-derived` | 参考 libsrtp session/key direction 映射，重写为 MRTC SRTP wrapper；v1 依赖发现保留 system libsrtp 接入口。 | `core` | `PROTO-03` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.h` | `src/sctp/sctp_session.h` | `9eebcc4` | `rewritten-derived` | 参考 SCTP port、DCEP 和 PPID 边界，扩展 MRTC SCTP wrapper callback 合约。 | `core` | `PROTO-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.c` | `src/sctp/sctp_session.c` | `9eebcc4` | `rewritten-derived` | 参考 usrsctp association、DCEP open 和 string/binary PPID，重写为可替换的 MRTC SCTP session wrapper。 | `core` | `PROTO-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.h` | `include/micrortc/peer_connection.h` | `9eebcc4` | `rewritten-derived` | 参考 AWS DataChannel handle/init/callback API，公开为 MRTC create/send/close 和 message type。 | `core` | `API-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.c` | `src/peer_connection.c` | `9eebcc4` | `rewritten-derived` | 参考 createDataChannel、send、close 和 callback lifecycle，将 DataChannel 挂入 PeerConnection transport ready 路径。 | `core` | `PROTO-05` | `04` | `draft` |
 
 ## 后续记录模板
 

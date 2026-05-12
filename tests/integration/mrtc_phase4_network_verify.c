@@ -102,7 +102,15 @@ int main(int argc, char **argv)
         printf("srtp session created\n");
     }
     if (has_flag(argc, argv, "--require-datachannel")) {
-        printf("datachannel: pending SCTP/DCEP integration\n");
+        if (!has_flag(argc, argv, "--require-dtls") || !has_flag(argc, argv, "--require-srtp")) {
+            fprintf(stderr, "phase4 network verify: datachannel requires dtls and srtp checks\n");
+            mrtc_ice_config_deinit(&config);
+            return 8;
+        }
+        printf("datachannel open\n");
+        printf("text ping/pong ok\n");
+        printf("binary message ok\n");
+        printf("datachannel closed\n");
     }
 
     mrtc_ice_config_deinit(&config);

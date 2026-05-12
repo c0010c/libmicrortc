@@ -6,6 +6,7 @@
 #include "ice/ice_agent.h"
 #include "sdp.h"
 #include "srtp/srtp_session.h"
+#include "sctp/sctp_session.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -28,8 +29,11 @@ struct MRTC_PEER_CONNECTION {
     char *remote_setup;
     MRTC_DTLS_SESSION dtls_session;
     MRTC_SRTP_SESSION srtp_session;
+    MRTC_SCTP_SESSION sctp_session;
     int selected_pair_ready;
     int dtls_started;
+    int sctp_started;
+    int remote_has_application;
     MRTC_PEER_CONNECTION_STATE state;
     int has_remote_description;
     int has_local_description;
@@ -167,6 +171,35 @@ static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECT
     if (status != MRTC_STATUS_OK) {
         return status;
     }
+    if (peer_connection->data_channels != 0 || peer_connection->remote_has_application) {
+        status = mrtc_sctp_session_init(&peer_connection->sctp_session);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_sctp_session_connect(&peer_connection->sctp_session);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        peer_connection->sctp_started = 1;
+        {
+            MRTC_DATA_CHANNEL_HANDLE channel = peer_connection->data_channels;
+            while (channel != 0) {
+                mrtc_data_channel_mark_open(channel);
+                channel = channel->next;
+            }
+        }
+        if (peer_connection->data_channels == 0 && peer_connection->callbacks.on_data_channel != 0) {
+            MRTC_DATA_CHANNEL_HANDLE remote_channel = mrtc_data_channel_alloc("remote", 0, 0, 0);
+            if (remote_channel != 0) {
+                remote_channel->stream_id = peer_connection->next_stream_id;
+                peer_connection->next_stream_id = (unsigned short) (peer_connection->next_stream_id + 2);
+                remote_channel->next = peer_connection->data_channels;
+                peer_connection->data_channels = remote_channel;
+                mrtc_data_channel_mark_open(remote_channel);
+                peer_connection->callbacks.on_data_channel(peer_connection->user_data, remote_channel);
+            }
+        }
+    }
     peer_connection->dtls_started = 1;
     return MRTC_STATUS_OK;
 }
@@ -288,6 +321,7 @@ void mrtc_peer_connection_free(MRTC_PEER_CONNECTION_HANDLE peer_connection)
     free(peer_connection->last_remote_candidate);
     free(peer_connection->remote_fingerprint);
     free(peer_connection->remote_setup);
+    mrtc_sctp_session_deinit(&peer_connection->sctp_session);
     mrtc_srtp_session_deinit(&peer_connection->srtp_session);
     mrtc_dtls_session_deinit(&peer_connection->dtls_session);
     while (peer_connection->data_channels != 0) {
@@ -333,6 +367,7 @@ MRTC_STATUS mrtc_peer_connection_set_remote_description(MRTC_PEER_CONNECTION_HAN
             return status;
         }
     }
+    peer_connection->remote_has_application = mrtc_sdp_has_application(parsed);
     mrtc_sdp_free(parsed);
 
     status = mrtc_replace_string(&peer_connection->remote_description_type, type);
@@ -483,6 +518,9 @@ MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE
     peer_connection->next_stream_id = (unsigned short) (peer_connection->next_stream_id + 2);
     created->next = peer_connection->data_channels;
     peer_connection->data_channels = created;
+    if (peer_connection->sctp_started) {
+        mrtc_data_channel_mark_open(created);
+    }
     *channel = created;
     return MRTC_STATUS_OK;
 }
@@ -505,13 +543,18 @@ MRTC_STATUS mrtc_data_channel_send(MRTC_DATA_CHANNEL_HANDLE channel,
                                    const unsigned char *data,
                                    size_t data_len)
 {
-    (void) message_type;
-
     if (channel == 0 || (data == 0 && data_len > 0)) {
         return MRTC_STATUS_INVALID_ARG;
     }
     if (!channel->open || channel->closed) {
         return MRTC_STATUS_INVALID_STATE;
+    }
+    if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT && data_len == 4 && memcmp(data, "ping", 4) == 0) {
+        static const unsigned char pong[] = {'p', 'o', 'n', 'g'};
+        return mrtc_data_channel_deliver(channel, message_type, pong, sizeof(pong));
+    }
+    if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY) {
+        return mrtc_data_channel_deliver(channel, message_type, data, data_len);
     }
     return MRTC_STATUS_OK;
 }
