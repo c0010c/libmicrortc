@@ -3,13 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 1 — 基线、范围与合规边界
-status: unknown
-last_updated: "2026-05-12T10:52:18.260Z"
+status: ready_to_execute
+last_updated: "2026-05-12T11:04:28.267Z"
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
+  total_plans: 1
   completed_plans: 0
+  percent: 0
 ---
 
 # State: libmicrortc
@@ -41,7 +42,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 | Phase | Status | Requirements | Progress |
 |-------|--------|--------------|----------|
-| 1. 基线、范围与合规边界 | Pending | 4 | 0% |
+| 1. 基线、范围与合规边界 | Planned | 4 | 0% |
 | 2. 独立构建与库骨架 | Pending | 4 | 0% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Pending | 7 | 0% |
 | 4. 传输、安全与 DataChannel 协议核心 | Pending | 8 | 0% |
@@ -61,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Run `$gsd-discuss-phase 1` to clarify Phase 1 implementation details, or `$gsd-plan-phase 1` to plan directly.
+Run `$gsd-execute-phase 1` to create the Phase 1 baseline, source manifest, and compliance documents.
 
 ---
-*Last updated: 2026-05-12 after roadmap creation*
+*Last updated: 2026-05-12 after Phase 1 planning*
