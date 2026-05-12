@@ -68,6 +68,20 @@
 | `reflib/kvs-webrtc-sdk/src/include/com/amazonaws/kinesis/video/webrtcclient/Include.h` | `include/micrortc/peer_connection.h` | `9eebcc4` | `rewritten-derived` | 参考 AWS PeerConnection、SDP 和 ICE candidate 公共使用模型，裁剪为 MRTC 命名且不暴露 AWS/PIC 类型的 public API。 | `core` | `API-01` | `03` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/PeerConnection.c` | `src/peer_connection.c` | `9eebcc4` | `rewritten-derived` | 参考 create/free、callback/user data 和 candidate 边界，重写为 Phase 3 signaling-free opaque handle 状态机。 | `core` | `API-02` | `03` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/SessionDescription.c` | `src/peer_connection.c` | `9eebcc4` | `reference-only` | 作为 set remote/local description 与 offer/answer 调用顺序参考；Phase 3 不复制 JSON signaling wrapper。 | `core` | `API-03` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Ice/IceAgent.h` | `src/ice/ice_agent.h` | `9eebcc4` | `rewritten-derived` | 参考 ICE candidate 表达和 agent 边界，Phase 4 Wave 1 先重写为 MRTC 私有 candidate parse/format 骨架。 | `core` | `PROTO-01` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Ice/IceAgent.c` | `src/ice/ice_agent.c` | `9eebcc4` | `rewritten-derived` | 参考 candidate 语义和 host path 验证入口，未复制 AWS/PIC agent 状态机。 | `core` | `PROTO-01` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Stun/Stun.h` | `src/stun/stun_message.h` | `9eebcc4` | `rewritten-derived` | 参考 STUN magic cookie、transaction id 和 message header 结构，重写为 MRTC 私有 STUN helper。 | `core` | `PROTO-01` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Stun/Stun.c` | `src/stun/stun_message.c` | `9eebcc4` | `rewritten-derived` | 参考 binding request/header 行为，Wave 1 只落基础序列化和 header 校验骨架。 | `core` | `PROTO-01` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Ice/TurnConnection.h` | `src/turn/turn_client.h` | `9eebcc4` | `rewritten-derived` | 参考 TURN server URL/relay 边界，重写为 MRTC 私有 URL 解析骨架。 | `core` | `NET-03` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Ice/TurnConnection.c` | `src/turn/turn_client.c` | `9eebcc4` | `rewritten-derived` | 参考 TURN relay 配置语义，未复制 AWS TURN allocation/channel-bind 状态机。 | `core` | `NET-03` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls.h` | `src/dtls/dtls_session.h` | `9eebcc4` | `rewritten-derived` | 参考 DTLS role/fingerprint 边界，Wave 1 先提供 MRTC 私有 role 与 fingerprint 骨架。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls_openssl.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `reference-only` | OpenSSL 握手实现作为后续 Wave 3 参考；Wave 1 未复制 OpenSSL 代码。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Srtp/SrtpSession.h` | `src/srtp/srtp_session.h` | `9eebcc4` | `rewritten-derived` | 参考 SRTP session 生命周期，Wave 1 先提供 MRTC 私有 session 骨架。 | `core` | `PROTO-03` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Srtp/SrtpSession.c` | `src/srtp/srtp_session.c` | `9eebcc4` | `reference-only` | libsrtp key mapping 行为留给后续 Wave 3；Wave 1 未复制实现。 | `core` | `PROTO-03` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.h` | `src/sctp/sctp_session.h` | `9eebcc4` | `rewritten-derived` | 参考 usrsctp 生命周期和 association 边界，Wave 1 先提供全局 init/session 骨架。 | `core` | `PROTO-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.c` | `src/sctp/sctp_session.c` | `9eebcc4` | `reference-only` | usrsctp association 和 PPID 行为留给后续 Wave 4；Wave 1 未复制实现。 | `core` | `PROTO-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.h` | `src/data_channel/data_channel.h` | `9eebcc4` | `rewritten-derived` | 参考 DataChannel handle、label 和 callback ownership，重写为 MRTC opaque private 结构。 | `core` | `API-05` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.c` | `src/data_channel/data_channel.c` | `9eebcc4` | `reference-only` | DCEP open/send/close 行为留给后续 Wave 4；Wave 1 只建立对象生命周期骨架。 | `core` | `PROTO-05` | `04` | `draft` |
 
 ## 后续记录模板
 

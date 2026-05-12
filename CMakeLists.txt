@@ -4,13 +4,52 @@ project(micrortc VERSION 0.1.0 LANGUAGES C)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(CheckIncludeFile)
+include(FindPackageHandleStandardArgs)
 
 option(MRTC_BUILD_TESTS "Build libmicrortc tests" ON)
+option(MRTC_ENABLE_PHASE4_TRANSPORT "Build Phase 4 transport/security/DataChannel scaffolding" ON)
+option(MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS "Fail configure when OpenSSL/libsrtp/usrsctp are unavailable" OFF)
+
+find_package(Threads REQUIRED)
+
+if(MRTC_ENABLE_PHASE4_TRANSPORT)
+    find_package(OpenSSL QUIET)
+    find_library(MRTC_SRTP_LIBRARY NAMES srtp2 srtp)
+    find_path(MRTC_SRTP_INCLUDE_DIR NAMES srtp2/srtp.h srtp/srtp.h)
+    find_library(MRTC_USRSCTP_LIBRARY NAMES usrsctp)
+    find_path(MRTC_USRSCTP_INCLUDE_DIR NAMES usrsctp.h)
+
+    find_package_handle_standard_args(MRTC_SRTP DEFAULT_MSG MRTC_SRTP_LIBRARY MRTC_SRTP_INCLUDE_DIR)
+    find_package_handle_standard_args(MRTC_USRSCTP DEFAULT_MSG MRTC_USRSCTP_LIBRARY MRTC_USRSCTP_INCLUDE_DIR)
+
+    if(MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS)
+        if(NOT OpenSSL_FOUND)
+            message(FATAL_ERROR "OpenSSL is required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON")
+        endif()
+        if(NOT MRTC_SRTP_FOUND)
+            message(FATAL_ERROR "libsrtp is required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON")
+        endif()
+        if(NOT MRTC_USRSCTP_FOUND)
+            message(FATAL_ERROR "usrsctp is required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON")
+        endif()
+    endif()
+endif()
 
 add_library(micrortc STATIC
     src/micrortc.c
     src/peer_connection.c
     src/sdp.c
+    src/common/mrtc_common.c
+    src/common/mrtc_mutex.c
+    src/common/mrtc_socket.c
+    src/ice/ice_agent.c
+    src/stun/stun_message.c
+    src/turn/turn_client.c
+    src/dtls/dtls_session.c
+    src/srtp/srtp_session.c
+    src/sctp/sctp_session.c
+    src/data_channel/data_channel.c
 )
 add_library(micrortc::micrortc ALIAS micrortc)
 
@@ -31,7 +70,35 @@ target_include_directories(micrortc
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
         "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
+
+target_link_libraries(micrortc
+    PRIVATE
+        Threads::Threads
+)
+
+if(MRTC_ENABLE_PHASE4_TRANSPORT)
+    target_compile_definitions(micrortc PRIVATE MRTC_ENABLE_PHASE4_TRANSPORT=1)
+
+    if(OpenSSL_FOUND)
+        target_compile_definitions(micrortc PRIVATE MRTC_HAVE_OPENSSL=1)
+        target_link_libraries(micrortc PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+
+    if(MRTC_SRTP_FOUND)
+        target_compile_definitions(micrortc PRIVATE MRTC_HAVE_SRTP=1)
+        target_include_directories(micrortc PRIVATE "${MRTC_SRTP_INCLUDE_DIR}")
+        target_link_libraries(micrortc PRIVATE "${MRTC_SRTP_LIBRARY}")
+    endif()
+
+    if(MRTC_USRSCTP_FOUND)
+        target_compile_definitions(micrortc PRIVATE MRTC_HAVE_USRSCTP=1)
+        target_include_directories(micrortc PRIVATE "${MRTC_USRSCTP_INCLUDE_DIR}")
+        target_link_libraries(micrortc PRIVATE "${MRTC_USRSCTP_LIBRARY}")
+    endif()
+endif()
 
 if(MRTC_BUILD_TESTS)
     enable_testing()
@@ -49,6 +116,18 @@ if(MRTC_BUILD_TESTS)
     target_link_libraries(mrtc_peer_connection_api_test PRIVATE micrortc::micrortc)
     add_test(NAME mrtc_peer_connection_api_test COMMAND mrtc_peer_connection_api_test)
     set_tests_properties(mrtc_peer_connection_api_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_executable(mrtc_phase4_transport_smoke_test tests/transport/test_transport_smoke.c)
+    target_link_libraries(mrtc_phase4_transport_smoke_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_phase4_transport_smoke_test COMMAND mrtc_phase4_transport_smoke_test)
+    set_tests_properties(mrtc_phase4_transport_smoke_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_executable(mrtc_phase4_network_verify tests/integration/mrtc_phase4_network_verify.c)
+    target_link_libraries(mrtc_phase4_network_verify PRIVATE micrortc::micrortc)
+    set_target_properties(mrtc_phase4_network_verify
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests/integration"
+    )
 endif()
 
 install(

@@ -1,0 +1,14 @@
+{
+  "ice_servers": [
+    {
+      "urls": "stun:<host>:3478",
+      "username": "<username>",
+      "credential": "<credential>"
+    },
+    {
+      "urls": "turn:<host>:3478?transport=udp",
+      "username": "<username>",
+      "credential": "<credential>"
+    }
+  ]
+}
