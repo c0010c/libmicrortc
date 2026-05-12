@@ -9,6 +9,7 @@ option(MRTC_BUILD_TESTS "Build libmicrortc tests" ON)
 
 add_library(micrortc STATIC
     src/micrortc.c
+    src/peer_connection.c
     src/sdp.c
 )
 add_library(micrortc::micrortc ALIAS micrortc)
@@ -43,6 +44,11 @@ if(MRTC_BUILD_TESTS)
     target_link_libraries(mrtc_sdp_roundtrip_test PRIVATE micrortc::micrortc)
     add_test(NAME mrtc_sdp_roundtrip_test COMMAND mrtc_sdp_roundtrip_test)
     set_tests_properties(mrtc_sdp_roundtrip_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    add_executable(mrtc_peer_connection_api_test tests/peer_connection/test_peer_connection_api.c)
+    target_link_libraries(mrtc_peer_connection_api_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_peer_connection_api_test COMMAND mrtc_peer_connection_api_test)
+    set_tests_properties(mrtc_peer_connection_api_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 install(

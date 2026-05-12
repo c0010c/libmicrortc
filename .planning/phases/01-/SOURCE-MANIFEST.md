@@ -65,6 +65,9 @@
 | `reflib/kvs-webrtc-sdk/src/source/Sdp/Deserialize.c` | `src/sdp.c` | `9eebcc4` | `rewritten-derived` | 参考 AWS 逐行 SDP 解析方式，重写为只覆盖 Phase 3 round-trip 和 answer helper 的 C99 实现。 | `core` | `PROTO-06` | `03` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/Sdp/Serialize.c` | `src/sdp.c` | `9eebcc4` | `reference-only` | 作为 SDP 输出格式参考；Phase 3 仅生成最小 answer，不复制序列化实现。 | `core` | `PROTO-06` | `03` | `draft` |
 | `reflib/kvs-webrtc-sdk/tst/` | `tests/fixtures/minimal_offer.sdp` | `9eebcc4` | `rewritten-derived` | 参考本地基线测试/样例 SDP 形态，重写为最小 offer fixture 用于 Phase 3 单元测试。 | `core` | `PROTO-06` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/include/com/amazonaws/kinesis/video/webrtcclient/Include.h` | `include/micrortc/peer_connection.h` | `9eebcc4` | `rewritten-derived` | 参考 AWS PeerConnection、SDP 和 ICE candidate 公共使用模型，裁剪为 MRTC 命名且不暴露 AWS/PIC 类型的 public API。 | `core` | `API-01` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/PeerConnection.c` | `src/peer_connection.c` | `9eebcc4` | `rewritten-derived` | 参考 create/free、callback/user data 和 candidate 边界，重写为 Phase 3 signaling-free opaque handle 状态机。 | `core` | `API-02` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/SessionDescription.c` | `src/peer_connection.c` | `9eebcc4` | `reference-only` | 作为 set remote/local description 与 offer/answer 调用顺序参考；Phase 3 不复制 JSON signaling wrapper。 | `core` | `API-03` | `03` | `draft` |
 
 ## 后续记录模板
 
