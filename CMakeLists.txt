@@ -31,6 +31,10 @@ target_include_directories(micrortc
 
 if(MRTC_BUILD_TESTS)
     enable_testing()
+
+    add_executable(micrortc_smoke_test tests/smoke/test_link.c)
+    target_link_libraries(micrortc_smoke_test PRIVATE micrortc::micrortc)
+    add_test(NAME micrortc_smoke_test COMMAND micrortc_smoke_test)
 endif()
 
 install(
