@@ -7,7 +7,10 @@ include(CMakePackageConfigHelpers)
 
 option(MRTC_BUILD_TESTS "Build libmicrortc tests" ON)
 
-add_library(micrortc STATIC src/micrortc.c)
+add_library(micrortc STATIC
+    src/micrortc.c
+    src/sdp.c
+)
 add_library(micrortc::micrortc ALIAS micrortc)
 
 set_target_properties(micrortc
@@ -35,6 +38,11 @@ if(MRTC_BUILD_TESTS)
     add_executable(micrortc_smoke_test tests/smoke/test_link.c)
     target_link_libraries(micrortc_smoke_test PRIVATE micrortc::micrortc)
     add_test(NAME micrortc_smoke_test COMMAND micrortc_smoke_test)
+
+    add_executable(mrtc_sdp_roundtrip_test tests/sdp/test_sdp_roundtrip.c)
+    target_link_libraries(mrtc_sdp_roundtrip_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_sdp_roundtrip_test COMMAND mrtc_sdp_roundtrip_test)
+    set_tests_properties(mrtc_sdp_roundtrip_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 install(

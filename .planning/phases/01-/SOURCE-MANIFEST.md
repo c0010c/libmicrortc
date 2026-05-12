@@ -61,6 +61,10 @@
 | `reflib/kvs-webrtc-sdk/src/source/Signaling/` | `n/a` | `9eebcc4` | `excluded` | AWS/KVS signaling client，不能成为核心库依赖。 | `excluded` | `PROTO-07` | `01` | `reviewed` |
 | `reflib/kvs-webrtc-sdk/src/source/Threadpool/` | `n/a` | `9eebcc4` | `reference-only` | 可参考 AWS 线程模型，但长期不属于核心边界。 | `supporting/reference-only` | `API-06` | `01` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/Metrics/` | `n/a` | `9eebcc4` | `reference-only` | 可参考统计能力，是否进入核心由后续需求驱动。 | `supporting/reference-only` | `BASE-04` | `01` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sdp/Sdp.h` | `src/sdp.h` | `9eebcc4` | `rewritten-derived` | 参考 AWS SDP line marker、parse/serialize 模型和 session/media/attribute 边界，重写为 Phase 3 signaling-free 最小 private API。 | `core` | `PROTO-06` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sdp/Deserialize.c` | `src/sdp.c` | `9eebcc4` | `rewritten-derived` | 参考 AWS 逐行 SDP 解析方式，重写为只覆盖 Phase 3 round-trip 和 answer helper 的 C99 实现。 | `core` | `PROTO-06` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sdp/Serialize.c` | `src/sdp.c` | `9eebcc4` | `reference-only` | 作为 SDP 输出格式参考；Phase 3 仅生成最小 answer，不复制序列化实现。 | `core` | `PROTO-06` | `03` | `draft` |
+| `reflib/kvs-webrtc-sdk/tst/` | `tests/fixtures/minimal_offer.sdp` | `9eebcc4` | `rewritten-derived` | 参考本地基线测试/样例 SDP 形态，重写为最小 offer fixture 用于 Phase 3 单元测试。 | `core` | `PROTO-06` | `03` | `draft` |
 
 ## 后续记录模板
 
