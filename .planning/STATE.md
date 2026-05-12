@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 4 — 传输、安全与 DataChannel 协议核心
-status: ready_for_next_phase
-last_updated: "2026-05-12T15:04:18.037Z"
+status: ready_to_execute
+last_updated: "2026-05-12T23:38:00+08:00"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 3
+  total_plans: 8
   completed_plans: 3
-  percent: 100
+  percent: 38
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 3 executed and verified; next phase can attach ICE/STUN/TURN、DTLS、SRTP 和 DataChannel protocol modules behind the signaling-free PeerConnection API.
+**Current focus:** Phase 4 planning is complete; execute the transport/security/DataChannel plans to attach ICE/STUN/TURN、DTLS、SRTP 和 SCTP/DataChannel protocol modules behind the signaling-free PeerConnection API.
 
 ## Artifacts
 
@@ -45,7 +45,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 1. 基线、范围与合规边界 | Complete | 4 | 100% |
 | 2. 独立构建与库骨架 | Complete | 4 | 100% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
-| 4. 传输、安全与 DataChannel 协议核心 | Pending | 8 | 0% |
+| 4. 传输、安全与 DataChannel 协议核心 | Planned | 8 | 0% |
 | 5. H264/Opus 媒体路径 | Pending | 9 | 0% |
 | 6. Chrome 自动化 E2E 与测试收口 | Pending | 13 | 0% |
 
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Run `$gsd-plan-phase 4` or `$gsd-execute-phase 4` after Phase 4 planning is ready.
+Run `$gsd-execute-phase 4` to execute the five Phase 4 plans.
 
 ---
-*Last updated: 2026-05-12 after Phase 3 execution*
+*Last updated: 2026-05-12 after Phase 4 planning*
