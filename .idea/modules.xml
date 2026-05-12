@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/libmicrortc.iml" filepath="$PROJECT_DIR$/.idea/libmicrortc.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/rtc.iml" filepath="$PROJECT_DIR$/.idea/rtc.iml" />
     </modules>
   </component>
 </project>
