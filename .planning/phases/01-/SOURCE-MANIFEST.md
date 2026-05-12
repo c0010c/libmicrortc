@@ -86,6 +86,9 @@
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/SessionDescription.h` | `src/sdp.h` | `9eebcc4` | `rewritten-derived` | 参考 DTLS setup、fingerprint、ICE attributes 与 SCTP/DataChannel SDP 属性边界，扩展 MRTC private SDP API。 | `core` | `PROTO-02` | `04` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/SessionDescription.c` | `src/sdp.c` | `9eebcc4` | `rewritten-derived` | 参考 answer 生成和属性解析模型，重写为 Phase 4 ICE/fingerprint/setup/SCTP answer helper。 | `core` | `PROTO-02` | `04` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls_openssl.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `rewritten-derived` | Phase 4 参考 OpenSSL fingerprint 格式和 DTLS role 边界，当前以 MRTC 私有 wrapper 生成本地 fingerprint 并供 SDP 使用。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/Crypto.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `reference-only` | 参考 KVS crypto helper 的 keying material 边界；v1 目标仍是 OpenSSL 路径，当前环境缺 OpenSSL headers 时 wrapper 保持可替换合约。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/IOBuffer.h` | `src/dtls/dtls_session.h` | `9eebcc4` | `reference-only` | 参考 DTLS packet buffering 边界；Phase 4 未复制 IOBuffer 实现。 | `core` | `PROTO-02` | `04` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Srtp/SrtpSession.c` | `src/srtp/srtp_session.c` | `9eebcc4` | `rewritten-derived` | 参考 libsrtp session/key direction 映射，重写为 MRTC SRTP wrapper；v1 依赖发现保留 system libsrtp 接入口。 | `core` | `PROTO-03` | `04` | `draft` |
 
 ## 后续记录模板
 

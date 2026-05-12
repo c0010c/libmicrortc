@@ -5,6 +5,7 @@
 #include "dtls/dtls_session.h"
 #include "ice/ice_agent.h"
 #include "sdp.h"
+#include "srtp/srtp_session.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,10 @@ struct MRTC_PEER_CONNECTION {
     char local_fingerprint[96];
     char *remote_fingerprint;
     char *remote_setup;
+    MRTC_DTLS_SESSION dtls_session;
+    MRTC_SRTP_SESSION srtp_session;
+    int selected_pair_ready;
+    int dtls_started;
     MRTC_PEER_CONNECTION_STATE state;
     int has_remote_description;
     int has_local_description;
@@ -123,6 +128,47 @@ static void mrtc_peer_connection_set_state(MRTC_PEER_CONNECTION_HANDLE peer_conn
     if (peer_connection->callbacks.on_connection_state_change != 0) {
         peer_connection->callbacks.on_connection_state_change(peer_connection->user_data, state);
     }
+}
+
+static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECTION_HANDLE peer_connection)
+{
+    MRTC_DTLS_ROLE role;
+    MRTC_DTLS_KEYING_MATERIAL keying_material;
+    MRTC_STATUS status;
+
+    if (peer_connection == 0 || !peer_connection->selected_pair_ready) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (peer_connection->dtls_started) {
+        return MRTC_STATUS_OK;
+    }
+    if (peer_connection->remote_fingerprint == 0 || peer_connection->remote_setup == 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    role = mrtc_dtls_role_from_remote_setup(peer_connection->remote_setup);
+    status = mrtc_dtls_session_init(&peer_connection->dtls_session, role, peer_connection->local_fingerprint);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_dtls_session_set_verified_peer_fingerprint(&peer_connection->dtls_session, peer_connection->remote_fingerprint);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_dtls_session_verify_remote_fingerprint(&peer_connection->dtls_session, peer_connection->remote_fingerprint);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_dtls_session_export_srtp_keying_material(&peer_connection->dtls_session, &keying_material);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_srtp_session_init_from_dtls(&peer_connection->srtp_session, &keying_material, role);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    peer_connection->dtls_started = 1;
+    return MRTC_STATUS_OK;
 }
 
 static void mrtc_free_ice_servers(MRTC_PEER_CONNECTION_HANDLE peer_connection)
@@ -242,6 +288,8 @@ void mrtc_peer_connection_free(MRTC_PEER_CONNECTION_HANDLE peer_connection)
     free(peer_connection->last_remote_candidate);
     free(peer_connection->remote_fingerprint);
     free(peer_connection->remote_setup);
+    mrtc_srtp_session_deinit(&peer_connection->srtp_session);
+    mrtc_dtls_session_deinit(&peer_connection->dtls_session);
     while (peer_connection->data_channels != 0) {
         MRTC_DATA_CHANNEL_HANDLE next = peer_connection->data_channels->next;
         mrtc_data_channel_free_internal(peer_connection->data_channels);
@@ -401,7 +449,10 @@ MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE p
     }
 
     if (peer_connection->has_remote_description && peer_connection->has_local_description) {
-        mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTED);
+        peer_connection->selected_pair_ready = 1;
+        if (mrtc_peer_connection_start_secure_transport(peer_connection) == MRTC_STATUS_OK) {
+            mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTED);
+        }
     }
 
     return MRTC_STATUS_OK;

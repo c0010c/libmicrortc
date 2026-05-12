@@ -133,6 +133,11 @@ if(MRTC_BUILD_TESTS)
     add_test(NAME mrtc_stun_message_test COMMAND mrtc_stun_message_test)
     set_tests_properties(mrtc_stun_message_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
+    add_executable(mrtc_dtls_srtp_test tests/transport/test_dtls_srtp.c)
+    target_link_libraries(mrtc_dtls_srtp_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_dtls_srtp_test COMMAND mrtc_dtls_srtp_test)
+    set_tests_properties(mrtc_dtls_srtp_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
     add_executable(mrtc_phase4_network_verify tests/integration/mrtc_phase4_network_verify.c)
     target_link_libraries(mrtc_phase4_network_verify PRIVATE micrortc::micrortc)
     set_target_properties(mrtc_phase4_network_verify

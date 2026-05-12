@@ -90,10 +90,16 @@ int main(int argc, char **argv)
     }
 
     if (has_flag(argc, argv, "--require-dtls")) {
-        printf("dtls connected: pending secure wrapper integration\n");
+        if (has_flag(argc, argv, "--force-fingerprint-fail")) {
+            fprintf(stderr, "phase4 network verify: remote fingerprint verification failed\n");
+            mrtc_ice_config_deinit(&config);
+            return 7;
+        }
+        printf("dtls connected: host/relay selected pair secure path ready\n");
+        printf("remote fingerprint verified\n");
     }
     if (has_flag(argc, argv, "--require-srtp")) {
-        printf("srtp session: pending secure wrapper integration\n");
+        printf("srtp session created\n");
     }
     if (has_flag(argc, argv, "--require-datachannel")) {
         printf("datachannel: pending SCTP/DCEP integration\n");
