@@ -14,7 +14,10 @@ v1 面向 Linux x86_64，优先保证 Chrome 浏览器与 C 端 demo 建立 WebR
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] **BASE-01:** 本地 `reflib/kvs-webrtc-sdk` 是默认剥离基线，不默认跟随 GitHub 上游最新状态。（Validated in Phase 1: 基线、范围与合规边界）
+- [x] **BASE-02:** 本地参考库路径、版本 `v1.18.1`、提交 `9eebcc4` 和干净工作区状态已记录。（Validated in Phase 1: 基线、范围与合规边界）
+- [x] **BASE-03:** Apache-2.0、NOTICE、来源说明和第三方依赖声明策略已建立。（Validated in Phase 1: 基线、范围与合规边界）
+- [x] **BASE-04:** 后续派生文件的 `source_path`、`target_path`、`origin_commit`、`derivation`、`notes` 追溯规则已建立。（Validated in Phase 1: 基线、范围与合规边界）
 
 ### Active
 
@@ -69,7 +72,7 @@ v1 demo 的理想形态是一个 C 端进程和一个浏览器页面。C 端先�
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | 项目定位为协议栈抽取，而不是 AWS SDK fork | 用户希望剥离 WebRTC 协议栈，去掉 AWS/KVS 产品耦合 | Pending |
-| 剥离基线锁定为本地 `reflib/kvs-webrtc-sdk` | 用户明确要求以当前项目目录下参考库版本为准，不以远端最新版本为准 | Pending |
+| 剥离基线锁定为本地 `reflib/kvs-webrtc-sdk` | 用户明确要求以当前项目目录下参考库版本为准，不以远端最新版本为准 | Validated in Phase 1 |
 | v1 API 先按 AWS 公共头文件裁剪 | 初期降低迁移成本，保留可用的调用模型 | Pending |
 | 核心库只接收和输出编码后媒体帧 | 保持协议栈边界干净，不把采集和编码拉进核心库 | Pending |
 | 先沿用 AWS 的线程和回调模型 | 降低早期剥离风险，避免同时重构并发模型 | Pending |
@@ -78,7 +81,7 @@ v1 demo 的理想形态是一个 C 端进程和一个浏览器页面。C 端先�
 | v1 优先 H264 和 Opus | 面向实际浏览器互通和嵌入式媒体场景 | Pending |
 | v1 要覆盖 TURN relay | 不把互通能力限制在本机或局域网场景 | Pending |
 | demo/验收尽可能自动化 | 用浏览器 E2E 证明真实媒体流动，而不只证明 API 或连接状态 | Pending |
-| 许可证和溯源作为早期工作处理 | 代码派生自 Apache-2.0 项目，必须保证合规路径清晰 | Pending |
+| 许可证和溯源作为早期工作处理 | 代码派生自 Apache-2.0 项目，必须保证合规路径清晰 | Validated in Phase 1 |
 
 ## Evolution
 
@@ -98,4 +101,4 @@ v1 demo 的理想形态是一个 C 端进程和一个浏览器页面。C 端先�
 4. 用当前状态更新 Context。
 
 ---
-*Last updated: 2026-05-12 after initialization*
+*Last updated: 2026-05-12 after Phase 1 completion*
