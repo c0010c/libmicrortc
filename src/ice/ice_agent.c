@@ -1,7 +1,12 @@
 #include "ice_agent.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 MRTC_STATUS mrtc_ice_parse_candidate(const char *candidate, MRTC_ICE_CANDIDATE *parsed)
 {
@@ -35,6 +40,85 @@ MRTC_STATUS mrtc_ice_parse_candidate(const char *candidate, MRTC_ICE_CANDIDATE *
     }
 
     return MRTC_STATUS_OK;
+}
+
+void mrtc_ice_host_endpoint_init(MRTC_ICE_HOST_ENDPOINT *endpoint)
+{
+    if (endpoint == 0) {
+        return;
+    }
+    memset(endpoint, 0, sizeof(*endpoint));
+    endpoint->fd = -1;
+}
+
+MRTC_STATUS mrtc_ice_host_endpoint_bind(MRTC_ICE_HOST_ENDPOINT *endpoint)
+{
+    int fd;
+    struct sockaddr_in addr;
+    socklen_t addr_len;
+
+    if (endpoint == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (endpoint->fd >= 0 && endpoint->port != 0) {
+        return MRTC_STATUS_OK;
+    }
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(0);
+    if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1) {
+        close(fd);
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (bind(fd, (const struct sockaddr *) &addr, (socklen_t) sizeof(addr)) != 0) {
+        close(fd);
+        return errno == EADDRINUSE ? MRTC_STATUS_INVALID_STATE : MRTC_STATUS_INVALID_STATE;
+    }
+
+    addr_len = (socklen_t) sizeof(addr);
+    if (getsockname(fd, (struct sockaddr *) &addr, &addr_len) != 0) {
+        close(fd);
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    endpoint->fd = fd;
+    (void) snprintf(endpoint->ip, sizeof(endpoint->ip), "127.0.0.1");
+    endpoint->port = ntohs(addr.sin_port);
+    if (endpoint->port == 0u) {
+        mrtc_ice_host_endpoint_close(endpoint);
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    return MRTC_STATUS_OK;
+}
+
+void mrtc_ice_host_endpoint_close(MRTC_ICE_HOST_ENDPOINT *endpoint)
+{
+    if (endpoint == 0) {
+        return;
+    }
+    if (endpoint->fd >= 0) {
+        close(endpoint->fd);
+    }
+    endpoint->fd = -1;
+    endpoint->ip[0] = '\0';
+    endpoint->port = 0;
+}
+
+MRTC_STATUS mrtc_ice_format_host_endpoint_candidate(const MRTC_ICE_HOST_ENDPOINT *endpoint,
+                                                    char *buffer,
+                                                    size_t buffer_len,
+                                                    size_t *required_len)
+{
+    if (endpoint == 0 || endpoint->fd < 0 || endpoint->ip[0] == '\0' || endpoint->port == 0u) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    return mrtc_ice_format_candidate("host", endpoint->ip, endpoint->port, buffer, buffer_len, required_len);
 }
 
 MRTC_STATUS mrtc_ice_format_host_candidate(char *buffer, size_t buffer_len, size_t *required_len)

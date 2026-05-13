@@ -13,7 +13,20 @@ typedef struct MRTC_ICE_CANDIDATE {
     char type[16];
 } MRTC_ICE_CANDIDATE;
 
+typedef struct MRTC_ICE_HOST_ENDPOINT {
+    int fd;
+    char ip[64];
+    unsigned short port;
+} MRTC_ICE_HOST_ENDPOINT;
+
 MRTC_STATUS mrtc_ice_parse_candidate(const char *candidate, MRTC_ICE_CANDIDATE *parsed);
+void mrtc_ice_host_endpoint_init(MRTC_ICE_HOST_ENDPOINT *endpoint);
+MRTC_STATUS mrtc_ice_host_endpoint_bind(MRTC_ICE_HOST_ENDPOINT *endpoint);
+void mrtc_ice_host_endpoint_close(MRTC_ICE_HOST_ENDPOINT *endpoint);
+MRTC_STATUS mrtc_ice_format_host_endpoint_candidate(const MRTC_ICE_HOST_ENDPOINT *endpoint,
+                                                    char *buffer,
+                                                    size_t buffer_len,
+                                                    size_t *required_len);
 MRTC_STATUS mrtc_ice_format_host_candidate(char *buffer, size_t buffer_len, size_t *required_len);
 MRTC_STATUS mrtc_ice_format_candidate(const char *type,
                                       const char *ip,

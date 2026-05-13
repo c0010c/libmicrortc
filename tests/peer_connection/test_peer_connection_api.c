@@ -26,6 +26,7 @@ static int contains(const char *text, const char *needle)
 
 typedef struct TestCallbacks {
     int candidate_count;
+    int real_candidate_count;
     int saw_connecting;
     int saw_connected;
     int open_count;
@@ -42,6 +43,9 @@ static void on_ice_candidate(void *user_data, const char *candidate)
 
     if (candidate != 0 && contains(candidate, "typ host")) {
         callbacks->candidate_count++;
+        if (!contains(candidate, " 9 typ host")) {
+            callbacks->real_candidate_count++;
+        }
     }
 }
 
@@ -336,7 +340,7 @@ int main(void)
         mrtc_peer_connection_free(handle);
         return 1;
     }
-    if (callback_state.candidate_count == 0) {
+    if (callback_state.candidate_count == 0 || callback_state.real_candidate_count == 0) {
         mrtc_peer_connection_free(handle);
         return 1;
     }

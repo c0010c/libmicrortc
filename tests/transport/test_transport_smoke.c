@@ -15,6 +15,7 @@ int main(void)
     char candidate[128];
     char fingerprint[128];
     MRTC_ICE_CANDIDATE parsed_candidate;
+    MRTC_ICE_HOST_ENDPOINT endpoint;
     MRTC_ICE_SERVER_URL parsed_url;
     MRTC_SCTP_SESSION sctp;
 
@@ -30,6 +31,15 @@ int main(void)
     if (mrtc_ice_parse_candidate(candidate, &parsed_candidate) != MRTC_STATUS_OK || strcmp(parsed_candidate.type, "host") != 0) {
         return 1;
     }
+    mrtc_ice_host_endpoint_init(&endpoint);
+    if (mrtc_ice_host_endpoint_bind(&endpoint) != MRTC_STATUS_OK ||
+        mrtc_ice_format_host_endpoint_candidate(&endpoint, candidate, sizeof(candidate), &len) != MRTC_STATUS_OK ||
+        mrtc_ice_parse_candidate(candidate, &parsed_candidate) != MRTC_STATUS_OK ||
+        parsed_candidate.port == 0u || parsed_candidate.port == 9u) {
+        mrtc_ice_host_endpoint_close(&endpoint);
+        return 1;
+    }
+    mrtc_ice_host_endpoint_close(&endpoint);
     if (mrtc_ice_server_url_parse("turn:example.test:3478?transport=udp", &parsed_url) != MRTC_STATUS_OK) {
         return 1;
     }

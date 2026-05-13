@@ -33,6 +33,7 @@ struct MRTC_PEER_CONNECTION {
     char local_ice_ufrag[17];
     char local_ice_pwd[33];
     char local_fingerprint[96];
+    MRTC_ICE_HOST_ENDPOINT host_endpoint;
     char *remote_fingerprint;
     char *remote_setup;
     MRTC_DTLS_SESSION dtls_session;
@@ -492,6 +493,7 @@ MRTC_STATUS mrtc_peer_connection_create(const MRTC_PEER_CONNECTION_CONFIG *confi
     created->state = MRTC_PEER_CONNECTION_STATE_NEW;
     created->next_stream_id = 0;
     created->next_media_ssrc = 1000001u;
+    mrtc_ice_host_endpoint_init(&created->host_endpoint);
     {
         size_t fingerprint_len = 0;
         if (mrtc_fill_token(created->local_ice_ufrag, sizeof(created->local_ice_ufrag)) != MRTC_STATUS_OK ||
@@ -524,6 +526,7 @@ void mrtc_peer_connection_free(MRTC_PEER_CONNECTION_HANDLE peer_connection)
     mrtc_sctp_session_deinit(&peer_connection->sctp_session);
     mrtc_srtp_session_deinit(&peer_connection->srtp_session);
     mrtc_dtls_session_deinit(&peer_connection->dtls_session);
+    mrtc_ice_host_endpoint_close(&peer_connection->host_endpoint);
     while (peer_connection->data_channels != 0) {
         MRTC_DATA_CHANNEL_HANDLE next = peer_connection->data_channels->next;
         mrtc_data_channel_free_internal(peer_connection->data_channels);
@@ -650,7 +653,11 @@ MRTC_STATUS mrtc_peer_connection_set_local_description(MRTC_PEER_CONNECTION_HAND
     if (peer_connection->callbacks.on_ice_candidate != 0) {
         char candidate[128];
         size_t candidate_len = 0;
-        if (mrtc_ice_format_host_candidate(candidate, sizeof(candidate), &candidate_len) == MRTC_STATUS_OK) {
+        if (mrtc_ice_host_endpoint_bind(&peer_connection->host_endpoint) == MRTC_STATUS_OK &&
+            mrtc_ice_format_host_endpoint_candidate(&peer_connection->host_endpoint,
+                                                    candidate,
+                                                    sizeof(candidate),
+                                                    &candidate_len) == MRTC_STATUS_OK) {
             peer_connection->callbacks.on_ice_candidate(peer_connection->user_data, candidate);
         }
     }
