@@ -8,6 +8,7 @@ include(CheckIncludeFile)
 include(FindPackageHandleStandardArgs)
 
 option(MRTC_BUILD_TESTS "Build libmicrortc tests" ON)
+option(MRTC_BUILD_EXAMPLES "Build libmicrortc examples" OFF)
 option(MRTC_ENABLE_PHASE4_TRANSPORT "Build Phase 4 transport/security/DataChannel scaffolding" ON)
 option(MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS "Fail configure when OpenSSL/libsrtp/usrsctp are unavailable" OFF)
 
@@ -106,6 +107,26 @@ if(MRTC_ENABLE_PHASE4_TRANSPORT)
         target_include_directories(micrortc PRIVATE "${MRTC_USRSCTP_INCLUDE_DIR}")
         target_link_libraries(micrortc PRIVATE "${MRTC_USRSCTP_LIBRARY}")
     endif()
+endif()
+
+if(MRTC_BUILD_TESTS OR MRTC_BUILD_EXAMPLES)
+    set(MRTC_CHROME_E2E_DIR "${CMAKE_CURRENT_SOURCE_DIR}/examples/chrome-e2e")
+    set(MRTC_CHROME_ANSWERER_SOURCE "${MRTC_CHROME_E2E_DIR}/mrtc_chrome_answerer.c")
+
+    if(EXISTS "${MRTC_CHROME_ANSWERER_SOURCE}")
+        add_executable(mrtc_chrome_answerer "${MRTC_CHROME_ANSWERER_SOURCE}")
+        target_link_libraries(mrtc_chrome_answerer PRIVATE micrortc::micrortc)
+        set_target_properties(mrtc_chrome_answerer
+            PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/examples/chrome-e2e"
+        )
+    endif()
+
+    add_custom_target(mrtc_e2e_help
+        COMMAND "${CMAKE_COMMAND}" -E echo "Chrome E2E is explicit: npm --prefix tests/e2e run test:host"
+        COMMAND "${CMAKE_COMMAND}" -E echo "Page: examples/chrome-e2e/index.html"
+        VERBATIM
+    )
 endif()
 
 if(MRTC_BUILD_TESTS)
