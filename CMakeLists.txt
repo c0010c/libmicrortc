@@ -115,6 +115,7 @@ if(MRTC_BUILD_TESTS OR MRTC_BUILD_EXAMPLES)
 
     if(EXISTS "${MRTC_CHROME_ANSWERER_SOURCE}")
         add_executable(mrtc_chrome_answerer "${MRTC_CHROME_ANSWERER_SOURCE}")
+        target_include_directories(mrtc_chrome_answerer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
         target_link_libraries(mrtc_chrome_answerer PRIVATE micrortc::micrortc)
         set_target_properties(mrtc_chrome_answerer
             PROPERTIES

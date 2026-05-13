@@ -1,5 +1,7 @@
 #include <micrortc/micrortc.h>
 
+#include "media/media_transceiver.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +17,7 @@ typedef struct CliOptions {
     const char *ice_config_path;
     const char *session_id;
     int log_json;
+    int self_test_media;
     int help;
 } CliOptions;
 
@@ -30,16 +33,40 @@ typedef struct OwnedIceServer {
     char *password;
 } OwnedIceServer;
 
+typedef struct FixtureBytes {
+    unsigned char *data;
+    size_t size;
+} FixtureBytes;
+
+typedef struct OpusFixture {
+    FixtureBytes packets[8];
+    size_t packet_count;
+} OpusFixture;
+
+typedef struct MediaSendStats {
+    size_t video_frames;
+    size_t video_packets;
+    size_t video_bytes;
+    size_t audio_frames;
+    size_t audio_packets;
+    size_t audio_bytes;
+} MediaSendStats;
+
 typedef struct AnswererApp {
     CliOptions options;
     MRTC_PEER_CONNECTION_HANDLE pc;
     MRTC_DATA_CHANNEL_HANDLE data_channel;
+    MRTC_RTP_TRANSCEIVER_HANDLE video_transceiver;
+    MRTC_RTP_TRANSCEIVER_HANDLE audio_transceiver;
     OwnedIceServer owned_ice[MRTC_ANSWERER_ICE_MAX];
     MRTC_ICE_SERVER ice_servers[MRTC_ANSWERER_ICE_MAX];
     size_t ice_server_count;
+    MediaSendStats media_send_stats;
     int failed;
     int stopped;
 } AnswererApp;
+
+static void emit_error(AnswererApp *app, const char *stage, const char *message);
 
 static const char *usage(void)
 {
@@ -50,6 +77,7 @@ static const char *usage(void)
            "  --ice-config <path>    Optional local ICE config JSON file.\n"
            "  --session-id <id>      Optional session id included in emitted JSON.\n"
            "  --log-json             Keep diagnostics as JSON lines on stdout.\n"
+           "  --self-test-media      Verify fixtures and send them through the media API.\n"
            "  --help                 Show this help.\n"
            "\n"
            "Input JSON message types: offer, candidate, start-media, stop.\n"
@@ -67,6 +95,8 @@ static int parse_args(int argc, char **argv, CliOptions *options)
             options->help = 1;
         } else if (strcmp(arg, "--log-json") == 0) {
             options->log_json = 1;
+        } else if (strcmp(arg, "--self-test-media") == 0) {
+            options->self_test_media = 1;
         } else if (strcmp(arg, "--fixtures") == 0 && i + 1 < argc) {
             options->fixtures_dir = argv[++i];
         } else if (strcmp(arg, "--ice-config") == 0 && i + 1 < argc) {
@@ -135,6 +165,181 @@ static char *read_file(const char *path, size_t *size)
         *size = read_size;
     }
     return buffer;
+}
+
+static int path_join(char *buffer, size_t buffer_len, const char *dir, const char *name)
+{
+    size_t dir_len;
+    int written;
+
+    if (buffer == 0 || buffer_len == 0u || dir == 0 || dir[0] == '\0' || name == 0) {
+        return 0;
+    }
+    dir_len = strlen(dir);
+    written = snprintf(buffer, buffer_len, "%s%s%s", dir, dir[dir_len - 1u] == '/' ? "" : "/", name);
+    return written > 0 && (size_t) written < buffer_len;
+}
+
+static int read_binary_file(const char *path, FixtureBytes *bytes)
+{
+    size_t size = 0;
+    char *data = read_file(path, &size);
+
+    if (data == 0 || size == 0u || bytes == 0) {
+        free(data);
+        return 0;
+    }
+    bytes->data = (unsigned char *) data;
+    bytes->size = size;
+    return 1;
+}
+
+static int h264_start_code_size_at(const unsigned char *data, size_t size, size_t offset)
+{
+    if (offset + 3u <= size && data[offset] == 0u && data[offset + 1u] == 0u && data[offset + 2u] == 1u) {
+        return 3;
+    }
+    if (offset + 4u <= size && data[offset] == 0u && data[offset + 1u] == 0u &&
+        data[offset + 2u] == 0u && data[offset + 3u] == 1u) {
+        return 4;
+    }
+    return 0;
+}
+
+static int h264_fixture_is_valid(const FixtureBytes *h264)
+{
+    size_t offset = 0;
+    int saw_sps = 0;
+    int saw_pps = 0;
+    int saw_idr = 0;
+
+    if (h264 == 0 || h264->data == 0 || h264->size < 5u) {
+        return 0;
+    }
+
+    while (offset < h264->size) {
+        int start_code_size = h264_start_code_size_at(h264->data, h264->size, offset);
+        size_t nalu_start;
+        size_t next_start;
+        unsigned int nalu_type;
+
+        if (start_code_size == 0) {
+            return 0;
+        }
+        nalu_start = offset + (size_t) start_code_size;
+        if (nalu_start >= h264->size) {
+            return 0;
+        }
+        next_start = nalu_start + 1u;
+        while (next_start < h264->size && h264_start_code_size_at(h264->data, h264->size, next_start) == 0) {
+            ++next_start;
+        }
+        nalu_type = h264->data[nalu_start] & 0x1fu;
+        if (nalu_type == 7u) {
+            if (saw_idr) {
+                return 0;
+            }
+            saw_sps = 1;
+        } else if (nalu_type == 8u) {
+            if (!saw_sps || saw_idr) {
+                return 0;
+            }
+            saw_pps = 1;
+        } else if (nalu_type == 5u) {
+            if (!saw_sps || !saw_pps) {
+                return 0;
+            }
+            saw_idr = 1;
+        }
+        offset = next_start;
+    }
+    return saw_sps && saw_pps && saw_idr;
+}
+
+static int read_opus_fixture(const char *path, OpusFixture *fixture)
+{
+    FixtureBytes raw;
+    size_t offset = 0;
+
+    memset(&raw, 0, sizeof(raw));
+    memset(fixture, 0, sizeof(*fixture));
+    if (!read_binary_file(path, &raw)) {
+        return 0;
+    }
+
+    while (offset < raw.size) {
+        size_t packet_len;
+
+        if (offset + 2u > raw.size || fixture->packet_count >= 8u) {
+            free(raw.data);
+            return 0;
+        }
+        packet_len = ((size_t) raw.data[offset] << 8u) | (size_t) raw.data[offset + 1u];
+        offset += 2u;
+        if (packet_len == 0u || offset + packet_len > raw.size) {
+            free(raw.data);
+            return 0;
+        }
+        fixture->packets[fixture->packet_count].data = (unsigned char *) malloc(packet_len);
+        if (fixture->packets[fixture->packet_count].data == 0) {
+            free(raw.data);
+            return 0;
+        }
+        memcpy(fixture->packets[fixture->packet_count].data, raw.data + offset, packet_len);
+        fixture->packets[fixture->packet_count].size = packet_len;
+        offset += packet_len;
+        fixture->packet_count++;
+    }
+    free(raw.data);
+    return fixture->packet_count >= 2u;
+}
+
+static void free_opus_fixture(OpusFixture *fixture)
+{
+    size_t i;
+
+    if (fixture == 0) {
+        return;
+    }
+    for (i = 0; i < fixture->packet_count; ++i) {
+        free(fixture->packets[i].data);
+        fixture->packets[i].data = 0;
+        fixture->packets[i].size = 0;
+    }
+    fixture->packet_count = 0;
+}
+
+static int load_media_fixtures(AnswererApp *app, FixtureBytes *h264, OpusFixture *opus)
+{
+    char h264_path[MRTC_ANSWERER_PATH_MAX];
+    char opus_path[MRTC_ANSWERER_PATH_MAX];
+
+    memset(h264, 0, sizeof(*h264));
+    memset(opus, 0, sizeof(*opus));
+    if (app->options.fixtures_dir == 0 || app->options.fixtures_dir[0] == '\0') {
+        emit_error(app, "fixtures", "missing --fixtures path");
+        return 0;
+    }
+    if (!path_join(h264_path, sizeof(h264_path), app->options.fixtures_dir, "h264_annexb_sample.h264") ||
+        !path_join(opus_path, sizeof(opus_path), app->options.fixtures_dir, "opus_packets.bin")) {
+        emit_error(app, "fixtures", "invalid --fixtures path");
+        return 0;
+    }
+    if (!read_binary_file(h264_path, h264) || !h264_fixture_is_valid(h264)) {
+        emit_error(app, "fixtures", "h264_annexb_sample.h264 must contain SPS/PPS before IDR");
+        free(h264->data);
+        h264->data = 0;
+        h264->size = 0;
+        return 0;
+    }
+    if (!read_opus_fixture(opus_path, opus)) {
+        emit_error(app, "fixtures", "opus_packets.bin must contain at least two length-prefixed packets");
+        free(h264->data);
+        h264->data = 0;
+        h264->size = 0;
+        return 0;
+    }
+    return 1;
 }
 
 static const char *skip_ws(const char *cursor)
@@ -317,6 +522,26 @@ static void emit_datachannel_message(AnswererApp *app,
     json_end();
 }
 
+static void emit_media_sent(AnswererApp *app,
+                            const char *kind,
+                            const char *codec,
+                            size_t frames,
+                            size_t packets,
+                            size_t bytes)
+{
+    json_begin(app, "event");
+    fputs(",\"name\":\"media.sent\",\"fields\":{\"kind\":", stdout);
+    json_print_escaped(stdout, kind);
+    fputs(",\"codec\":", stdout);
+    json_print_escaped(stdout, codec);
+    fprintf(stdout,
+            ",\"frames\":%lu,\"packets\":%lu,\"bytes\":%lu}",
+            (unsigned long) frames,
+            (unsigned long) packets,
+            (unsigned long) bytes);
+    json_end();
+}
+
 static const char *pc_state_name(MRTC_PEER_CONNECTION_STATE state)
 {
     switch (state) {
@@ -437,6 +662,28 @@ static void on_remote_data_channel(void *user_data, MRTC_DATA_CHANNEL_HANDLE cha
     app->data_channel = channel;
 }
 
+static MRTC_STATUS on_media_packet(void *user_data,
+                                   MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                   MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                   const uint8_t *packet,
+                                   size_t packet_size)
+{
+    AnswererApp *app = (AnswererApp *) user_data;
+    (void) peer_connection;
+
+    if (app == 0 || transceiver == 0 || packet == 0 || packet_size == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (transceiver->kind == MRTC_MEDIA_KIND_VIDEO) {
+        app->media_send_stats.video_packets++;
+        app->media_send_stats.video_bytes += packet_size;
+    } else if (transceiver->kind == MRTC_MEDIA_KIND_AUDIO) {
+        app->media_send_stats.audio_packets++;
+        app->media_send_stats.audio_bytes += packet_size;
+    }
+    return MRTC_STATUS_OK;
+}
+
 static void free_parsed_message(ParsedMessage *message)
 {
     if (message == 0) {
@@ -532,10 +779,14 @@ static int create_peer_connection(AnswererApp *app)
     MRTC_PEER_CONNECTION_CONFIG config;
     MRTC_PEER_CONNECTION_CALLBACKS callbacks;
     MRTC_DATA_CHANNEL_CALLBACKS channel_callbacks;
+    MRTC_TRANSCEIVER_INIT video_init;
+    MRTC_TRANSCEIVER_INIT audio_init;
 
     memset(&config, 0, sizeof(config));
     memset(&callbacks, 0, sizeof(callbacks));
     memset(&channel_callbacks, 0, sizeof(channel_callbacks));
+    memset(&video_init, 0, sizeof(video_init));
+    memset(&audio_init, 0, sizeof(audio_init));
     callbacks.on_ice_candidate = on_ice_candidate;
     callbacks.on_connection_state_change = on_connection_state_change;
     callbacks.on_data_channel = on_remote_data_channel;
@@ -558,7 +809,114 @@ static int create_peer_connection(AnswererApp *app)
         emit_error(app, "datachannel.create", "failed to create data channel");
         return 0;
     }
+    video_init.kind = MRTC_MEDIA_KIND_VIDEO;
+    video_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+    video_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    audio_init.kind = MRTC_MEDIA_KIND_AUDIO;
+    audio_init.codec = MRTC_CODEC_OPUS;
+    audio_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    if (mrtc_peer_connection_add_transceiver(app->pc, &video_init, app, &app->video_transceiver) != MRTC_STATUS_OK ||
+        mrtc_peer_connection_add_transceiver(app->pc, &audio_init, app, &app->audio_transceiver) != MRTC_STATUS_OK) {
+        emit_error(app, "transceiver.create", "failed to create media transceivers");
+        return 0;
+    }
+    (void) mrtc_peer_connection_set_media_send_hook(app->pc, on_media_packet, app);
     return 1;
+}
+
+static int connect_with_minimal_offer(AnswererApp *app)
+{
+    char *offer;
+    char answer[MRTC_ANSWERER_SDP_MAX];
+    size_t required_len = 0;
+    MRTC_STATUS status;
+
+    offer = read_file("tests/fixtures/minimal_offer.sdp", 0);
+    if (offer == 0) {
+        emit_error(app, "self-test", "minimal offer fixture missing");
+        return 0;
+    }
+    status = mrtc_peer_connection_set_remote_description(app->pc, "offer", offer);
+    free(offer);
+    if (status != MRTC_STATUS_OK ||
+        mrtc_peer_connection_create_answer(app->pc, answer, sizeof(answer), &required_len) != MRTC_STATUS_OK ||
+        mrtc_peer_connection_set_local_description(app->pc, "answer", answer) != MRTC_STATUS_OK ||
+        mrtc_peer_connection_add_ice_candidate(app->pc,
+                                               "candidate:1 1 UDP 2122252543 192.0.2.1 54400 typ host") != MRTC_STATUS_OK) {
+        emit_error(app, "self-test", "failed to connect fixture peer connection");
+        return 0;
+    }
+    return 1;
+}
+
+static int send_media_fixtures(AnswererApp *app)
+{
+    FixtureBytes h264;
+    OpusFixture opus;
+    MRTC_FRAME frame;
+    size_t before_packets;
+    size_t before_bytes;
+    int ok = 1;
+
+    if (!load_media_fixtures(app, &h264, &opus)) {
+        return 0;
+    }
+
+    memset(&frame, 0, sizeof(frame));
+    before_packets = app->media_send_stats.video_packets;
+    before_bytes = app->media_send_stats.video_bytes;
+    frame.data = h264.data;
+    frame.size = h264.size;
+    frame.presentation_ts = 10000000ull;
+    frame.decoding_ts = frame.presentation_ts;
+    frame.duration = 333333ull;
+    frame.index = app->media_send_stats.video_frames;
+    frame.flags = MRTC_FRAME_FLAG_KEY_FRAME;
+    if (mrtc_transceiver_write_frame(app->video_transceiver, &frame) != MRTC_STATUS_OK) {
+        emit_error(app, "media.video", "failed to send H264 fixture");
+        ok = 0;
+    } else {
+        app->media_send_stats.video_frames++;
+        emit_media_sent(app,
+                        "video",
+                        "h264",
+                        app->media_send_stats.video_frames,
+                        app->media_send_stats.video_packets - before_packets,
+                        app->media_send_stats.video_bytes - before_bytes);
+    }
+
+    if (ok) {
+        size_t i;
+        before_packets = app->media_send_stats.audio_packets;
+        before_bytes = app->media_send_stats.audio_bytes;
+        for (i = 0; i < opus.packet_count; ++i) {
+            frame.data = opus.packets[i].data;
+            frame.size = opus.packets[i].size;
+            frame.presentation_ts = 200000ull + (uint64_t) i * 200000ull;
+            frame.decoding_ts = frame.presentation_ts;
+            frame.duration = 200000ull;
+            frame.index = app->media_send_stats.audio_frames;
+            frame.flags = MRTC_FRAME_FLAG_NONE;
+            if (mrtc_transceiver_write_frame(app->audio_transceiver, &frame) != MRTC_STATUS_OK) {
+                emit_error(app, "media.audio", "failed to send Opus fixture");
+                ok = 0;
+                break;
+            }
+            app->media_send_stats.audio_frames++;
+        }
+        if (ok) {
+            emit_media_sent(app,
+                            "audio",
+                            "opus",
+                            app->media_send_stats.audio_frames,
+                            app->media_send_stats.audio_packets - before_packets,
+                            app->media_send_stats.audio_bytes - before_bytes);
+        }
+    }
+
+    free(h264.data);
+    free_opus_fixture(&opus);
+    return ok;
 }
 
 static int handle_offer(AnswererApp *app, const ParsedMessage *message)
@@ -626,8 +984,7 @@ static int dispatch_message(AnswererApp *app, const ParsedMessage *message)
         return handle_candidate(app, message);
     }
     if (strcmp(message->type, "start-media") == 0) {
-        emit_event(app, "media.start.pending", "reason", "media task not installed");
-        return 1;
+        return send_media_fixtures(app);
     }
     if (strcmp(message->type, "stop") == 0) {
         app->stopped = 1;
@@ -712,6 +1069,14 @@ int main(int argc, char **argv)
     if (!load_ice_config(&app) || !create_peer_connection(&app)) {
         free_app(&app);
         return 2;
+    }
+
+    if (app.options.self_test_media) {
+        emit_hello(&app);
+        ok = connect_with_minimal_offer(&app) && send_media_fixtures(&app);
+        emit_done(&app);
+        free_app(&app);
+        return ok ? 0 : 1;
     }
 
     emit_hello(&app);
