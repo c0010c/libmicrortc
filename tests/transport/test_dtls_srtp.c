@@ -1,6 +1,7 @@
 #include "../../src/dtls/dtls_session.h"
 #include "../../src/srtp/srtp_session.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static int all_zero(const unsigned char *buffer, size_t len)
@@ -24,6 +25,18 @@ int main(void)
     MRTC_DTLS_KEYING_MATERIAL keying_material;
     MRTC_SRTP_SESSION client_srtp;
     MRTC_SRTP_SESSION server_srtp;
+    unsigned char rtp_packet[128] = {0x80, 0x60, 0x12, 0x34, 0x00, 0x00, 0x00, 0x05,
+                                     0x00, 0x00, 0x00, 0x07, 0x65, 0x88, 0x84};
+    unsigned char rtcp_packet[128] = {0x80, 0xc8, 0x00, 0x06, 0x00, 0x00, 0x00, 0x07,
+                                      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02,
+                                      0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04,
+                                      0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x06};
+    unsigned char original_rtp[sizeof(rtp_packet)];
+    unsigned char original_rtcp[sizeof(rtcp_packet)];
+    size_t rtp_size = 15;
+    size_t rtcp_size = 32;
+    size_t original_rtp_size = rtp_size;
+    size_t original_rtcp_size = rtcp_size;
     char generated_fp[96];
     size_t generated_len = 0;
 
@@ -58,9 +71,33 @@ int main(void)
     }
     if (memcmp(client_srtp.transmit_key, keying_material.client_write_key, sizeof(client_srtp.transmit_key)) != 0 ||
         memcmp(client_srtp.receive_key, keying_material.server_write_key, sizeof(client_srtp.receive_key)) != 0 ||
+        memcmp(client_srtp.transmit_salt, keying_material.client_write_salt, sizeof(client_srtp.transmit_salt)) != 0 ||
+        memcmp(client_srtp.receive_salt, keying_material.server_write_salt, sizeof(client_srtp.receive_salt)) != 0 ||
         memcmp(server_srtp.transmit_key, keying_material.server_write_key, sizeof(server_srtp.transmit_key)) != 0 ||
-        memcmp(server_srtp.receive_key, keying_material.client_write_key, sizeof(server_srtp.receive_key)) != 0) {
+        memcmp(server_srtp.receive_key, keying_material.client_write_key, sizeof(server_srtp.receive_key)) != 0 ||
+        memcmp(server_srtp.transmit_salt, keying_material.server_write_salt, sizeof(server_srtp.transmit_salt)) != 0 ||
+        memcmp(server_srtp.receive_salt, keying_material.client_write_salt, sizeof(server_srtp.receive_salt)) != 0) {
         return 1;
+    }
+
+    memcpy(original_rtp, rtp_packet, sizeof(rtp_packet));
+    memcpy(original_rtcp, rtcp_packet, sizeof(rtcp_packet));
+    if (mrtc_srtp_protect_rtp(&client_srtp, rtp_packet, sizeof(rtp_packet), &rtp_size) != MRTC_STATUS_OK ||
+        mrtc_srtp_unprotect_rtp(&server_srtp, rtp_packet, &rtp_size) != MRTC_STATUS_OK ||
+        rtp_size != original_rtp_size ||
+        memcmp(rtp_packet, original_rtp, original_rtp_size) != 0) {
+        return 1;
+    }
+    if (mrtc_srtp_protect_rtcp(&client_srtp, rtcp_packet, sizeof(rtcp_packet), &rtcp_size) != MRTC_STATUS_OK ||
+        mrtc_srtp_unprotect_rtcp(&server_srtp, rtcp_packet, &rtcp_size) != MRTC_STATUS_OK ||
+        rtcp_size != original_rtcp_size ||
+        memcmp(rtcp_packet, original_rtcp, original_rtcp_size) != 0) {
+        return 1;
+    }
+    if (mrtc_srtp_session_is_passthrough(&client_srtp)) {
+        printf("SRTP passthrough fallback active; RTP/RTCP round trip deterministic\n");
+    } else {
+        printf("SRTP libsrtp protect/unprotect active\n");
     }
     mrtc_srtp_session_deinit(&client_srtp);
     mrtc_srtp_session_deinit(&server_srtp);
