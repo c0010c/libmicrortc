@@ -149,6 +149,12 @@ if(MRTC_BUILD_TESTS)
     add_test(NAME mrtc_media_send_test COMMAND mrtc_media_send_test)
     set_tests_properties(mrtc_media_send_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
+    add_executable(mrtc_media_fixtures_test tests/media/test_media_fixtures.c)
+    target_include_directories(mrtc_media_fixtures_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(mrtc_media_fixtures_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_media_fixtures_test COMMAND mrtc_media_fixtures_test)
+    set_tests_properties(mrtc_media_fixtures_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
     add_executable(mrtc_rtcp_nack_pli_test tests/media/test_rtcp_packet.c)
     target_include_directories(mrtc_rtcp_nack_pli_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(mrtc_rtcp_nack_pli_test PRIVATE micrortc::micrortc)
