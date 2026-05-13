@@ -102,14 +102,14 @@
 1. API 支持添加音视频 transceiver，并通过 `writeFrame` 类接口发送编码后媒体帧。
 2. RTP/RTCP 模块支持 H264/Opus 所需的基本发送、接收、RTCP 和 NACK 相关路径。
 3. 核心库不包含采集器或编码器，C 端发送媒体来自固定 H264/Opus 测试文件。
-4. C 端到 Chrome、Chrome 到 C 端的 H264 和 Opus 媒体路径都有可观察输出。
+4. Phase 5 使用 C fixture harness 证明 H264/Opus 编码后媒体双向路径可观察；完整 Chrome 自动化 browser media E2E 留在 Phase 6。
 
 **Plans:**
 - Wave 1: `.planning/phases/05-h264-opus/05-01-PLAN.md` — Complete. 媒体 Public API、Transceiver 与 SDP 合约。
 - Wave 1: `.planning/phases/05-h264-opus/05-02-PLAN.md` — Complete. RTP Packet 与 H264/Opus Codec Primitives。
 - Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/05-h264-opus/05-03-PLAN.md` — Complete. SRTP 媒体发送/接收集成。
 - Wave 3 *(blocked on Wave 2 completion)*: `.planning/phases/05-h264-opus/05-04-PLAN.md` — Complete. RTCP SR/RR、NACK 重传与 PLI 回调。
-- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/05-h264-opus/05-05-PLAN.md` — Planned. 固定媒体 Fixture、双向 Harness 与收口。
+- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/05-h264-opus/05-05-PLAN.md` — Complete. 固定媒体 Fixture、双向 Harness 与收口。
 
 **Cross-cutting constraints:**
 - 媒体 public API 必须保留 AWS 薄裁剪使用模型，但只暴露 `MRTC_*` / `mrtc_*` 和标准 C 类型。
@@ -117,6 +117,7 @@
 - Opus 使用长度前缀 packet fixture，不引入 Ogg、MP4、GStreamer、FFmpeg 或编码/解码职责。
 - RTCP/NACK 必须驱动行为：NACK 触发 rolling buffer 重发，PLI 触发 `on_picture_loss` 回调。
 - Phase 5 使用 C fixture harness 证明编码后媒体路径；完整 Chrome 自动化 E2E 仍属于 Phase 6。
+- Wave 依赖已按计划收口：05-03 依赖 05-01/05-02，05-04 依赖 05-03，05-05 依赖 05-03/05-04；当前五个 Phase 5 plan 均已完成。
 
 ### Phase 6: Chrome 自动化 E2E 与测试收口
 

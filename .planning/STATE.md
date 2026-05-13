@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 05
-status: ready_to_execute_phase_5
-last_updated: "2026-05-13T06:06:34.975Z"
+status: ready_to_execute_phase_6
+last_updated: "2026-05-13T06:30:00.000Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 13
-  completed_plans: 12
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 05 — h264-opus
+**Current focus:** Phase 06 — Chrome 自动化 E2E 与测试收口
 
 ## Artifacts
 
@@ -46,7 +46,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 2. 独立构建与库骨架 | Complete | 4 | 100% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
-| 5. H264/Opus 媒体路径 | In Progress | 9 | 4/5 plans complete |
+| 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
 | 6. Chrome 自动化 E2E 与测试收口 | Pending | 13 | 0% |
 
 ## Decisions To Carry Forward
@@ -62,14 +62,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Execute Phase 5:
+Execute Phase 6:
 
 ```bash
-$gsd-execute-phase 5
+$gsd-execute-phase 6
 ```
 
 ---
-*Last updated: 2026-05-13 after Phase 5 planning*
+*Last updated: 2026-05-13 after Phase 5 completion*
 
 ## Performance Metrics
 
@@ -79,6 +79,7 @@ $gsd-execute-phase 5
 | Phase 05-h264-opus P02 | 8min | 5 tasks | 14 files |
 | Phase 05-h264-opus P03 | 10min | 4 tasks | 9 files |
 | Phase 05-h264-opus P04 | 13min | 4 tasks | 13 files |
+| Phase 05-h264-opus P05 | pending summary | 4 tasks | pending summary |
 
 ## Decisions
 
@@ -94,3 +95,5 @@ $gsd-execute-phase 5
 - [Phase 05]: 05-04: RTP rolling buffer 保存已 protected RTP packet bytes，NACK 重发不重新 SRTP protect 旧 sequence。
 - [Phase 05]: 05-04: 未知 SSRC 和缺失 sequence 走确定性非崩溃路径，缺包通过 missing_count/counter 暴露。
 - [Phase 05]: 05-04: RTCP Plan 04 仅实现 SR/RR/NACK/PLI 最小行为，不实现 REMB/TWCC/FIR/SLI 或拥塞控制。
+- [Phase 05]: 05-05: Phase 5 完成标准采用固定 H264/Opus fixture C harness；Chrome 自动化 browser media E2E 明确保留在 Phase 6。
+- [Phase 05]: 05-05: H264 fixture 采用 Annex-B SPS/PPS/IDR bytestream，Opus fixture 采用 big-endian 16-bit length-prefixed packet 序列，不引入解码器或容器解析。
