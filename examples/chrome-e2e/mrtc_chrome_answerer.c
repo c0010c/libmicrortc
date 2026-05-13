@@ -18,6 +18,7 @@ typedef struct CliOptions {
     const char *session_id;
     int log_json;
     int self_test_media;
+    int self_test_media_callbacks;
     int help;
 } CliOptions;
 
@@ -52,6 +53,20 @@ typedef struct MediaSendStats {
     size_t audio_bytes;
 } MediaSendStats;
 
+typedef struct MediaFrameStats {
+    size_t frame_count;
+    size_t byte_count;
+    uint64_t last_timestamp;
+    size_t monotonic_timestamp_failures;
+    size_t keyframe_count;
+} MediaFrameStats;
+
+typedef struct ProtectedPacketCapture {
+    uint8_t packets[32][1600];
+    size_t sizes[32];
+    size_t count;
+} ProtectedPacketCapture;
+
 typedef struct AnswererApp {
     CliOptions options;
     MRTC_PEER_CONNECTION_HANDLE pc;
@@ -62,6 +77,9 @@ typedef struct AnswererApp {
     MRTC_ICE_SERVER ice_servers[MRTC_ANSWERER_ICE_MAX];
     size_t ice_server_count;
     MediaSendStats media_send_stats;
+    MediaFrameStats video_frame_stats;
+    MediaFrameStats audio_frame_stats;
+    ProtectedPacketCapture packet_capture;
     int failed;
     int stopped;
 } AnswererApp;
@@ -78,6 +96,8 @@ static const char *usage(void)
            "  --session-id <id>      Optional session id included in emitted JSON.\n"
            "  --log-json             Keep diagnostics as JSON lines on stdout.\n"
            "  --self-test-media      Verify fixtures and send them through the media API.\n"
+           "  --self-test-media-callbacks\n"
+           "                         Verify fixture receive callbacks through protected RTP loopback.\n"
            "  --help                 Show this help.\n"
            "\n"
            "Input JSON message types: offer, candidate, start-media, stop.\n"
@@ -97,6 +117,9 @@ static int parse_args(int argc, char **argv, CliOptions *options)
             options->log_json = 1;
         } else if (strcmp(arg, "--self-test-media") == 0) {
             options->self_test_media = 1;
+        } else if (strcmp(arg, "--self-test-media-callbacks") == 0) {
+            options->self_test_media = 1;
+            options->self_test_media_callbacks = 1;
         } else if (strcmp(arg, "--fixtures") == 0 && i + 1 < argc) {
             options->fixtures_dir = argv[++i];
         } else if (strcmp(arg, "--ice-config") == 0 && i + 1 < argc) {
@@ -542,6 +565,25 @@ static void emit_media_sent(AnswererApp *app,
     json_end();
 }
 
+static void emit_media_frame(AnswererApp *app,
+                             const char *kind,
+                             const char *codec,
+                             const MediaFrameStats *stats,
+                             int timestamp_monotonic)
+{
+    json_begin(app, "event");
+    fputs(",\"name\":\"media.frame\",\"fields\":{\"kind\":", stdout);
+    json_print_escaped(stdout, kind);
+    fputs(",\"codec\":", stdout);
+    json_print_escaped(stdout, codec);
+    fprintf(stdout,
+            ",\"count\":%lu,\"bytes\":%lu,\"timestamp_monotonic\":%s}",
+            (unsigned long) stats->frame_count,
+            (unsigned long) stats->byte_count,
+            timestamp_monotonic ? "true" : "false");
+    json_end();
+}
+
 static const char *pc_state_name(MRTC_PEER_CONNECTION_STATE state)
 {
     switch (state) {
@@ -681,7 +723,46 @@ static MRTC_STATUS on_media_packet(void *user_data,
         app->media_send_stats.audio_packets++;
         app->media_send_stats.audio_bytes += packet_size;
     }
+    if (app->packet_capture.count < 32u && packet_size <= sizeof(app->packet_capture.packets[0])) {
+        size_t index = app->packet_capture.count++;
+        memcpy(app->packet_capture.packets[index], packet, packet_size);
+        app->packet_capture.sizes[index] = packet_size;
+    }
     return MRTC_STATUS_OK;
+}
+
+static void on_media_frame(void *user_data, MRTC_RTP_TRANSCEIVER_HANDLE transceiver, const MRTC_FRAME *frame)
+{
+    AnswererApp *app = (AnswererApp *) user_data;
+    MediaFrameStats *stats;
+    const char *kind;
+    const char *codec;
+    int timestamp_monotonic = 1;
+
+    if (app == 0 || transceiver == 0 || frame == 0 || frame->data == 0 || frame->size == 0u) {
+        return;
+    }
+    if (transceiver->kind == MRTC_MEDIA_KIND_VIDEO) {
+        stats = &app->video_frame_stats;
+        kind = "video";
+        codec = "h264";
+    } else {
+        stats = &app->audio_frame_stats;
+        kind = "audio";
+        codec = "opus";
+    }
+    if (stats->frame_count > 0u && frame->presentation_ts <= stats->last_timestamp) {
+        stats->monotonic_timestamp_failures++;
+        timestamp_monotonic = 0;
+        app->failed = 1;
+    }
+    stats->frame_count++;
+    stats->byte_count += frame->size;
+    stats->last_timestamp = frame->presentation_ts;
+    if ((frame->flags & MRTC_FRAME_FLAG_KEY_FRAME) != 0u) {
+        stats->keyframe_count++;
+    }
+    emit_media_frame(app, kind, codec, stats, timestamp_monotonic);
 }
 
 static void free_parsed_message(ParsedMessage *message)
@@ -781,12 +862,16 @@ static int create_peer_connection(AnswererApp *app)
     MRTC_DATA_CHANNEL_CALLBACKS channel_callbacks;
     MRTC_TRANSCEIVER_INIT video_init;
     MRTC_TRANSCEIVER_INIT audio_init;
+    MRTC_TRANSCEIVER_CALLBACKS video_callbacks;
+    MRTC_TRANSCEIVER_CALLBACKS audio_callbacks;
 
     memset(&config, 0, sizeof(config));
     memset(&callbacks, 0, sizeof(callbacks));
     memset(&channel_callbacks, 0, sizeof(channel_callbacks));
     memset(&video_init, 0, sizeof(video_init));
     memset(&audio_init, 0, sizeof(audio_init));
+    memset(&video_callbacks, 0, sizeof(video_callbacks));
+    memset(&audio_callbacks, 0, sizeof(audio_callbacks));
     callbacks.on_ice_candidate = on_ice_candidate;
     callbacks.on_connection_state_change = on_connection_state_change;
     callbacks.on_data_channel = on_remote_data_channel;
@@ -812,9 +897,13 @@ static int create_peer_connection(AnswererApp *app)
     video_init.kind = MRTC_MEDIA_KIND_VIDEO;
     video_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
     video_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    video_callbacks.on_frame = on_media_frame;
+    video_init.callbacks = video_callbacks;
     audio_init.kind = MRTC_MEDIA_KIND_AUDIO;
     audio_init.codec = MRTC_CODEC_OPUS;
     audio_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    audio_callbacks.on_frame = on_media_frame;
+    audio_init.callbacks = audio_callbacks;
     if (mrtc_peer_connection_add_transceiver(app->pc, &video_init, app, &app->video_transceiver) != MRTC_STATUS_OK ||
         mrtc_peer_connection_add_transceiver(app->pc, &audio_init, app, &app->audio_transceiver) != MRTC_STATUS_OK) {
         emit_error(app, "transceiver.create", "failed to create media transceivers");
@@ -862,6 +951,7 @@ static int send_media_fixtures(AnswererApp *app)
         return 0;
     }
 
+    app->packet_capture.count = 0;
     memset(&frame, 0, sizeof(frame));
     before_packets = app->media_send_stats.video_packets;
     before_bytes = app->media_send_stats.video_bytes;
@@ -917,6 +1007,30 @@ static int send_media_fixtures(AnswererApp *app)
     free(h264.data);
     free_opus_fixture(&opus);
     return ok;
+}
+
+static int replay_captured_media_packets(AnswererApp *app)
+{
+    size_t i;
+
+    for (i = 0; i < app->packet_capture.count; ++i) {
+        if (mrtc_peer_connection_receive_protected_media_packet(app->pc,
+                                                                app->packet_capture.packets[i],
+                                                                app->packet_capture.sizes[i]) != MRTC_STATUS_OK) {
+            emit_error(app, "media.receive", "failed to replay protected RTP packet");
+            return 0;
+        }
+    }
+    if (app->video_frame_stats.frame_count == 0u || app->audio_frame_stats.frame_count < 2u) {
+        emit_error(app, "media.receive", "media callbacks did not observe expected H264/Opus frames");
+        return 0;
+    }
+    if (app->video_frame_stats.monotonic_timestamp_failures > 0u ||
+        app->audio_frame_stats.monotonic_timestamp_failures > 0u) {
+        emit_error(app, "media.receive", "media callback timestamps were not monotonic");
+        return 0;
+    }
+    return 1;
 }
 
 static int handle_offer(AnswererApp *app, const ParsedMessage *message)
@@ -1032,6 +1146,16 @@ static void emit_done(AnswererApp *app)
     json_begin(app, "done");
     fputs(",\"summary\":{\"failed\":", stdout);
     fputs(app->failed ? "true" : "false", stdout);
+    fprintf(stdout,
+            ",\"c_media\":{\"video\":{\"frames\":%lu,\"bytes\":%lu,\"monotonic_timestamp_failures\":%lu,\"keyframes\":%lu},"
+            "\"audio\":{\"frames\":%lu,\"bytes\":%lu,\"monotonic_timestamp_failures\":%lu}}",
+            (unsigned long) app->video_frame_stats.frame_count,
+            (unsigned long) app->video_frame_stats.byte_count,
+            (unsigned long) app->video_frame_stats.monotonic_timestamp_failures,
+            (unsigned long) app->video_frame_stats.keyframe_count,
+            (unsigned long) app->audio_frame_stats.frame_count,
+            (unsigned long) app->audio_frame_stats.byte_count,
+            (unsigned long) app->audio_frame_stats.monotonic_timestamp_failures);
     fputs("}", stdout);
     json_end();
 }
@@ -1074,6 +1198,9 @@ int main(int argc, char **argv)
     if (app.options.self_test_media) {
         emit_hello(&app);
         ok = connect_with_minimal_offer(&app) && send_media_fixtures(&app);
+        if (ok && app.options.self_test_media_callbacks) {
+            ok = replay_captured_media_packets(&app);
+        }
         emit_done(&app);
         free_app(&app);
         return ok ? 0 : 1;
