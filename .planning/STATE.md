@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: executing_phase_6
-last_updated: "2026-05-13T20:26:28+08:00"
+last_updated: "2026-05-13T20:52:18+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/7 plans completed; 06-03 已执行但 self-check failed，06-07 gap closure 已规划用于解锁真实 Chrome transport |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/7 plans completed; 06-03 和 06-07 均已执行但 self-check failed，真实 Chrome transport 仍阻塞在 connection/DTLS-SCTP |
 
 ## Decisions To Carry Forward
 
@@ -62,14 +62,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Execute Phase 6 gap closure before media E2E:
+Plan/execute the next Chrome transport gap closure before media E2E:
 
 ```bash
-$gsd-execute-phase 06 --wave 4
+$gsd-plan-phase 06 --gaps
 ```
 
 ---
-*Last updated: 2026-05-13 after inserting Phase 6 Plan 03 transport repair*
+*Last updated: 2026-05-13 after executing Phase 6 Plan 07 partial transport gap closure*
 
 ## Performance Metrics
 
