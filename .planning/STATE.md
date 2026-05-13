@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 status: ready_to_execute_phase_5
-last_updated: "2026-05-13T05:49:10.361Z"
+last_updated: "2026-05-13T06:06:34.975Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 13
-  completed_plans: 11
-  percent: 85
+  completed_plans: 12
+  percent: 92
 ---
 
 # State: libmicrortc
@@ -46,7 +46,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 2. 独立构建与库骨架 | Complete | 4 | 100% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
-| 5. H264/Opus 媒体路径 | In Progress | 9 | 3/5 plans complete |
+| 5. H264/Opus 媒体路径 | In Progress | 9 | 4/5 plans complete |
 | 6. Chrome 自动化 E2E 与测试收口 | Pending | 13 | 0% |
 
 ## Decisions To Carry Forward
@@ -78,6 +78,7 @@ $gsd-execute-phase 5
 | Phase 05-h264-opus P01 | 8min | 4 tasks | 10 files |
 | Phase 05-h264-opus P02 | 8min | 5 tasks | 14 files |
 | Phase 05-h264-opus P03 | 10min | 4 tasks | 9 files |
+| Phase 05-h264-opus P04 | 13min | 4 tasks | 13 files |
 
 ## Decisions
 
@@ -90,3 +91,6 @@ $gsd-execute-phase 5
 - [Phase 05]: 05-03: SRTP wrapper 在缺少系统 libsrtp 时保持 ready 但以 mrtc_srtp_session_is_passthrough() 明确标记非加密 fallback。
 - [Phase 05]: 05-03: media send hook 保持 private，不把 application signaling、采集或编码引入核心库。
 - [Phase 05]: 05-03: 接收侧先实现顺序 H264 FU-A accumulation 和 Opus per-packet delivery，不搬迁完整 KVS jitter buffer。
+- [Phase 05]: 05-04: RTP rolling buffer 保存已 protected RTP packet bytes，NACK 重发不重新 SRTP protect 旧 sequence。
+- [Phase 05]: 05-04: 未知 SSRC 和缺失 sequence 走确定性非崩溃路径，缺包通过 missing_count/counter 暴露。
+- [Phase 05]: 05-04: RTCP Plan 04 仅实现 SR/RR/NACK/PLI 最小行为，不实现 REMB/TWCC/FIR/SLI 或拥塞控制。
