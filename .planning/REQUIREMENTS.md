@@ -62,14 +62,14 @@
 - [x] **E2E-02**: demo 层可以实现自动化 signaling 交换，但核心库不得内置应用层 signaling。
 - [x] **E2E-03**: 验收脚本必须能自动启动 C demo 和 Chrome，并完成 SDP/candidate 交换。
 - [x] **E2E-04**: 验收脚本必须断言 PeerConnection 连接成功。
-- [ ] **E2E-05**: 验收脚本必须断言 DataChannel 可收发消息。
+- [x] **E2E-05**: 验收脚本必须断言 DataChannel 可收发消息。
 - [ ] **E2E-06**: 验收脚本必须断言浏览器实际收到来自 C 端的 H264 视频帧或可观察视频输出。
-- [ ] **E2E-07**: 验收脚本必须断言 C 端实际收到来自 Chrome 的视频媒体包或编码后帧路径输出。
-- [ ] **E2E-08**: 验收脚本必须断言双向 Opus 音频路径有媒体流动证据。
+- [x] **E2E-07**: 验收脚本必须断言 C 端实际收到来自 Chrome 的视频媒体包或编码后帧路径输出。
+- [x] **E2E-08**: 验收脚本必须断言双向 Opus 音频路径有媒体流动证据。
 
 ### 测试与质量
 
-- [ ] **TEST-01**: 项目必须保留或迁移协议单元测试，覆盖 STUN、ICE、TURN、DTLS、SRTP、RTP/RTCP、SDP、SCTP/DataChannel 等核心模块。
+- [x] **TEST-01**: 项目必须保留或迁移协议单元测试，覆盖 STUN、ICE、TURN、DTLS、SRTP、RTP/RTCP、SDP、SCTP/DataChannel 等核心模块。
 - [ ] **TEST-02**: E2E 浏览器互通测试必须作为 v1 完成的核心验收标准。
 - [x] **TEST-03**: 构建和测试必须可通过一组明确命令在 Linux x86_64 上运行。
 - [x] **TEST-04**: 测试输出必须能区分编译成功、协议单元测试成功、浏览器互通成功和媒体流动成功。
@@ -148,11 +148,11 @@
 | E2E-02 | Phase 6 | Complete |
 | E2E-03 | Phase 6 | Complete |
 | E2E-04 | Phase 6 | Complete |
-| E2E-05 | Phase 6 | Pending |
+| E2E-05 | Phase 6 | Complete |
 | E2E-06 | Phase 6 | Pending |
-| E2E-07 | Phase 6 | Pending |
-| E2E-08 | Phase 6 | Pending |
-| TEST-01 | Phase 6 | Pending |
+| E2E-07 | Phase 6 | Complete |
+| E2E-08 | Phase 6 | Complete |
+| TEST-01 | Phase 6 | Complete |
 | TEST-02 | Phase 6 | Pending |
 | TEST-03 | Phase 6 | Complete |
 | TEST-04 | Phase 6 | Complete |

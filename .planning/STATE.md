@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: executing_phase_6
-last_updated: "2026-05-13T09:36:01.966Z"
+last_updated: "2026-05-13T09:57:38.517Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 14
-  percent: 78
+  completed_plans: 15
+  percent: 83
 ---
 
 # State: libmicrortc
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 1/5 plans executed; E2E tooling skeleton ready |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/5 plans executed; C answerer demo and fixture media self-tests ready |
 
 ## Decisions To Carry Forward
 
@@ -65,11 +65,11 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 Continue Phase 6:
 
 ```bash
-$gsd-execute-phase 6 --wave 2
+$gsd-execute-phase 6 --wave 3
 ```
 
 ---
-*Last updated: 2026-05-13 after Phase 6 Plan 01*
+*Last updated: 2026-05-13 after Phase 6 Plan 02*
 
 ## Performance Metrics
 
@@ -81,6 +81,7 @@ $gsd-execute-phase 6 --wave 2
 | Phase 05-h264-opus P04 | 13min | 4 tasks | 13 files |
 | Phase 05-h264-opus P05 | 11min | 4 tasks | 13 files |
 | Phase 06-chrome-e2e P01 | 11min | 4 tasks | 9 files |
+| Phase 06-chrome-e2e P02 | 16min | 4 tasks | 6 files |
 
 ## Decisions
 
@@ -102,3 +103,7 @@ $gsd-execute-phase 6 --wave 2
 - [Phase 06]: 06-01: Playwright/Node 依赖只固定在 tests/e2e，根目录不创建 package.json。
 - [Phase 06]: 06-01: WebSocket signaling server 只存在于 tests/e2e，C answerer 通过 stdio JSON line 接入，核心库不新增 signaling 依赖。
 - [Phase 06]: 06-01: 默认 CTest 不注册 Chrome/Playwright E2E；浏览器验收保持显式 npm 命令。
+- [Phase 06]: 06-02: C answerer 主路径采用 stdin/stdout JSON-line 协议，继续由 tests/e2e signaling bridge 持有应用层 signaling。
+- [Phase 06]: 06-02: DataChannel label/id 以 read-only public accessor 暴露，避免 demo 直接读取 private struct。
+- [Phase 06]: 06-02: 媒体 fixture 发送在 example target 内使用现有 private media send hook 统计 RTP 包，不把该 hook 暴露到 public API。
+- [Phase 06]: 06-02: --self-test-media-callbacks 通过 protected RTP loopback 证明 on_frame 回调层统计，不只停留在 write_frame 调用。
