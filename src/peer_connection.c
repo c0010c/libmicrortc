@@ -1143,7 +1143,8 @@ MRTC_STATUS mrtc_peer_connection_receive_protected_media_packet(MRTC_PEER_CONNEC
         }
         status = mrtc_h264_depacketize_payload(rtp_packet.payload, rtp_packet.payload_size, annexb, &annexb_size, &is_start);
         if (status == MRTC_STATUS_OK) {
-            if (is_start) {
+            if (is_start && (transceiver->receive_frame_size == 0u ||
+                             transceiver->receive_frame_timestamp != rtp_packet.timestamp)) {
                 transceiver->receive_frame_size = 0;
                 transceiver->receive_frame_timestamp = rtp_packet.timestamp;
             } else if (transceiver->receive_frame_size == 0u ||

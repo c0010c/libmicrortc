@@ -210,6 +210,17 @@ if(MRTC_BUILD_TESTS)
         PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests/integration"
     )
+
+    add_executable(mrtc_phase5_media_verify tests/integration/mrtc_phase5_media_verify.c)
+    target_include_directories(mrtc_phase5_media_verify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(mrtc_phase5_media_verify PRIVATE micrortc::micrortc)
+    set_target_properties(mrtc_phase5_media_verify
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests/integration"
+    )
+    add_test(NAME mrtc_phase5_media_verify
+             COMMAND mrtc_phase5_media_verify --fixtures "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    set_tests_properties(mrtc_phase5_media_verify PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 install(
