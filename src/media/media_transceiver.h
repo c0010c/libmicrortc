@@ -27,9 +27,19 @@ struct MRTC_RTP_TRANSCEIVER {
     uint16_t sequence_number;
     uint64_t frames_sent;
     uint64_t frames_received;
+    uint64_t rtp_packets_sent;
+    uint64_t rtp_octets_sent;
+    uint32_t last_rtp_timestamp;
     uint64_t nack_packets_received;
     uint64_t retransmitted_packets_sent;
     uint64_t retransmit_packets_missing;
+    uint64_t picture_loss_count;
+    uint64_t sender_reports_received;
+    uint64_t receiver_reports_received;
+    uint8_t last_receiver_fraction_lost;
+    uint32_t last_receiver_cumulative_lost;
+    uint32_t last_receiver_highest_sequence_number;
+    uint32_t last_receiver_jitter;
     uint8_t *receive_frame_buffer;
     size_t receive_frame_size;
     size_t receive_frame_capacity;
@@ -66,5 +76,18 @@ MRTC_STATUS mrtc_peer_connection_receive_protected_rtcp_packet(MRTC_PEER_CONNECT
                                                               size_t packet_size,
                                                               MRTC_RTCP_RETRANSMIT_RESULT *retransmit_result);
 MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_get_transceivers(MRTC_PEER_CONNECTION_HANDLE peer_connection);
+MRTC_STATUS mrtc_transceiver_generate_sender_report(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                    uint64_t ntp_timestamp,
+                                                    uint8_t *raw,
+                                                    size_t raw_capacity,
+                                                    size_t *raw_size);
+MRTC_STATUS mrtc_transceiver_generate_receiver_report(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                      uint32_t sender_ssrc,
+                                                      uint8_t fraction_lost,
+                                                      uint32_t cumulative_lost,
+                                                      uint32_t jitter,
+                                                      uint8_t *raw,
+                                                      size_t raw_capacity,
+                                                      size_t *raw_size);
 
 #endif /* MRTC_MEDIA_TRANSCEIVER_H */

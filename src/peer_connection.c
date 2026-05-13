@@ -268,6 +268,42 @@ static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_find_media_receiver(MRTC
     return payload_match;
 }
 
+static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_find_local_transceiver_by_ssrc(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                                                       uint32_t ssrc)
+{
+    MRTC_RTP_TRANSCEIVER_HANDLE current;
+
+    if (peer_connection == 0 || ssrc == 0u) {
+        return 0;
+    }
+    current = peer_connection->transceivers;
+    while (current != 0) {
+        if (current->local_ssrc == ssrc) {
+            return current;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
+static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_find_remote_transceiver_by_ssrc(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                                                        uint32_t ssrc)
+{
+    MRTC_RTP_TRANSCEIVER_HANDLE current;
+
+    if (peer_connection == 0 || ssrc == 0u) {
+        return 0;
+    }
+    current = peer_connection->transceivers;
+    while (current != 0) {
+        if (current->remote_ssrc == ssrc) {
+            return current;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
 static MRTC_STATUS mrtc_transceiver_append_receive_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
                                                         const uint8_t *data,
                                                         size_t data_size)
@@ -889,6 +925,10 @@ MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver
             return status;
         }
 
+        transceiver->rtp_packets_sent++;
+        transceiver->rtp_octets_sent += payload_lengths[i];
+        transceiver->last_rtp_timestamp = rtp_timestamp;
+
         /*
          * Keep the exact protected packet bytes that were sent. NACK retransmit
          * can resend these bytes directly through the media send hook without
@@ -914,6 +954,76 @@ MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver
     transceiver->frames_sent++;
     free(payloads);
     free(payload_lengths);
+    return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_peer_connection_handle_pli(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                   const uint8_t *rtcp_packet,
+                                                   size_t rtcp_packet_size)
+{
+    uint32_t sender_ssrc = 0;
+    uint32_t media_ssrc = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE transceiver;
+    MRTC_STATUS status;
+
+    (void) sender_ssrc;
+    status = mrtc_rtcp_parse_pli(rtcp_packet, rtcp_packet_size, &sender_ssrc, &media_ssrc);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+
+    transceiver = mrtc_peer_connection_find_local_transceiver_by_ssrc(peer_connection, media_ssrc);
+    if (transceiver == 0 || transceiver->kind != MRTC_MEDIA_KIND_VIDEO) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    transceiver->picture_loss_count++;
+    if (transceiver->callbacks.on_picture_loss != 0) {
+        transceiver->callbacks.on_picture_loss(transceiver->user_data, transceiver);
+    }
+    return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_peer_connection_handle_sender_report(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                             const uint8_t *rtcp_packet,
+                                                             size_t rtcp_packet_size)
+{
+    MRTC_RTCP_SENDER_REPORT report;
+    MRTC_RTP_TRANSCEIVER_HANDLE transceiver;
+    MRTC_STATUS status;
+
+    status = mrtc_rtcp_parse_sender_report(rtcp_packet, rtcp_packet_size, &report);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    transceiver = mrtc_peer_connection_find_remote_transceiver_by_ssrc(peer_connection, report.sender_ssrc);
+    if (transceiver == 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    transceiver->sender_reports_received++;
+    return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_peer_connection_handle_receiver_report(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                               const uint8_t *rtcp_packet,
+                                                               size_t rtcp_packet_size)
+{
+    MRTC_RTCP_RECEIVER_REPORT report;
+    MRTC_RTP_TRANSCEIVER_HANDLE transceiver;
+    MRTC_STATUS status;
+
+    status = mrtc_rtcp_parse_receiver_report(rtcp_packet, rtcp_packet_size, &report);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    transceiver = mrtc_peer_connection_find_local_transceiver_by_ssrc(peer_connection, report.report_ssrc);
+    if (transceiver == 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    transceiver->receiver_reports_received++;
+    transceiver->last_receiver_fraction_lost = report.fraction_lost;
+    transceiver->last_receiver_cumulative_lost = report.cumulative_lost;
+    transceiver->last_receiver_highest_sequence_number = report.highest_sequence_number;
+    transceiver->last_receiver_jitter = report.jitter;
     return MRTC_STATUS_OK;
 }
 
@@ -1097,6 +1207,14 @@ MRTC_STATUS mrtc_peer_connection_receive_protected_rtcp_packet(MRTC_PEER_CONNECT
         header.packet_type == MRTC_RTCP_TYPE_RTPFB &&
         header.count == MRTC_RTCP_FMT_NACK) {
         status = mrtc_rtcp_retransmit_nack(peer_connection, mutable_packet, header.packet_size, retransmit_result);
+    } else if (status == MRTC_STATUS_OK &&
+               header.packet_type == MRTC_RTCP_TYPE_PSFB &&
+               header.count == MRTC_RTCP_FMT_PLI) {
+        status = mrtc_peer_connection_handle_pli(peer_connection, mutable_packet, header.packet_size);
+    } else if (status == MRTC_STATUS_OK && header.packet_type == MRTC_RTCP_TYPE_SR) {
+        status = mrtc_peer_connection_handle_sender_report(peer_connection, mutable_packet, header.packet_size);
+    } else if (status == MRTC_STATUS_OK && header.packet_type == MRTC_RTCP_TYPE_RR) {
+        status = mrtc_peer_connection_handle_receiver_report(peer_connection, mutable_packet, header.packet_size);
     }
 
     free(mutable_packet);

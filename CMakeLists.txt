@@ -167,6 +167,12 @@ if(MRTC_BUILD_TESTS)
     add_test(NAME mrtc_rtcp_retransmit_test COMMAND mrtc_rtcp_retransmit_test)
     set_tests_properties(mrtc_rtcp_retransmit_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
+    add_executable(mrtc_rtcp_pli_sr_rr_test tests/media/test_rtcp_pli_sr_rr.c)
+    target_include_directories(mrtc_rtcp_pli_sr_rr_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(mrtc_rtcp_pli_sr_rr_test PRIVATE micrortc::micrortc)
+    add_test(NAME mrtc_rtcp_pli_sr_rr_test COMMAND mrtc_rtcp_pli_sr_rr_test)
+    set_tests_properties(mrtc_rtcp_pli_sr_rr_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
     add_executable(mrtc_phase4_transport_smoke_test tests/transport/test_transport_smoke.c)
     target_link_libraries(mrtc_phase4_transport_smoke_test PRIVATE micrortc::micrortc)
     add_test(NAME mrtc_phase4_transport_smoke_test COMMAND mrtc_phase4_transport_smoke_test)

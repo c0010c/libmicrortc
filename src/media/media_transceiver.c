@@ -1,5 +1,6 @@
 #include "media_transceiver.h"
 
+#include "../rtcp/rtcp_packet.h"
 #include "../rtcp/rtp_rolling_buffer.h"
 
 #include <stdio.h>
@@ -82,4 +83,48 @@ void mrtc_media_transceiver_free_internal(MRTC_RTP_TRANSCEIVER_HANDLE transceive
         free(transceiver->receive_frame_buffer);
     }
     free(transceiver);
+}
+
+MRTC_STATUS mrtc_transceiver_generate_sender_report(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                    uint64_t ntp_timestamp,
+                                                    uint8_t *raw,
+                                                    size_t raw_capacity,
+                                                    size_t *raw_size)
+{
+    MRTC_RTCP_SENDER_REPORT report;
+
+    if (transceiver == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    memset(&report, 0, sizeof(report));
+    report.sender_ssrc = transceiver->local_ssrc;
+    report.ntp_timestamp = ntp_timestamp;
+    report.rtp_timestamp = transceiver->last_rtp_timestamp;
+    report.packet_count = (uint32_t) transceiver->rtp_packets_sent;
+    report.octet_count = (uint32_t) transceiver->rtp_octets_sent;
+    return mrtc_rtcp_generate_sender_report(&report, raw, raw_capacity, raw_size);
+}
+
+MRTC_STATUS mrtc_transceiver_generate_receiver_report(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                      uint32_t sender_ssrc,
+                                                      uint8_t fraction_lost,
+                                                      uint32_t cumulative_lost,
+                                                      uint32_t jitter,
+                                                      uint8_t *raw,
+                                                      size_t raw_capacity,
+                                                      size_t *raw_size)
+{
+    MRTC_RTCP_RECEIVER_REPORT report;
+
+    if (transceiver == 0 || cumulative_lost > 0x00ffffffu) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    memset(&report, 0, sizeof(report));
+    report.sender_ssrc = sender_ssrc;
+    report.report_ssrc = transceiver->local_ssrc;
+    report.fraction_lost = fraction_lost;
+    report.cumulative_lost = cumulative_lost;
+    report.highest_sequence_number = transceiver->sequence_number == 0u ? 0u : (uint32_t) (transceiver->sequence_number - 1u);
+    report.jitter = jitter;
+    return mrtc_rtcp_generate_receiver_report(&report, raw, raw_capacity, raw_size);
 }
