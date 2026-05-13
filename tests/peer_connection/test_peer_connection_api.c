@@ -290,6 +290,12 @@ int main(void)
         mrtc_peer_connection_free(handle);
         return 1;
     }
+    if (mrtc_data_channel_label(0) != 0 ||
+        strcmp(mrtc_data_channel_label(channel), "chat") != 0 ||
+        mrtc_data_channel_id(channel) != 0) {
+        mrtc_peer_connection_free(handle);
+        return 1;
+    }
     if (mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping", 4) != MRTC_STATUS_INVALID_STATE) {
         mrtc_peer_connection_free(handle);
         return 1;

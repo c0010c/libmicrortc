@@ -186,6 +186,10 @@ MRTC_STATUS mrtc_data_channel_send(MRTC_DATA_CHANNEL_HANDLE channel,
                                    const unsigned char *data,
                                    size_t data_len);
 
+const char *mrtc_data_channel_label(MRTC_DATA_CHANNEL_HANDLE channel);
+
+unsigned short mrtc_data_channel_id(MRTC_DATA_CHANNEL_HANDLE channel);
+
 MRTC_STATUS mrtc_data_channel_close(MRTC_DATA_CHANNEL_HANDLE channel);
 
 #ifdef __cplusplus

@@ -33,6 +33,7 @@ typedef struct OwnedIceServer {
 typedef struct AnswererApp {
     CliOptions options;
     MRTC_PEER_CONNECTION_HANDLE pc;
+    MRTC_DATA_CHANNEL_HANDLE data_channel;
     OwnedIceServer owned_ice[MRTC_ANSWERER_ICE_MAX];
     MRTC_ICE_SERVER ice_servers[MRTC_ANSWERER_ICE_MAX];
     size_t ice_server_count;
@@ -296,6 +297,26 @@ static void emit_event(AnswererApp *app, const char *name, const char *key, cons
     json_end();
 }
 
+static void emit_datachannel_message(AnswererApp *app,
+                                     const char *direction,
+                                     MRTC_DATA_CHANNEL_MESSAGE_TYPE message_type,
+                                     size_t bytes,
+                                     const char *text)
+{
+    json_begin(app, "event");
+    fputs(",\"name\":\"datachannel.message\",\"fields\":{\"direction\":", stdout);
+    json_print_escaped(stdout, direction);
+    fputs(",\"message_type\":", stdout);
+    json_print_escaped(stdout, message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY ? "binary" : "text");
+    fprintf(stdout, ",\"bytes\":%lu", (unsigned long) bytes);
+    if (text != 0) {
+        fputs(",\"text\":", stdout);
+        json_print_escaped(stdout, text);
+    }
+    fputs("}", stdout);
+    json_end();
+}
+
 static const char *pc_state_name(MRTC_PEER_CONNECTION_STATE state)
 {
     switch (state) {
@@ -336,6 +357,84 @@ static void on_connection_state_change(void *user_data, MRTC_PEER_CONNECTION_STA
     if (state == MRTC_PEER_CONNECTION_STATE_CONNECTED) {
         emit_event(app, "pc.connected", "state", name);
     }
+}
+
+static void on_data_channel_open(void *user_data, MRTC_DATA_CHANNEL_HANDLE channel)
+{
+    AnswererApp *app = (AnswererApp *) user_data;
+
+    json_begin(app, "event");
+    fputs(",\"name\":\"datachannel.open\",\"fields\":{\"label\":", stdout);
+    json_print_escaped(stdout, mrtc_data_channel_label(channel));
+    fprintf(stdout, ",\"id\":%u}", (unsigned int) mrtc_data_channel_id(channel));
+    json_end();
+}
+
+static void on_data_channel_message(void *user_data,
+                                    MRTC_DATA_CHANNEL_HANDLE channel,
+                                    MRTC_DATA_CHANNEL_MESSAGE_TYPE message_type,
+                                    const unsigned char *data,
+                                    size_t data_len)
+{
+    AnswererApp *app = (AnswererApp *) user_data;
+
+    if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT) {
+        char *text = duplicate_range((const char *) data, data_len);
+        if (text == 0) {
+            emit_error(app, "datachannel.message", "out of memory");
+            return;
+        }
+        emit_datachannel_message(app, "inbound", message_type, data_len, text);
+        if (data_len > 5u && memcmp(data, "ping:", 5u) == 0) {
+            size_t reply_len = data_len;
+            char *reply = (char *) malloc(reply_len + 1u);
+            if (reply == 0) {
+                free(text);
+                emit_error(app, "datachannel.message", "out of memory");
+                return;
+            }
+            memcpy(reply, "pong:", 5u);
+            memcpy(reply + 5u, data + 5u, data_len - 5u);
+            reply[reply_len] = '\0';
+            if (mrtc_data_channel_send(channel,
+                                       MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT,
+                                       (const unsigned char *) reply,
+                                       reply_len) == MRTC_STATUS_OK) {
+                emit_datachannel_message(app, "outbound", message_type, reply_len, reply);
+            } else {
+                emit_error(app, "datachannel.send", "failed to send pong");
+            }
+            free(reply);
+        }
+        free(text);
+    } else {
+        emit_datachannel_message(app, "inbound", message_type, data_len, 0);
+        if (mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY, data, data_len) == MRTC_STATUS_OK) {
+            emit_datachannel_message(app, "outbound", message_type, data_len, 0);
+        } else {
+            emit_error(app, "datachannel.send", "failed to echo binary message");
+        }
+    }
+}
+
+static void on_data_channel_close(void *user_data, MRTC_DATA_CHANNEL_HANDLE channel)
+{
+    AnswererApp *app = (AnswererApp *) user_data;
+
+    emit_event(app, "datachannel.close", "label", mrtc_data_channel_label(channel));
+}
+
+static void on_remote_data_channel(void *user_data, MRTC_DATA_CHANNEL_HANDLE channel)
+{
+    static const MRTC_DATA_CHANNEL_CALLBACKS callbacks = {
+        on_data_channel_open,
+        on_data_channel_message,
+        on_data_channel_close
+    };
+    AnswererApp *app = (AnswererApp *) user_data;
+
+    (void) mrtc_data_channel_set_callbacks(channel, &callbacks, app);
+    app->data_channel = channel;
 }
 
 static void free_parsed_message(ParsedMessage *message)
@@ -432,16 +531,31 @@ static int create_peer_connection(AnswererApp *app)
 {
     MRTC_PEER_CONNECTION_CONFIG config;
     MRTC_PEER_CONNECTION_CALLBACKS callbacks;
+    MRTC_DATA_CHANNEL_CALLBACKS channel_callbacks;
 
     memset(&config, 0, sizeof(config));
     memset(&callbacks, 0, sizeof(callbacks));
+    memset(&channel_callbacks, 0, sizeof(channel_callbacks));
     callbacks.on_ice_candidate = on_ice_candidate;
     callbacks.on_connection_state_change = on_connection_state_change;
+    callbacks.on_data_channel = on_remote_data_channel;
     config.ice_servers = app->ice_server_count == 0u ? 0 : app->ice_servers;
     config.ice_server_count = app->ice_server_count;
 
     if (mrtc_peer_connection_create(&config, &callbacks, app, &app->pc) != MRTC_STATUS_OK) {
         emit_error(app, "peer_connection.create", "failed to create peer connection");
+        return 0;
+    }
+    channel_callbacks.on_open = on_data_channel_open;
+    channel_callbacks.on_message = on_data_channel_message;
+    channel_callbacks.on_close = on_data_channel_close;
+    if (mrtc_peer_connection_create_data_channel(app->pc,
+                                                 "mrtc-e2e",
+                                                 0,
+                                                 &channel_callbacks,
+                                                 app,
+                                                 &app->data_channel) != MRTC_STATUS_OK) {
+        emit_error(app, "datachannel.create", "failed to create data channel");
         return 0;
     }
     return 1;

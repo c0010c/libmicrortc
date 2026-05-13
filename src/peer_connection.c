@@ -1312,6 +1312,16 @@ MRTC_STATUS mrtc_data_channel_send(MRTC_DATA_CHANNEL_HANDLE channel,
     return MRTC_STATUS_OK;
 }
 
+const char *mrtc_data_channel_label(MRTC_DATA_CHANNEL_HANDLE channel)
+{
+    return channel == 0 ? 0 : channel->label;
+}
+
+unsigned short mrtc_data_channel_id(MRTC_DATA_CHANNEL_HANDLE channel)
+{
+    return channel == 0 ? 0 : channel->stream_id;
+}
+
 MRTC_STATUS mrtc_data_channel_close(MRTC_DATA_CHANNEL_HANDLE channel)
 {
     if (channel == 0) {
