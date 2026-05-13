@@ -73,17 +73,60 @@ void mrtc_sctp_session_set_callbacks(MRTC_SCTP_SESSION *session,
 
 MRTC_STATUS mrtc_sctp_session_connect(MRTC_SCTP_SESSION *session)
 {
-    static const uint8_t dcep_open[] = {'D', 'C', 'E', 'P', '-', 'O', 'P', 'E', 'N'};
-
     if (session == 0 || !session->initialized) {
         return MRTC_STATUS_INVALID_ARG;
     }
+    session->connected = 0;
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_sctp_session_receive_dcep_open(MRTC_SCTP_SESSION *session,
+                                                uint16_t stream_id,
+                                                const char *label)
+{
+    static const uint8_t dcep_ack[] = {0x02};
+    uint8_t dcep_open[260];
+    size_t label_len;
+
+    if (session == 0 || !session->initialized || label == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    label_len = strlen(label);
+    if (label_len > 255u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    memset(dcep_open, 0, sizeof(dcep_open));
+    dcep_open[0] = 0x03;
+    dcep_open[1] = 0x00;
+    dcep_open[8] = (uint8_t) ((label_len >> 8) & 0xffu);
+    dcep_open[9] = (uint8_t) (label_len & 0xffu);
+    memcpy(dcep_open + 12u, label, label_len);
     session->connected = 1;
+    session->dcep_open_received = 1;
+    if (session->on_message != 0) {
+        session->on_message(session->user_data, stream_id, MRTC_SCTP_PPID_DCEP, dcep_open, 12u + label_len);
+    }
     if (session->on_outbound != 0) {
-        session->on_outbound(session->user_data, dcep_open, sizeof(dcep_open));
+        session->on_outbound(session->user_data, dcep_ack, sizeof(dcep_ack));
+    }
+    session->dcep_ack_sent = 1;
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_sctp_session_receive_message(MRTC_SCTP_SESSION *session,
+                                              uint16_t stream_id,
+                                              uint32_t ppid,
+                                              const uint8_t *message,
+                                              size_t message_len)
+{
+    if (session == 0 || (message == 0 && message_len > 0u)) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (!session->initialized || !session->connected) {
+        return MRTC_STATUS_INVALID_STATE;
     }
     if (session->on_message != 0) {
-        session->on_message(session->user_data, 0, MRTC_SCTP_PPID_DCEP, dcep_open, sizeof(dcep_open));
+        session->on_message(session->user_data, stream_id, ppid, message, message_len);
     }
     return MRTC_STATUS_OK;
 }
@@ -112,9 +155,8 @@ MRTC_STATUS mrtc_sctp_session_write_message(MRTC_SCTP_SESSION *session,
     if (session->on_outbound != 0) {
         session->on_outbound(session->user_data, message, message_len);
     }
-    if (session->on_message != 0) {
-        session->on_message(session->user_data, stream_id, ppid, message, message_len);
-    }
+    (void) stream_id;
+    (void) ppid;
     return MRTC_STATUS_OK;
 }
 

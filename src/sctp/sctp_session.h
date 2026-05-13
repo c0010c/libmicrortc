@@ -25,6 +25,8 @@ typedef void (*MRTC_SCTP_MESSAGE_CALLBACK)(void *user_data,
 typedef struct MRTC_SCTP_SESSION {
     int initialized;
     int connected;
+    int dcep_open_received;
+    int dcep_ack_sent;
     MRTC_SCTP_OUTBOUND_CALLBACK on_outbound;
     MRTC_SCTP_MESSAGE_CALLBACK on_message;
     void *user_data;
@@ -38,6 +40,14 @@ void mrtc_sctp_session_set_callbacks(MRTC_SCTP_SESSION *session,
                                      MRTC_SCTP_MESSAGE_CALLBACK on_message,
                                      void *user_data);
 MRTC_STATUS mrtc_sctp_session_connect(MRTC_SCTP_SESSION *session);
+MRTC_STATUS mrtc_sctp_session_receive_dcep_open(MRTC_SCTP_SESSION *session,
+                                                uint16_t stream_id,
+                                                const char *label);
+MRTC_STATUS mrtc_sctp_session_receive_message(MRTC_SCTP_SESSION *session,
+                                              uint16_t stream_id,
+                                              uint32_t ppid,
+                                              const uint8_t *message,
+                                              size_t message_len);
 MRTC_STATUS mrtc_sctp_session_write_message(MRTC_SCTP_SESSION *session,
                                             uint16_t stream_id,
                                             int is_binary,

@@ -362,18 +362,18 @@ int main(void)
         mrtc_peer_connection_free(handle);
         return 1;
     }
-    if (!callback_state.saw_connected || callback_state.open_count != 1) {
+    if (callback_state.saw_connected || callback_state.open_count != 0) {
         mrtc_peer_connection_free(handle);
         return 1;
     }
     {
         const unsigned char binary[] = {0x00, 0x01, 0xFE, 0xFF};
-        if (mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping", 4) != MRTC_STATUS_OK ||
-            mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping:test-1234", 14) != MRTC_STATUS_OK ||
-            mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY, binary, sizeof(binary)) != MRTC_STATUS_OK ||
-            callback_state.text_pong_count != 1 ||
-            callback_state.text_nonce_pong_count != 1 ||
-            callback_state.binary_count != 1) {
+        if (mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping", 4) != MRTC_STATUS_INVALID_STATE ||
+            mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping:test-1234", 14) != MRTC_STATUS_INVALID_STATE ||
+            mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY, binary, sizeof(binary)) != MRTC_STATUS_INVALID_STATE ||
+            callback_state.text_pong_count != 0 ||
+            callback_state.text_nonce_pong_count != 0 ||
+            callback_state.binary_count != 0) {
             mrtc_peer_connection_free(handle);
             return 1;
         }

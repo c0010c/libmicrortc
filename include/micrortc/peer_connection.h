@@ -145,6 +145,9 @@ MRTC_STATUS mrtc_peer_connection_create_offer(MRTC_PEER_CONNECTION_HANDLE peer_c
 MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                                    const char *candidate);
 
+MRTC_STATUS mrtc_peer_connection_poll_transport(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                int timeout_ms);
+
 MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                                      const char *label,
                                                      const MRTC_DATA_CHANNEL_INIT *init,

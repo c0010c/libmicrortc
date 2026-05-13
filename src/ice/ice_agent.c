@@ -1,8 +1,11 @@
 #include "ice_agent.h"
 
+#include "stun/stun_message.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -108,6 +111,9 @@ void mrtc_ice_host_endpoint_close(MRTC_ICE_HOST_ENDPOINT *endpoint)
     endpoint->fd = -1;
     endpoint->ip[0] = '\0';
     endpoint->port = 0;
+    endpoint->selected_remote_ip[0] = '\0';
+    endpoint->selected_remote_port = 0;
+    endpoint->selected_pair_ready = 0;
 }
 
 MRTC_STATUS mrtc_ice_format_host_endpoint_candidate(const MRTC_ICE_HOST_ENDPOINT *endpoint,
@@ -164,4 +170,118 @@ int mrtc_ice_packet_is_stun(const unsigned char *packet, size_t packet_len)
         return 0;
     }
     return packet[4] == 0x21 && packet[5] == 0x12 && packet[6] == 0xA4 && packet[7] == 0x42;
+}
+
+static int mrtc_ice_username_matches_local_ufrag(const char *username, const char *local_ufrag)
+{
+    const char *colon;
+
+    if (username == 0 || local_ufrag == 0 || local_ufrag[0] == '\0') {
+        return 0;
+    }
+    colon = strchr(username, ':');
+    if (colon == 0) {
+        return strcmp(username, local_ufrag) == 0;
+    }
+    return strcmp(username, local_ufrag) == 0 || strcmp(colon + 1, local_ufrag) == 0;
+}
+
+MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
+                                        const char *local_ufrag,
+                                        const char *local_pwd,
+                                        int timeout_ms,
+                                        unsigned char *non_stun_packet,
+                                        size_t non_stun_packet_capacity,
+                                        size_t *non_stun_packet_len)
+{
+    fd_set read_fds;
+    struct timeval timeout;
+    struct timeval *timeout_ptr = 0;
+    unsigned char packet[2048];
+    struct sockaddr_in remote_addr;
+    socklen_t remote_len = (socklen_t) sizeof(remote_addr);
+    ssize_t received;
+    int ready;
+
+    if (non_stun_packet_len != 0) {
+        *non_stun_packet_len = 0;
+    }
+    if (endpoint == 0 || endpoint->fd < 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    FD_ZERO(&read_fds);
+    FD_SET(endpoint->fd, &read_fds);
+    if (timeout_ms >= 0) {
+        timeout.tv_sec = timeout_ms / 1000;
+        timeout.tv_usec = (timeout_ms % 1000) * 1000;
+        timeout_ptr = &timeout;
+    }
+    ready = select(endpoint->fd + 1, &read_fds, 0, 0, timeout_ptr);
+    if (ready < 0) {
+        return errno == EINTR ? MRTC_STATUS_OK : MRTC_STATUS_INVALID_STATE;
+    }
+    if (ready == 0 || !FD_ISSET(endpoint->fd, &read_fds)) {
+        return MRTC_STATUS_OK;
+    }
+
+    received = recvfrom(endpoint->fd,
+                        packet,
+                        sizeof(packet),
+                        0,
+                        (struct sockaddr *) &remote_addr,
+                        &remote_len);
+    if (received <= 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    if (mrtc_ice_packet_is_stun(packet, (size_t) received)) {
+        MRTC_STUN_BINDING_REQUEST request;
+        char remote_ip[64];
+        unsigned char response[512];
+        size_t response_len = 0;
+
+        if (inet_ntop(AF_INET, &remote_addr.sin_addr, remote_ip, sizeof(remote_ip)) == 0) {
+            return MRTC_STATUS_INVALID_STATE;
+        }
+        if (mrtc_stun_parse_binding_request(packet, (size_t) received, local_pwd, &request) != MRTC_STATUS_OK) {
+            return MRTC_STATUS_OK;
+        }
+        if (!mrtc_ice_username_matches_local_ufrag(request.username, local_ufrag)) {
+            return MRTC_STATUS_OK;
+        }
+        if (request.has_message_integrity && !request.message_integrity_valid) {
+            return MRTC_STATUS_OK;
+        }
+        if (request.has_fingerprint && !request.fingerprint_valid) {
+            return MRTC_STATUS_OK;
+        }
+        if (mrtc_stun_write_binding_success_response(response,
+                                                     sizeof(response),
+                                                     &response_len,
+                                                     request.transaction_id,
+                                                     remote_ip,
+                                                     ntohs(remote_addr.sin_port),
+                                                     local_pwd) != MRTC_STATUS_OK) {
+            return MRTC_STATUS_INVALID_STATE;
+        }
+        if (sendto(endpoint->fd,
+                   response,
+                   response_len,
+                   0,
+                   (const struct sockaddr *) &remote_addr,
+                   remote_len) < 0) {
+            return MRTC_STATUS_INVALID_STATE;
+        }
+        (void) snprintf(endpoint->selected_remote_ip, sizeof(endpoint->selected_remote_ip), "%s", remote_ip);
+        endpoint->selected_remote_port = ntohs(remote_addr.sin_port);
+        endpoint->selected_pair_ready = 1;
+        return MRTC_STATUS_OK;
+    }
+
+    if (non_stun_packet != 0 && non_stun_packet_len != 0 && non_stun_packet_capacity >= (size_t) received) {
+        memcpy(non_stun_packet, packet, (size_t) received);
+        *non_stun_packet_len = (size_t) received;
+    }
+    return MRTC_STATUS_OK;
 }

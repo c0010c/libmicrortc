@@ -197,29 +197,12 @@ static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECT
         if (status != MRTC_STATUS_OK) {
             return status;
         }
+        mrtc_sctp_session_set_callbacks(&peer_connection->sctp_session, 0, 0, peer_connection);
         status = mrtc_sctp_session_connect(&peer_connection->sctp_session);
         if (status != MRTC_STATUS_OK) {
             return status;
         }
         peer_connection->sctp_started = 1;
-        {
-            MRTC_DATA_CHANNEL_HANDLE channel = peer_connection->data_channels;
-            while (channel != 0) {
-                mrtc_data_channel_mark_open(channel);
-                channel = channel->next;
-            }
-        }
-        if (peer_connection->data_channels == 0 && peer_connection->callbacks.on_data_channel != 0) {
-            MRTC_DATA_CHANNEL_HANDLE remote_channel = mrtc_data_channel_alloc("remote", 0, 0, 0);
-            if (remote_channel != 0) {
-                remote_channel->stream_id = peer_connection->next_stream_id;
-                peer_connection->next_stream_id = (unsigned short) (peer_connection->next_stream_id + 2);
-                remote_channel->next = peer_connection->data_channels;
-                peer_connection->data_channels = remote_channel;
-                mrtc_data_channel_mark_open(remote_channel);
-                peer_connection->callbacks.on_data_channel(peer_connection->user_data, remote_channel);
-            }
-        }
     }
     peer_connection->dtls_started = 1;
     return MRTC_STATUS_OK;
@@ -707,11 +690,51 @@ MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE p
 
     if (peer_connection->has_remote_description && peer_connection->has_local_description) {
         peer_connection->selected_pair_ready = 1;
-        if (mrtc_peer_connection_start_secure_transport(peer_connection) == MRTC_STATUS_OK) {
-            mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTED);
-        }
+        (void) mrtc_peer_connection_start_secure_transport(peer_connection);
+        mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTING);
     }
 
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_peer_connection_poll_transport(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                int timeout_ms)
+{
+    unsigned char packet[2048];
+    size_t packet_len = 0;
+    MRTC_STATUS status;
+
+    if (peer_connection == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (peer_connection->host_endpoint.fd < 0) {
+        return MRTC_STATUS_OK;
+    }
+    status = mrtc_ice_host_endpoint_poll(&peer_connection->host_endpoint,
+                                         peer_connection->local_ice_ufrag,
+                                         peer_connection->local_ice_pwd,
+                                         timeout_ms,
+                                         packet,
+                                         sizeof(packet),
+                                         &packet_len);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    if (peer_connection->host_endpoint.selected_pair_ready && !peer_connection->selected_pair_ready) {
+        peer_connection->selected_pair_ready = 1;
+        status = mrtc_peer_connection_start_secure_transport(peer_connection);
+        if (status == MRTC_STATUS_OK) {
+            mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTING);
+        }
+    }
+    if (packet_len > 0u) {
+        if (packet[0] > 19u && packet[0] < 64u) {
+            return MRTC_STATUS_NOT_IMPLEMENTED;
+        }
+        if ((packet[0] & 0xc0u) == 0x80u) {
+            return mrtc_peer_connection_receive_protected_media_packet(peer_connection, packet, packet_len);
+        }
+    }
     return MRTC_STATUS_OK;
 }
 
@@ -737,12 +760,10 @@ MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE
     }
 
     created->stream_id = peer_connection->next_stream_id;
+    created->owner = peer_connection;
     peer_connection->next_stream_id = (unsigned short) (peer_connection->next_stream_id + 2);
     created->next = peer_connection->data_channels;
     peer_connection->data_channels = created;
-    if (peer_connection->sctp_started) {
-        mrtc_data_channel_mark_open(created);
-    }
     *channel = created;
     return MRTC_STATUS_OK;
 }
@@ -1308,6 +1329,13 @@ MRTC_STATUS mrtc_data_channel_send(MRTC_DATA_CHANNEL_HANDLE channel,
     }
     if (!channel->open || channel->closed) {
         return MRTC_STATUS_INVALID_STATE;
+    }
+    if (channel->owner != 0 && channel->owner->sctp_started) {
+        return mrtc_sctp_session_write_message(&channel->owner->sctp_session,
+                                               channel->stream_id,
+                                               message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY,
+                                               data,
+                                               data_len);
     }
     if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT && data_len > 5u && memcmp(data, "ping:", 5u) == 0) {
         unsigned char *reply = (unsigned char *) malloc(data_len);

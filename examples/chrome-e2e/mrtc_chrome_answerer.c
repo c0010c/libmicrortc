@@ -3,9 +3,12 @@
 #include "media/media_transceiver.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
+#include <unistd.h>
 
 #define MRTC_ANSWERER_LINE_MAX 131072u
 #define MRTC_ANSWERER_SDP_MAX 65536u
@@ -1111,20 +1114,49 @@ static int dispatch_message(AnswererApp *app, const ParsedMessage *message)
 static int run_loop(AnswererApp *app)
 {
     char *line = (char *) malloc(MRTC_ANSWERER_LINE_MAX);
+    int stdin_fd = fileno(stdin);
 
     if (line == 0) {
         emit_error(app, "runtime", "out of memory");
         return 0;
     }
-    while (!app->stopped && fgets(line, (int) MRTC_ANSWERER_LINE_MAX, stdin) != 0) {
-        ParsedMessage message;
-        if (!parse_message_line(line, &message)) {
-            emit_error(app, "json", "invalid JSON line");
+    while (!app->stopped) {
+        fd_set read_fds;
+        struct timeval timeout;
+        int ready;
+
+        if (mrtc_peer_connection_poll_transport(app->pc, 0) != MRTC_STATUS_OK) {
+            emit_error(app, "transport", "failed to poll ICE/STUN transport");
             free(line);
             return 0;
         }
-        (void) dispatch_message(app, &message);
-        free_parsed_message(&message);
+
+        FD_ZERO(&read_fds);
+        FD_SET(stdin_fd, &read_fds);
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 20000;
+        ready = select(stdin_fd + 1, &read_fds, 0, 0, &timeout);
+        if (ready < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            emit_error(app, "runtime", "stdin select failed");
+            free(line);
+            return 0;
+        }
+        if (ready > 0 && FD_ISSET(stdin_fd, &read_fds)) {
+            ParsedMessage message;
+            if (fgets(line, (int) MRTC_ANSWERER_LINE_MAX, stdin) == 0) {
+                break;
+            }
+            if (!parse_message_line(line, &message)) {
+                emit_error(app, "json", "invalid JSON line");
+                free(line);
+                return 0;
+            }
+            (void) dispatch_message(app, &message);
+            free_parsed_message(&message);
+        }
         if (app->failed) {
             free(line);
             return 0;

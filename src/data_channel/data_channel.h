@@ -4,6 +4,7 @@
 #include <micrortc/peer_connection.h>
 
 struct MRTC_DATA_CHANNEL {
+    MRTC_PEER_CONNECTION_HANDLE owner;
     char *label;
     int ordered;
     int negotiated;

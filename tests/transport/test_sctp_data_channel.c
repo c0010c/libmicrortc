@@ -42,14 +42,33 @@ int main(void)
         return 1;
     }
     mrtc_sctp_session_set_callbacks(&session, on_outbound, on_message, &state);
-    if (mrtc_sctp_session_connect(&session) != MRTC_STATUS_OK || !session.connected) {
+    if (mrtc_sctp_session_connect(&session) != MRTC_STATUS_OK || session.connected) {
         return 1;
     }
-    if (state.outbound_count == 0 || state.dcep_count != 1) {
+    if (mrtc_sctp_session_write_message(&session, 0, 0, (const uint8_t *) "ping", 4) != MRTC_STATUS_INVALID_STATE) {
+        return 1;
+    }
+    if (state.outbound_count != 0 || state.dcep_count != 0) {
+        return 1;
+    }
+    if (mrtc_sctp_session_receive_dcep_open(&session, 0, "chat") != MRTC_STATUS_OK ||
+        !session.connected ||
+        !session.dcep_open_received ||
+        !session.dcep_ack_sent) {
+        return 1;
+    }
+    if (state.outbound_count != 1 || state.dcep_count != 1) {
         return 1;
     }
     if (mrtc_sctp_session_write_message(&session, 0, 0, (const uint8_t *) "ping", 4) != MRTC_STATUS_OK ||
         mrtc_sctp_session_write_message(&session, 0, 1, binary, sizeof(binary)) != MRTC_STATUS_OK) {
+        return 1;
+    }
+    if (state.outbound_count != 3 || state.string_count != 0 || state.binary_count != 0) {
+        return 1;
+    }
+    if (mrtc_sctp_session_receive_message(&session, 0, MRTC_SCTP_PPID_STRING, (const uint8_t *) "ping", 4) != MRTC_STATUS_OK ||
+        mrtc_sctp_session_receive_message(&session, 0, MRTC_SCTP_PPID_BINARY, binary, sizeof(binary)) != MRTC_STATUS_OK) {
         return 1;
     }
     if (state.string_count != 1 || state.binary_count != 1) {
