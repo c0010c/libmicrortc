@@ -199,7 +199,7 @@
         await applyRemoteCandidate(message);
       }
     } else if (message.type === "event") {
-      recordEvent(message.name || "remote.event", message.fields || {});
+      recordEvent(`remote.${message.name || "event"}`, message.fields || {});
     } else if (message.type === "done") {
       recordEvent("remote.done", message.summary || {});
     } else if (message.type === "error") {
