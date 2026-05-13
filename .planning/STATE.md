@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 status: ready_to_execute_phase_5
-last_updated: "2026-05-13T05:34:40.669Z"
+last_updated: "2026-05-13T05:49:10.361Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 13
-  completed_plans: 10
-  percent: 77
+  completed_plans: 11
+  percent: 85
 ---
 
 # State: libmicrortc
@@ -46,7 +46,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 2. 独立构建与库骨架 | Complete | 4 | 100% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
-| 5. H264/Opus 媒体路径 | In Progress | 9 | 2/5 plans complete |
+| 5. H264/Opus 媒体路径 | In Progress | 9 | 3/5 plans complete |
 | 6. Chrome 自动化 E2E 与测试收口 | Pending | 13 | 0% |
 
 ## Decisions To Carry Forward
@@ -77,6 +77,7 @@ $gsd-execute-phase 5
 |-------|------|----------|-------|
 | Phase 05-h264-opus P01 | 8min | 4 tasks | 10 files |
 | Phase 05-h264-opus P02 | 8min | 5 tasks | 14 files |
+| Phase 05-h264-opus P03 | 10min | 4 tasks | 9 files |
 
 ## Decisions
 
@@ -86,3 +87,6 @@ $gsd-execute-phase 5
 - [Phase 05]: 05-02: H264 helper 仅接受 Annex-B bytestream；无 start code 或 AVCC-like length-prefixed 输入返回 MRTC_STATUS_PARSE_ERROR。
 - [Phase 05]: 05-02: Opus timestamp 明确按 MRTC_FRAME.presentation_ts 的 100ns 单位转换为 48kHz RTP timestamp。
 - [Phase 05]: 05-02: RTCP helpers 先提供 SR/RR/NACK/PLI packet primitive，不在本计划接入 PeerConnection 行为编排。
+- [Phase 05]: 05-03: SRTP wrapper 在缺少系统 libsrtp 时保持 ready 但以 mrtc_srtp_session_is_passthrough() 明确标记非加密 fallback。
+- [Phase 05]: 05-03: media send hook 保持 private，不把 application signaling、采集或编码引入核心库。
+- [Phase 05]: 05-03: 接收侧先实现顺序 H264 FU-A accumulation 和 Opus per-packet delivery，不搬迁完整 KVS jitter buffer。
