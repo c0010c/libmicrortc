@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 status: ready_to_execute_phase_5
-last_updated: "2026-05-13T05:10:19.739Z"
+last_updated: "2026-05-13T05:21:35.532Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 13
-  completed_plans: 8
-  percent: 62
+  completed_plans: 9
+  percent: 67
 ---
 
 # State: libmicrortc
@@ -70,3 +70,15 @@ $gsd-execute-phase 5
 
 ---
 *Last updated: 2026-05-13 after Phase 5 planning*
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 05-h264-opus P01 | 8min | 4 tasks | 10 files |
+
+## Decisions
+
+- [Phase 05]: 05-01: 媒体 public API 采用 MRTC 命名的 AWS 薄裁剪模型，不暴露 AWS/PIC 类型。
+- [Phase 05]: 05-01: write_frame 当前只完成校验并在 media transport 未就绪时返回 MRTC_STATUS_INVALID_STATE，真实发送留给后续 Phase 5 计划。
+- [Phase 05]: 05-01: SDP media m-line 由 PeerConnection transceiver list 驱动，同时保留 DataChannel application m-line。

@@ -24,7 +24,7 @@
 - [x] **API-01**: v1 对外头文件必须先从 AWS WebRTC 公共 API 裁剪，保留主要调用模型。
 - [x] **API-02**: API 必须支持创建和释放 PeerConnection。
 - [x] **API-03**: API 必须支持设置本地/远端 SDP、创建 Offer、创建 Answer，以及添加 ICE candidate。
-- [ ] **API-04**: API 必须支持添加音视频 transceiver，并通过 `writeFrame` 类接口发送编码后媒体帧。
+- [x] **API-04**: API 必须支持添加音视频 transceiver，并通过 `writeFrame` 类接口发送编码后媒体帧。
 - [ ] **API-05**: API 必须支持 DataChannel 创建、打开、关闭和消息收发。
 - [x] **API-06**: v1 必须先沿用 AWS SDK 的线程和回调模型。
 
@@ -40,11 +40,11 @@
 
 ### 媒体能力
 
-- [ ] **MEDIA-01**: 核心库只接收和输出编码后媒体帧，不实现音视频采集。
-- [ ] **MEDIA-02**: 核心库不实现音视频编码器，v1 使用外部或固定测试文件提供编码后帧。
-- [ ] **MEDIA-03**: v1 必须优先支持 H264 视频发送到 Chrome。
+- [x] **MEDIA-01**: 核心库只接收和输出编码后媒体帧，不实现音视频采集。
+- [x] **MEDIA-02**: 核心库不实现音视频编码器，v1 使用外部或固定测试文件提供编码后帧。
+- [x] **MEDIA-03**: v1 必须优先支持 H264 视频发送到 Chrome。
 - [ ] **MEDIA-04**: v1 必须优先支持从 Chrome 接收 H264 视频路径，并能在 demo/测试中证明收到媒体。
-- [ ] **MEDIA-05**: v1 必须优先支持 Opus 音频发送到 Chrome。
+- [x] **MEDIA-05**: v1 必须优先支持 Opus 音频发送到 Chrome。
 - [ ] **MEDIA-06**: v1 必须优先支持从 Chrome 接收 Opus 音频路径，并能在 demo/测试中证明收到媒体。
 - [ ] **MEDIA-07**: C 端 E2E 发送媒体源必须支持读取固定 H264/Opus 测试文件。
 
@@ -122,7 +122,7 @@
 | API-01 | Phase 3 | Complete |
 | API-02 | Phase 3 | Complete |
 | API-03 | Phase 3 | Complete |
-| API-04 | Phase 5 | Pending |
+| API-04 | Phase 5 | Complete |
 | API-05 | Phase 4 | Pending |
 | API-06 | Phase 3 | Complete |
 | PROTO-01 | Phase 4 | Pending |
@@ -132,11 +132,11 @@
 | PROTO-05 | Phase 4 | Pending |
 | PROTO-06 | Phase 3 | Complete |
 | PROTO-07 | Phase 3 | Complete |
-| MEDIA-01 | Phase 5 | Pending |
-| MEDIA-02 | Phase 5 | Pending |
-| MEDIA-03 | Phase 5 | Pending |
+| MEDIA-01 | Phase 5 | Complete |
+| MEDIA-02 | Phase 5 | Complete |
+| MEDIA-03 | Phase 5 | Complete |
 | MEDIA-04 | Phase 5 | Pending |
-| MEDIA-05 | Phase 5 | Pending |
+| MEDIA-05 | Phase 5 | Complete |
 | MEDIA-06 | Phase 5 | Pending |
 | MEDIA-07 | Phase 5 | Pending |
 | NET-01 | Phase 4 | Pending |
