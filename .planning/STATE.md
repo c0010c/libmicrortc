@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: executing_phase_6
-last_updated: "2026-05-13T11:16:11Z"
+last_updated: "2026-05-13T11:48:34.649Z"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/6 plans executed; Chrome host transport repair inserted before media E2E |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/6 plans executed; 06-03 已完成前置修复与分层 smoke，但真实 Chrome transport 仍 blocked |
 
 ## Decisions To Carry Forward
 
@@ -62,10 +62,10 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Continue Phase 6:
+Continue Phase 6 by unblocking real Chrome DTLS/SCTP transport before media E2E:
 
 ```bash
-$gsd-execute-phase 6 --wave 3
+MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"
 ```
 
 ---
@@ -108,3 +108,4 @@ $gsd-execute-phase 6 --wave 3
 - [Phase 06]: 06-02: 媒体 fixture 发送在 example target 内使用现有 private media send hook 统计 RTP 包，不把该 hook 暴露到 public API。
 - [Phase 06]: 06-02: --self-test-media-callbacks 通过 protected RTP loopback 证明 on_frame 回调层统计，不只停留在 write_frame 调用。
 - [Phase 06]: 06-03 前置修复: Chrome host E2E 不能把 C demo 内部 connected/datachannel.open 当作浏览器互通成功；先补真实 host transport，再执行媒体 E2E。
+- [Phase 06]: 06-03 执行结果: SDP mid/order、真实 host candidate 和 transport smoke 已建立；真实 Chrome connection/datachannel 仍阻塞在 DTLS/SCTP transport 层，Plan 06-03 self-check failed。
