@@ -59,6 +59,7 @@ struct MRTC_PEER_CONNECTION {
 #define MRTC_MEDIA_SRTP_TRAILER_CAPACITY 32u
 #define MRTC_H264_CLOCK_RATE 90000u
 #define MRTC_100NS_PER_SECOND_U64 10000000ull
+#define MRTC_MAX_H264_RECEIVE_FRAME_SIZE (4u * 1024u * 1024u)
 
 static int mrtc_string_equals(const char *left, const char *right)
 {
@@ -241,6 +242,13 @@ static uint64_t mrtc_opus_frame_timestamp_from_rtp(uint32_t rtp_timestamp)
     return ((uint64_t) rtp_timestamp * MRTC_100NS_PER_SECOND_U64) / (uint64_t) MRTC_OPUS_CLOCK_RATE;
 }
 
+static int mrtc_transceiver_can_receive(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
+{
+    return transceiver != 0 &&
+           transceiver->direction != MRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY &&
+           transceiver->direction != MRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE;
+}
+
 static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_find_media_receiver(MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                                                             const MRTC_RTP_PACKET *packet)
 {
@@ -253,6 +261,10 @@ static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_find_media_receiver(MRTC
 
     current = peer_connection->transceivers;
     while (current != 0) {
+        if (!mrtc_transceiver_can_receive(current)) {
+            current = current->next;
+            continue;
+        }
         if (current->remote_ssrc != 0u && current->remote_ssrc == packet->ssrc) {
             return current->payload_type == packet->payload_type ? current : 0;
         }
@@ -314,12 +326,25 @@ static MRTC_STATUS mrtc_transceiver_append_receive_frame(MRTC_RTP_TRANSCEIVER_HA
     if (transceiver == 0 || data == 0 || data_size == 0u) {
         return MRTC_STATUS_INVALID_ARG;
     }
+    if (data_size > MRTC_MAX_H264_RECEIVE_FRAME_SIZE ||
+        transceiver->receive_frame_size > MRTC_MAX_H264_RECEIVE_FRAME_SIZE - data_size) {
+        transceiver->receive_frame_size = 0;
+        return MRTC_STATUS_INVALID_STATE;
+    }
 
     needed = transceiver->receive_frame_size + data_size;
     if (needed > transceiver->receive_frame_capacity) {
         size_t capacity = transceiver->receive_frame_capacity == 0u ? 1024u : transceiver->receive_frame_capacity;
         while (capacity < needed) {
+            if (capacity > MRTC_MAX_H264_RECEIVE_FRAME_SIZE / 2u) {
+                capacity = MRTC_MAX_H264_RECEIVE_FRAME_SIZE;
+                break;
+            }
             capacity *= 2u;
+        }
+        if (capacity < needed) {
+            transceiver->receive_frame_size = 0;
+            return MRTC_STATUS_INVALID_STATE;
         }
         grown = (uint8_t *) realloc(transceiver->receive_frame_buffer, capacity);
         if (grown == 0) {

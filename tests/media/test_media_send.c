@@ -283,5 +283,48 @@ int main(void)
     }
 
     mrtc_peer_connection_free(peer_connection);
+
+    if (capture.passthrough) {
+        MRTC_PEER_CONNECTION_HANDLE receive_peer = 0;
+        MRTC_RTP_TRANSCEIVER_HANDLE sendonly_video = 0;
+        MRTC_RTP_TRANSCEIVER_HANDLE recvonly_video = 0;
+        MRTC_TRANSCEIVER_INIT sendonly_init = {0};
+        MRTC_TRANSCEIVER_INIT recvonly_init = {0};
+        MRTC_TRANSCEIVER_CALLBACKS recv_callbacks = {0};
+        FrameCapture recv_frames = {0};
+        MRTC_RTP_PACKET inbound_packet;
+        uint8_t inbound_raw[64];
+        size_t inbound_size = 0;
+        const uint8_t inbound_payload[] = {0x65, 0x88, 0x84};
+
+        sendonly_init.kind = MRTC_MEDIA_KIND_VIDEO;
+        sendonly_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+        sendonly_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY;
+        recvonly_init = sendonly_init;
+        recvonly_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY;
+        recv_callbacks.on_frame = capture_frame;
+
+        CHECK_TRUE(mrtc_peer_connection_create(&config, 0, 0, &receive_peer) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_peer_connection_add_transceiver(receive_peer, &sendonly_init, 0, &sendonly_video) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_peer_connection_add_transceiver(receive_peer, &recvonly_init, &recv_frames, &recvonly_video) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_transceiver_set_callbacks(recvonly_video, &recv_callbacks, &recv_frames) == MRTC_STATUS_OK);
+        CHECK_TRUE(connect_peer(receive_peer));
+        CHECK_TRUE(mrtc_peer_connection_media_is_srtp_passthrough(receive_peer));
+
+        CHECK_TRUE(mrtc_rtp_packet_build(&inbound_packet,
+                                         1,
+                                         96,
+                                         10,
+                                         90000,
+                                         0x22223333u,
+                                         inbound_payload,
+                                         sizeof(inbound_payload)) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_rtp_packet_serialize(&inbound_packet, inbound_raw, sizeof(inbound_raw), &inbound_size) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_peer_connection_receive_protected_media_packet(receive_peer, inbound_raw, inbound_size) == MRTC_STATUS_OK);
+        CHECK_TRUE(recv_frames.frame_count == 1u);
+        CHECK_TRUE(sendonly_video->remote_ssrc == 0u);
+        CHECK_TRUE(recvonly_video->remote_ssrc == 0x22223333u);
+        mrtc_peer_connection_free(receive_peer);
+    }
     return 0;
 }

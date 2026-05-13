@@ -1,5 +1,6 @@
 #include "h264.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct MRTC_H264_NALU {
@@ -174,8 +175,8 @@ MRTC_STATUS mrtc_h264_packetize_annexb(const uint8_t *annexb,
                                        size_t *payload_lengths,
                                        size_t *payload_count)
 {
-    MRTC_H264_NALU stack_nalus[32];
-    size_t nalu_count = 32u;
+    MRTC_H264_NALU *nalus = 0;
+    size_t nalu_count = 0;
     size_t required_payload_size = 0;
     size_t required_payload_count = 0;
     size_t i;
@@ -186,16 +187,27 @@ MRTC_STATUS mrtc_h264_packetize_annexb(const uint8_t *annexb,
         return MRTC_STATUS_INVALID_ARG;
     }
 
-    status = mrtc_h264_find_nalus(annexb, annexb_size, stack_nalus, &nalu_count);
+    status = mrtc_h264_find_nalus(annexb, annexb_size, 0, &nalu_count);
+    if (status == MRTC_STATUS_OK) {
+        nalus = (MRTC_H264_NALU *) calloc(nalu_count, sizeof(*nalus));
+        if (nalus == 0) {
+            status = MRTC_STATUS_INVALID_ARG;
+        }
+    }
+    if (status == MRTC_STATUS_OK) {
+        status = mrtc_h264_find_nalus(annexb, annexb_size, nalus, &nalu_count);
+    }
     if (status != MRTC_STATUS_OK) {
+        free(nalus);
         *payloads_size = 0;
         *payload_count = 0;
         return status;
     }
 
     for (i = 0; i < nalu_count; ++i) {
-        status = mrtc_h264_count_nalu_payloads(stack_nalus + i, mtu, &required_payload_size, &required_payload_count);
+        status = mrtc_h264_count_nalu_payloads(nalus + i, mtu, &required_payload_size, &required_payload_count);
         if (status != MRTC_STATUS_OK) {
+            free(nalus);
             *payloads_size = 0;
             *payload_count = 0;
             return status;
@@ -215,9 +227,10 @@ MRTC_STATUS mrtc_h264_packetize_annexb(const uint8_t *annexb,
             return MRTC_STATUS_INVALID_ARG;
         }
         for (i = 0; i < nalu_count; ++i) {
-            status = mrtc_h264_write_nalu_payloads(stack_nalus + i, mtu, &payload_cursor, &payload_remaining,
+            status = mrtc_h264_write_nalu_payloads(nalus + i, mtu, &payload_cursor, &payload_remaining,
                                                    &length_cursor, &length_remaining);
             if (status != MRTC_STATUS_OK) {
+                free(nalus);
                 *payloads_size = required_payload_size;
                 *payload_count = required_payload_count;
                 return status;
@@ -227,6 +240,7 @@ MRTC_STATUS mrtc_h264_packetize_annexb(const uint8_t *annexb,
 
     *payloads_size = required_payload_size;
     *payload_count = required_payload_count;
+    free(nalus);
     return MRTC_STATUS_OK;
 }
 

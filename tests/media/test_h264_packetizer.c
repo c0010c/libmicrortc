@@ -102,10 +102,42 @@ static int test_invalid_input(void)
     return 0;
 }
 
+static int test_more_than_32_nalus(void)
+{
+    uint8_t annexb[6u * 40u];
+    uint8_t payloads[2u * 40u];
+    size_t payload_lengths[40];
+    size_t payloads_size = sizeof(payloads);
+    size_t payload_count = 40u;
+    size_t i;
+
+    for (i = 0; i < 40u; ++i) {
+        size_t offset = i * 6u;
+        annexb[offset] = 0x00;
+        annexb[offset + 1u] = 0x00;
+        annexb[offset + 2u] = 0x00;
+        annexb[offset + 3u] = 0x01;
+        annexb[offset + 4u] = 0x61;
+        annexb[offset + 5u] = (uint8_t) i;
+    }
+
+    CHECK_TRUE(mrtc_h264_packetize_annexb(annexb, sizeof(annexb), 1200u, payloads, &payloads_size,
+                                          payload_lengths, &payload_count) == MRTC_STATUS_OK);
+    CHECK_TRUE(payload_count == 40u);
+    CHECK_TRUE(payloads_size == 80u);
+    for (i = 0; i < payload_count; ++i) {
+        CHECK_TRUE(payload_lengths[i] == 2u);
+        CHECK_TRUE(payloads[i * 2u] == 0x61);
+        CHECK_TRUE(payloads[i * 2u + 1u] == (uint8_t) i);
+    }
+    return 0;
+}
+
 int main(void)
 {
     CHECK_TRUE(test_single_nalu() == 0);
     CHECK_TRUE(test_fu_a() == 0);
     CHECK_TRUE(test_invalid_input() == 0);
+    CHECK_TRUE(test_more_than_32_nalus() == 0);
     return 0;
 }
