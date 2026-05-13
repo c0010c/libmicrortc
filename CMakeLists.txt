@@ -51,6 +51,7 @@ add_library(micrortc STATIC
     src/srtp/srtp_session.c
     src/sctp/sctp_session.c
     src/data_channel/data_channel.c
+    src/media/media_transceiver.c
 )
 add_library(micrortc::micrortc ALIAS micrortc)
 

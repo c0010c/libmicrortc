@@ -149,9 +149,15 @@ int main(void)
     MRTC_PEER_CONNECTION_CONFIG config = {0};
     MRTC_PEER_CONNECTION_CALLBACKS callbacks = {0};
     MRTC_DATA_CHANNEL_CALLBACKS channel_callbacks = {0};
+    MRTC_TRANSCEIVER_CALLBACKS media_callbacks = {0};
     MRTC_DATA_CHANNEL_HANDLE channel = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE video_transceiver = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE audio_transceiver = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE recvonly_transceiver = 0;
     MRTC_PEER_CONNECTION_HANDLE handle = 0;
     TestCallbacks callback_state = {0};
+    unsigned char encoded_payload[] = {0x65, 0x88, 0x84};
+    MRTC_FRAME frame = {0};
     char offer[2048];
     char answer[4096];
     size_t required_len = 0;
@@ -163,6 +169,15 @@ int main(void)
     channel_callbacks.on_open = on_data_channel_open;
     channel_callbacks.on_message = on_data_channel_message;
     channel_callbacks.on_close = on_data_channel_close;
+    media_callbacks.on_frame = on_media_frame;
+    media_callbacks.on_picture_loss = on_picture_loss;
+    frame.data = encoded_payload;
+    frame.size = sizeof(encoded_payload);
+    frame.presentation_ts = 3000;
+    frame.decoding_ts = 3000;
+    frame.duration = 33333;
+    frame.index = 1;
+    frame.flags = MRTC_FRAME_FLAG_KEY_FRAME;
 
     if (!read_fixture(offer, sizeof(offer))) {
         return 1;
@@ -182,6 +197,74 @@ int main(void)
         return 1;
     }
     ice_server.urls = "turn:mutated.invalid:3478?transport=udp";
+
+    {
+        MRTC_TRANSCEIVER_INIT video_init = {0};
+        MRTC_TRANSCEIVER_INIT audio_init = {0};
+        MRTC_TRANSCEIVER_INIT recvonly_init = {0};
+        MRTC_FRAME invalid_frame = frame;
+
+        video_init.kind = MRTC_MEDIA_KIND_VIDEO;
+        video_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+        video_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+        video_init.callbacks = media_callbacks;
+        audio_init.kind = MRTC_MEDIA_KIND_AUDIO;
+        audio_init.codec = MRTC_CODEC_OPUS;
+        audio_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY;
+        audio_init.callbacks = media_callbacks;
+        recvonly_init.kind = MRTC_MEDIA_KIND_VIDEO;
+        recvonly_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+        recvonly_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY;
+
+        if (mrtc_peer_connection_add_transceiver(0, &video_init, &callback_state, &video_transceiver) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_peer_connection_add_transceiver(handle, 0, &callback_state, &video_transceiver) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_peer_connection_add_transceiver(handle, &video_init, &callback_state, 0) != MRTC_STATUS_INVALID_ARG) {
+            mrtc_peer_connection_free(handle);
+            return 1;
+        }
+        video_init.codec = MRTC_CODEC_OPUS;
+        if (mrtc_peer_connection_add_transceiver(handle, &video_init, &callback_state, &video_transceiver) != MRTC_STATUS_INVALID_ARG) {
+            mrtc_peer_connection_free(handle);
+            return 1;
+        }
+        video_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+
+        if (mrtc_peer_connection_add_transceiver(handle, &video_init, &callback_state, &video_transceiver) != MRTC_STATUS_OK ||
+            video_transceiver == 0 ||
+            mrtc_peer_connection_add_transceiver(handle, &audio_init, &callback_state, &audio_transceiver) != MRTC_STATUS_OK ||
+            audio_transceiver == 0 ||
+            mrtc_peer_connection_add_transceiver(handle, &recvonly_init, &callback_state, &recvonly_transceiver) != MRTC_STATUS_OK ||
+            recvonly_transceiver == 0) {
+            mrtc_peer_connection_free(handle);
+            return 1;
+        }
+
+        if (mrtc_transceiver_set_callbacks(0, &media_callbacks, &callback_state) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_transceiver_set_callbacks(video_transceiver, 0, &callback_state) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_transceiver_set_callbacks(video_transceiver, &media_callbacks, &callback_state) != MRTC_STATUS_OK ||
+            mrtc_transceiver_on_frame(video_transceiver, on_media_frame, &callback_state) != MRTC_STATUS_OK ||
+            mrtc_transceiver_on_picture_loss(video_transceiver, on_picture_loss, &callback_state) != MRTC_STATUS_OK) {
+            mrtc_peer_connection_free(handle);
+            return 1;
+        }
+
+        invalid_frame.data = 0;
+        if (mrtc_transceiver_write_frame(0, &frame) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_transceiver_write_frame(video_transceiver, 0) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_transceiver_write_frame(video_transceiver, &invalid_frame) != MRTC_STATUS_INVALID_ARG) {
+            mrtc_peer_connection_free(handle);
+            return 1;
+        }
+        invalid_frame = frame;
+        invalid_frame.size = 0;
+        if (mrtc_transceiver_write_frame(video_transceiver, &invalid_frame) != MRTC_STATUS_INVALID_ARG ||
+            mrtc_transceiver_write_frame(video_transceiver, &frame) != MRTC_STATUS_INVALID_STATE ||
+            mrtc_transceiver_write_frame(audio_transceiver, &frame) != MRTC_STATUS_INVALID_STATE ||
+            mrtc_transceiver_write_frame(recvonly_transceiver, &frame) != MRTC_STATUS_INVALID_STATE) {
+            mrtc_peer_connection_free(handle);
+            return 1;
+        }
+    }
 
     if (mrtc_peer_connection_create_answer(handle, answer, sizeof(answer), &required_len) != MRTC_STATUS_INVALID_STATE) {
         mrtc_peer_connection_free(handle);

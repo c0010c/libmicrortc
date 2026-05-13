@@ -4,10 +4,12 @@
 #include "data_channel/data_channel.h"
 #include "dtls/dtls_session.h"
 #include "ice/ice_agent.h"
+#include "media/media_transceiver.h"
 #include "sdp.h"
 #include "srtp/srtp_session.h"
 #include "sctp/sctp_session.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,6 +41,10 @@ struct MRTC_PEER_CONNECTION {
     int has_local_description;
     unsigned short next_stream_id;
     MRTC_DATA_CHANNEL_HANDLE data_channels;
+    MRTC_RTP_TRANSCEIVER_HANDLE transceivers;
+    unsigned int next_audio_mid;
+    unsigned int next_video_mid;
+    uint32_t next_media_ssrc;
 };
 
 static int mrtc_string_equals(const char *left, const char *right)
@@ -292,6 +298,7 @@ MRTC_STATUS mrtc_peer_connection_create(const MRTC_PEER_CONNECTION_CONFIG *confi
     created->user_data = user_data;
     created->state = MRTC_PEER_CONNECTION_STATE_NEW;
     created->next_stream_id = 0;
+    created->next_media_ssrc = 1000001u;
     {
         size_t fingerprint_len = 0;
         if (mrtc_fill_token(created->local_ice_ufrag, sizeof(created->local_ice_ufrag)) != MRTC_STATUS_OK ||
@@ -328,6 +335,12 @@ void mrtc_peer_connection_free(MRTC_PEER_CONNECTION_HANDLE peer_connection)
         MRTC_DATA_CHANNEL_HANDLE next = peer_connection->data_channels->next;
         mrtc_data_channel_free_internal(peer_connection->data_channels);
         peer_connection->data_channels = next;
+    }
+    while (peer_connection->transceivers != 0) {
+        MRTC_RTP_TRANSCEIVER_HANDLE next = peer_connection->transceivers->next;
+        peer_connection->transceivers->owner = 0;
+        mrtc_media_transceiver_free_internal(peer_connection->transceivers);
+        peer_connection->transceivers = next;
     }
     mrtc_free_ice_servers(peer_connection);
     free(peer_connection->bundle_policy);
@@ -523,6 +536,140 @@ MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE
     }
     *channel = created;
     return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_peer_connection_add_transceiver(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                 const MRTC_TRANSCEIVER_INIT *init,
+                                                 void *user_data,
+                                                 MRTC_RTP_TRANSCEIVER_HANDLE *transceiver)
+{
+    char mid[16];
+    unsigned char payload_type;
+    MRTC_RTP_TRANSCEIVER_HANDLE created;
+
+    if (peer_connection == 0 || init == 0 || transceiver == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (!mrtc_media_transceiver_kind_codec_valid(init->kind, init->codec) ||
+        !mrtc_media_transceiver_direction_valid(init->direction)) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    if (init->kind == MRTC_MEDIA_KIND_AUDIO) {
+        (void) snprintf(mid, sizeof(mid), "audio%u", peer_connection->next_audio_mid++);
+        payload_type = 111;
+    } else {
+        (void) snprintf(mid, sizeof(mid), "video%u", peer_connection->next_video_mid++);
+        payload_type = 96;
+    }
+
+    created = mrtc_media_transceiver_alloc(peer_connection,
+                                           init,
+                                           user_data,
+                                           mid,
+                                           peer_connection->next_media_ssrc++,
+                                           payload_type);
+    if (created == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    if (peer_connection->transceivers == 0) {
+        peer_connection->transceivers = created;
+    } else {
+        MRTC_RTP_TRANSCEIVER_HANDLE tail = peer_connection->transceivers;
+        while (tail->next != 0) {
+            tail = tail->next;
+        }
+        tail->next = created;
+    }
+
+    *transceiver = created;
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_transceiver_set_callbacks(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                           const MRTC_TRANSCEIVER_CALLBACKS *callbacks,
+                                           void *user_data)
+{
+    if (transceiver == 0 || callbacks == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    transceiver->callbacks = *callbacks;
+    transceiver->user_data = user_data;
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_transceiver_on_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                      void (*on_frame)(void *user_data,
+                                                       MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                       const MRTC_FRAME *frame),
+                                      void *user_data)
+{
+    if (transceiver == 0 || on_frame == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    transceiver->callbacks.on_frame = on_frame;
+    transceiver->user_data = user_data;
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_transceiver_on_picture_loss(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                             void (*on_picture_loss)(void *user_data,
+                                                                     MRTC_RTP_TRANSCEIVER_HANDLE transceiver),
+                                             void *user_data)
+{
+    if (transceiver == 0 || on_picture_loss == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    transceiver->callbacks.on_picture_loss = on_picture_loss;
+    transceiver->user_data = user_data;
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                         const MRTC_FRAME *frame)
+{
+    if (transceiver == 0 || frame == 0 || (frame->data == 0 && frame->size > 0) || frame->size == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (transceiver->direction == MRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY ||
+        transceiver->direction == MRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (transceiver->owner == 0 || !transceiver->owner->srtp_session.ready) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    return MRTC_STATUS_INVALID_STATE;
+}
+
+void mrtc_transceiver_free(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
+{
+    MRTC_PEER_CONNECTION_HANDLE owner;
+
+    if (transceiver == 0) {
+        return;
+    }
+
+    owner = transceiver->owner;
+    if (owner != 0) {
+        MRTC_RTP_TRANSCEIVER_HANDLE *cursor = &owner->transceivers;
+        while (*cursor != 0) {
+            if (*cursor == transceiver) {
+                *cursor = transceiver->next;
+                transceiver->owner = 0;
+                transceiver->next = 0;
+                mrtc_media_transceiver_free_internal(transceiver);
+                return;
+            }
+            cursor = &(*cursor)->next;
+        }
+    }
+
+    mrtc_media_transceiver_free_internal(transceiver);
 }
 
 MRTC_STATUS mrtc_data_channel_set_callbacks(MRTC_DATA_CHANNEL_HANDLE channel,
