@@ -105,8 +105,8 @@
 4. C 端到 Chrome、Chrome 到 C 端的 H264 和 Opus 媒体路径都有可观察输出。
 
 **Plans:**
-- Wave 1: `.planning/phases/05-h264-opus/05-01-PLAN.md` — Planned. 媒体 Public API、Transceiver 与 SDP 合约。
-- Wave 1: `.planning/phases/05-h264-opus/05-02-PLAN.md` — Planned. RTP Packet 与 H264/Opus Codec Primitives。
+- Wave 1: `.planning/phases/05-h264-opus/05-01-PLAN.md` — Complete. 媒体 Public API、Transceiver 与 SDP 合约。
+- Wave 1: `.planning/phases/05-h264-opus/05-02-PLAN.md` — Complete. RTP Packet 与 H264/Opus Codec Primitives。
 - Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/05-h264-opus/05-03-PLAN.md` — Planned. SRTP 媒体发送/接收集成。
 - Wave 3 *(blocked on Wave 2 completion)*: `.planning/phases/05-h264-opus/05-04-PLAN.md` — Planned. RTCP SR/RR、NACK 重传与 PLI 回调。
 - Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/05-h264-opus/05-05-PLAN.md` — Planned. 固定媒体 Fixture、双向 Harness 与收口。

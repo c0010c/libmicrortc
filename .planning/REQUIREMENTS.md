@@ -33,7 +33,7 @@
 - [ ] **PROTO-01**: 核心库必须包含可独立构建的 ICE/STUN/TURN 模块。
 - [ ] **PROTO-02**: 核心库必须包含 DTLS 模块，并优先使用 OpenSSL 路径。
 - [ ] **PROTO-03**: 核心库必须包含 SRTP 会话模块，用于音视频 RTP 保护。
-- [ ] **PROTO-04**: 核心库必须包含 RTP/RTCP 模块，支持基本 packetize/depacketize、RTCP 处理和 NACK 相关路径。
+- [x] **PROTO-04**: 核心库必须包含 RTP/RTCP 模块，支持基本 packetize/depacketize、RTCP 处理和 NACK 相关路径。
 - [ ] **PROTO-05**: 核心库必须包含 SCTP/DataChannel 模块。
 - [x] **PROTO-06**: 核心库必须包含 SDP 序列化和反序列化能力。
 - [x] **PROTO-07**: 核心库不得依赖 AWS KVS signaling client 才能完成 PeerConnection 协议流程。
@@ -43,9 +43,9 @@
 - [x] **MEDIA-01**: 核心库只接收和输出编码后媒体帧，不实现音视频采集。
 - [x] **MEDIA-02**: 核心库不实现音视频编码器，v1 使用外部或固定测试文件提供编码后帧。
 - [x] **MEDIA-03**: v1 必须优先支持 H264 视频发送到 Chrome。
-- [ ] **MEDIA-04**: v1 必须优先支持从 Chrome 接收 H264 视频路径，并能在 demo/测试中证明收到媒体。
+- [x] **MEDIA-04**: v1 必须优先支持从 Chrome 接收 H264 视频路径，并能在 demo/测试中证明收到媒体。
 - [x] **MEDIA-05**: v1 必须优先支持 Opus 音频发送到 Chrome。
-- [ ] **MEDIA-06**: v1 必须优先支持从 Chrome 接收 Opus 音频路径，并能在 demo/测试中证明收到媒体。
+- [x] **MEDIA-06**: v1 必须优先支持从 Chrome 接收 Opus 音频路径，并能在 demo/测试中证明收到媒体。
 - [ ] **MEDIA-07**: C 端 E2E 发送媒体源必须支持读取固定 H264/Opus 测试文件。
 
 ### ICE 与网络互通
@@ -128,16 +128,16 @@
 | PROTO-01 | Phase 4 | Pending |
 | PROTO-02 | Phase 4 | Pending |
 | PROTO-03 | Phase 4 | Pending |
-| PROTO-04 | Phase 5 | Pending |
+| PROTO-04 | Phase 5 | Complete |
 | PROTO-05 | Phase 4 | Pending |
 | PROTO-06 | Phase 3 | Complete |
 | PROTO-07 | Phase 3 | Complete |
 | MEDIA-01 | Phase 5 | Complete |
 | MEDIA-02 | Phase 5 | Complete |
 | MEDIA-03 | Phase 5 | Complete |
-| MEDIA-04 | Phase 5 | Pending |
+| MEDIA-04 | Phase 5 | Complete |
 | MEDIA-05 | Phase 5 | Complete |
-| MEDIA-06 | Phase 5 | Pending |
+| MEDIA-06 | Phase 5 | Complete |
 | MEDIA-07 | Phase 5 | Pending |
 | NET-01 | Phase 4 | Pending |
 | NET-02 | Phase 4 | Pending |
