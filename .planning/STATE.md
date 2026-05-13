@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 5 — H264/Opus 媒体路径
-status: ready_for_phase_5
-last_updated: "2026-05-13T04:50:39.459Z"
+status: ready_to_execute_phase_5
+last_updated: "2026-05-13T05:02:02.585Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 8
+  total_plans: 13
   completed_plans: 8
-  percent: 100
+  percent: 62
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 4 implementation and verification are complete. The local ignored TURN config was provided, the full host/STUN/TURN/DTLS/SRTP/DataChannel verifier passed, and an additional real TURN UDP Allocate probe accepted the credential. Next focus is Phase 5 H264/Opus media path planning.
+**Current focus:** Phase 5 H264/Opus media path planning is complete. The phase is ready to execute across five plans covering media API/SDP, RTP/H264/Opus primitives, SRTP media integration, RTCP/NACK/PLI behavior, and fixed fixture verification.
 
 ## Artifacts
 
@@ -46,7 +46,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 2. 独立构建与库骨架 | Complete | 4 | 100% |
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
-| 5. H264/Opus 媒体路径 | Pending | 9 | 0% |
+| 5. H264/Opus 媒体路径 | Ready to execute | 9 | 5 plans ready |
 | 6. Chrome 自动化 E2E 与测试收口 | Pending | 13 | 0% |
 
 ## Decisions To Carry Forward
@@ -62,11 +62,11 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Start Phase 5 planning:
+Execute Phase 5:
 
 ```bash
-$gsd-discuss-phase 5
+$gsd-execute-phase 5
 ```
 
 ---
-*Last updated: 2026-05-13 after Phase 4 real-network verification passed*
+*Last updated: 2026-05-13 after Phase 5 planning*

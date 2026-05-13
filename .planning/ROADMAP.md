@@ -104,6 +104,20 @@
 3. 核心库不包含采集器或编码器，C 端发送媒体来自固定 H264/Opus 测试文件。
 4. C 端到 Chrome、Chrome 到 C 端的 H264 和 Opus 媒体路径都有可观察输出。
 
+**Plans:**
+- Wave 1: `.planning/phases/05-h264-opus/05-01-PLAN.md` — Planned. 媒体 Public API、Transceiver 与 SDP 合约。
+- Wave 1: `.planning/phases/05-h264-opus/05-02-PLAN.md` — Planned. RTP Packet 与 H264/Opus Codec Primitives。
+- Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/05-h264-opus/05-03-PLAN.md` — Planned. SRTP 媒体发送/接收集成。
+- Wave 3 *(blocked on Wave 2 completion)*: `.planning/phases/05-h264-opus/05-04-PLAN.md` — Planned. RTCP SR/RR、NACK 重传与 PLI 回调。
+- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/05-h264-opus/05-05-PLAN.md` — Planned. 固定媒体 Fixture、双向 Harness 与收口。
+
+**Cross-cutting constraints:**
+- 媒体 public API 必须保留 AWS 薄裁剪使用模型，但只暴露 `MRTC_*` / `mrtc_*` 和标准 C 类型。
+- H264 输入先锁定 Annex-B；固定 H264 fixture 必须在关键帧前包含 SPS/PPS。
+- Opus 使用长度前缀 packet fixture，不引入 Ogg、MP4、GStreamer、FFmpeg 或编码/解码职责。
+- RTCP/NACK 必须驱动行为：NACK 触发 rolling buffer 重发，PLI 触发 `on_picture_loss` 回调。
+- Phase 5 使用 C fixture harness 证明编码后媒体路径；完整 Chrome 自动化 E2E 仍属于 Phase 6。
+
 ### Phase 6: Chrome 自动化 E2E 与测试收口
 
 **Goal:** 建立自动化验收链路，启动 C demo 和 Chrome，完成 signaling 交换并断言连接、DataChannel、TURN relay、双向 H264/Opus 媒体真实流动。
