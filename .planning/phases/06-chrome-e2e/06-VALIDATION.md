@@ -37,10 +37,11 @@ created: 2026-05-13
 | 06-01-02 | 01 | 1 | TEST-03, TEST-04 | T-01-02 | output stages are explicit | cli | `tests/e2e/run-host-e2e.js --help` | W0 | pending |
 | 06-02-01 | 02 | 2 | E2E-01, E2E-07, E2E-08 | T-02-01 | C demo emits redacted structured events | integration | `./build/examples/chrome-e2e/mrtc_chrome_answerer --help` | W0 | pending |
 | 06-02-02 | 02 | 2 | E2E-05, E2E-07, E2E-08 | T-02-02 | fixed media source only, no capture/encoder | e2e | host Chrome runner smoke | W0 | pending |
-| 06-03-01 | 03 | 3 | E2E-04, E2E-05, E2E-06, E2E-07, E2E-08 | T-03-01 | browser stats use stable deltas | e2e | `npm --prefix tests/e2e run test:host` | W0 | pending |
-| 06-04-01 | 04 | 4 | NET-04 | T-04-01 | missing TURN config hard-fails | e2e | `npm --prefix tests/e2e run test:turn -- --turn-config ./mrtc-ice-servers.local.json` | W0 | pending |
-| 06-04-02 | 04 | 4 | NET-04, E2E-05, E2E-06, E2E-07, E2E-08 | T-04-02 | relay selected path is proven | e2e | relay-only Playwright spec | W0 | pending |
-| 06-05-01 | 05 | 5 | TEST-01, TEST-02, TEST-03, TEST-04 | T-05-01 | v1 script reports stage failures | cli | `scripts/verify-v1.sh` | W0 | pending |
+| 06-03-01 | 03 | 3 | E2E-03, E2E-04, E2E-05, TEST-02, TEST-04 | T-03-01 | real Chrome host transport reaches browser connected and DataChannel pong | e2e | `MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` | W0 | pending |
+| 06-04-01 | 04 | 4 | E2E-04, E2E-05, E2E-06, E2E-07, E2E-08 | T-04-01 | browser stats use stable deltas | e2e | `npm --prefix tests/e2e run test:host` | W0 | pending |
+| 06-05-01 | 05 | 5 | NET-04 | T-05-01 | missing TURN config hard-fails | e2e | `npm --prefix tests/e2e run test:turn -- --turn-config ./mrtc-ice-servers.local.json` | W0 | pending |
+| 06-05-02 | 05 | 5 | NET-04, E2E-05, E2E-06, E2E-07, E2E-08 | T-05-02 | relay selected path is proven | e2e | relay-only Playwright spec | W0 | pending |
+| 06-06-01 | 06 | 6 | TEST-01, TEST-02, TEST-03, TEST-04 | T-06-01 | v1 script reports stage failures | cli | `scripts/verify-v1.sh` | W0 | pending |
 
 ## Wave 0 Requirements
 
@@ -66,4 +67,3 @@ created: 2026-05-13
 - [x] `nyquist_compliant: true` set in frontmatter.
 
 **Approval:** pending
-

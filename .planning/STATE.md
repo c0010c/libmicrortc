@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: executing_phase_6
-last_updated: "2026-05-13T09:57:38.517Z"
+last_updated: "2026-05-13T11:16:11Z"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 18
+  total_plans: 19
   completed_plans: 15
-  percent: 83
+  percent: 79
 ---
 
 # State: libmicrortc
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/5 plans executed; C answerer demo and fixture media self-tests ready |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/6 plans executed; Chrome host transport repair inserted before media E2E |
 
 ## Decisions To Carry Forward
 
@@ -69,7 +69,7 @@ $gsd-execute-phase 6 --wave 3
 ```
 
 ---
-*Last updated: 2026-05-13 after Phase 6 Plan 02*
+*Last updated: 2026-05-13 after inserting Phase 6 Plan 03 transport repair*
 
 ## Performance Metrics
 
@@ -107,3 +107,4 @@ $gsd-execute-phase 6 --wave 3
 - [Phase 06]: 06-02: DataChannel label/id 以 read-only public accessor 暴露，避免 demo 直接读取 private struct。
 - [Phase 06]: 06-02: 媒体 fixture 发送在 example target 内使用现有 private media send hook 统计 RTP 包，不把该 hook 暴露到 public API。
 - [Phase 06]: 06-02: --self-test-media-callbacks 通过 protected RTP loopback 证明 on_frame 回调层统计，不只停留在 write_frame 调用。
+- [Phase 06]: 06-03 前置修复: Chrome host E2E 不能把 C demo 内部 connected/datachannel.open 当作浏览器互通成功；先补真实 host transport，再执行媒体 E2E。

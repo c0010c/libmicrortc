@@ -136,14 +136,15 @@
 **Plans:**
 - Wave 1: `.planning/phases/06-chrome-e2e/06-01-PLAN.md` — Complete. E2E tooling、Playwright 配置、本地 WebSocket signaling skeleton 和最小浏览器页面。
 - Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/06-chrome-e2e/06-02-PLAN.md` — Complete. C Answerer demo、DataChannel ping/pong、固定 H264/Opus 媒体源和 C 侧结构化事件。
-- Wave 3 *(blocked on Wave 1/2 completion)*: `.planning/phases/06-chrome-e2e/06-03-PLAN.md` — Planned. Chrome host E2E 的连接、DataChannel、浏览器媒体和 C 端媒体断言。
-- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Planned. TURN relay E2E、selected relay candidate stats 校验和 secret redaction。
-- Wave 5 *(blocked on Wave 3/4 completion)*: `.planning/phases/06-chrome-e2e/06-05-PLAN.md` — Planned. v1 总验收脚本、输出摘要、文档、状态和来源追溯收口。
+- Wave 3 *(blocked on Wave 1/2 completion)*: `.planning/phases/06-chrome-e2e/06-03-PLAN.md` — Planned. 真实 Chrome host transport 前置修复，确保 browser `connected` 与 DataChannel ping/pong 建立在真实可连接路径上。
+- Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Planned. Chrome host E2E 的连接、DataChannel、浏览器媒体和 C 端媒体断言。
+- Wave 5 *(blocked on Wave 4 completion)*: `.planning/phases/06-chrome-e2e/06-05-PLAN.md` — Planned. TURN relay E2E、selected relay candidate stats 校验和 secret redaction。
+- Wave 6 *(blocked on Wave 4/5 completion)*: `.planning/phases/06-chrome-e2e/06-06-PLAN.md` — Planned. v1 总验收脚本、输出摘要、文档、状态和来源追溯收口。
 
 **Cross-cutting constraints:**
 - WebSocket signaling、Playwright runner 和 C demo 都属于 demo/test 层；核心 `micrortc` target 不引入应用层 signaling、Node、WebSocket、GStreamer、FFmpeg 或媒体采集/编码依赖。
 - 默认 `ctest` 保持确定性 C/协议测试；Chrome E2E 使用显式命令运行。
-- Host Chrome E2E 必须证明 PeerConnection connected、DataChannel 双向消息、浏览器收到 H264/Opus、C 端收到 H264/Opus。
+- Host Chrome E2E 必须先证明真实 browser `RTCPeerConnection.connectionState === "connected"` 和 DataChannel 双向消息，再证明浏览器收到 H264/Opus、C 端收到 H264/Opus。
 - TURN relay E2E 是单独真实网络命令；缺少本地 TURN 配置时必须失败，不能静默跳过。
 - 真实 TURN credential 不得写入计划、文档、脚本默认值、测试日志、summary artifact 或提交内容。
 
