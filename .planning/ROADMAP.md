@@ -134,7 +134,7 @@
 6. 协议单元测试和 E2E 测试有清晰命令，输出能区分构建、协议测试、互通和媒体流动结果。
 
 **Plans:**
-- Wave 1: `.planning/phases/06-chrome-e2e/06-01-PLAN.md` — Planned. E2E tooling、Playwright 配置、本地 WebSocket signaling skeleton 和最小浏览器页面。
+- Wave 1: `.planning/phases/06-chrome-e2e/06-01-PLAN.md` — Complete. E2E tooling、Playwright 配置、本地 WebSocket signaling skeleton 和最小浏览器页面。
 - Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/06-chrome-e2e/06-02-PLAN.md` — Planned. C Answerer demo、DataChannel ping/pong、固定 H264/Opus 媒体源和 C 侧结构化事件。
 - Wave 3 *(blocked on Wave 1/2 completion)*: `.planning/phases/06-chrome-e2e/06-03-PLAN.md` — Planned. Chrome host E2E 的连接、DataChannel、浏览器媒体和 C 端媒体断言。
 - Wave 4 *(blocked on Wave 3 completion)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Planned. TURN relay E2E、selected relay candidate stats 校验和 secret redaction。

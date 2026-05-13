@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 06
-status: ready_to_execute_phase_6
-last_updated: "2026-05-13T09:14:50.902Z"
+status: executing_phase_6
+last_updated: "2026-05-13T09:36:01.966Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 13
-  percent: 72
+  completed_plans: 14
+  percent: 78
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 06 — Chrome 自动化 E2E 与测试收口
+**Current focus:** Phase 06 — chrome-e2e
 
 ## Artifacts
 
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | Planned | 13 | 5 plans ready; 0/5 executed |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 1/5 plans executed; E2E tooling skeleton ready |
 
 ## Decisions To Carry Forward
 
@@ -62,14 +62,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Execute Phase 6:
+Continue Phase 6:
 
 ```bash
-$gsd-execute-phase 6
+$gsd-execute-phase 6 --wave 2
 ```
 
 ---
-*Last updated: 2026-05-13 after Phase 6 planning*
+*Last updated: 2026-05-13 after Phase 6 Plan 01*
 
 ## Performance Metrics
 
@@ -80,6 +80,7 @@ $gsd-execute-phase 6
 | Phase 05-h264-opus P03 | 10min | 4 tasks | 9 files |
 | Phase 05-h264-opus P04 | 13min | 4 tasks | 13 files |
 | Phase 05-h264-opus P05 | 11min | 4 tasks | 13 files |
+| Phase 06-chrome-e2e P01 | 11min | 4 tasks | 9 files |
 
 ## Decisions
 
@@ -98,3 +99,6 @@ $gsd-execute-phase 6
 - [Phase 05]: 05-05: Phase 5 完成标准采用固定 H264/Opus fixture C harness；Chrome 自动化 browser media E2E 明确保留在 Phase 6。
 - [Phase 05]: 05-05: H264 fixture 采用 Annex-B SPS/PPS/IDR bytestream，Opus fixture 采用 big-endian 16-bit length-prefixed packet 序列，不引入解码器或容器解析。
 - [Phase 05]: 05-05: installed static package 在导出 OpenSSL link dependency 时同步生成 find_dependency(OpenSSL)。
+- [Phase 06]: 06-01: Playwright/Node 依赖只固定在 tests/e2e，根目录不创建 package.json。
+- [Phase 06]: 06-01: WebSocket signaling server 只存在于 tests/e2e，C answerer 通过 stdio JSON line 接入，核心库不新增 signaling 依赖。
+- [Phase 06]: 06-01: 默认 CTest 不注册 Chrome/Playwright E2E；浏览器验收保持显式 npm 命令。
