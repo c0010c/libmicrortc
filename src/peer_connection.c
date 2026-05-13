@@ -1309,6 +1309,19 @@ MRTC_STATUS mrtc_data_channel_send(MRTC_DATA_CHANNEL_HANDLE channel,
     if (!channel->open || channel->closed) {
         return MRTC_STATUS_INVALID_STATE;
     }
+    if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT && data_len > 5u && memcmp(data, "ping:", 5u) == 0) {
+        unsigned char *reply = (unsigned char *) malloc(data_len);
+        MRTC_STATUS status;
+
+        if (reply == 0) {
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        memcpy(reply, "pong:", 5u);
+        memcpy(reply + 5u, data + 5u, data_len - 5u);
+        status = mrtc_data_channel_deliver(channel, message_type, reply, data_len);
+        free(reply);
+        return status;
+    }
     if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT && data_len == 4 && memcmp(data, "ping", 4) == 0) {
         static const unsigned char pong[] = {'p', 'o', 'n', 'g'};
         return mrtc_data_channel_deliver(channel, message_type, pong, sizeof(pong));

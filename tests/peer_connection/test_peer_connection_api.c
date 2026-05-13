@@ -31,6 +31,7 @@ typedef struct TestCallbacks {
     int saw_connected;
     int open_count;
     int text_pong_count;
+    int text_nonce_pong_count;
     int binary_count;
     int close_count;
     int media_frame_count;
@@ -84,6 +85,9 @@ static void on_data_channel_message(void *user_data,
     (void) channel;
     if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT && data_len == 4 && memcmp(data, "pong", 4) == 0) {
         callbacks->text_pong_count++;
+    }
+    if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT && data_len == 14 && memcmp(data, "pong:test-1234", 14) == 0) {
+        callbacks->text_nonce_pong_count++;
     }
     if (message_type == MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY && data_len == 4 &&
         data[0] == 0x00 && data[1] == 0x01 && data[2] == 0xFE && data[3] == 0xFF) {
@@ -365,8 +369,10 @@ int main(void)
     {
         const unsigned char binary[] = {0x00, 0x01, 0xFE, 0xFF};
         if (mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping", 4) != MRTC_STATUS_OK ||
+            mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, (const unsigned char *) "ping:test-1234", 14) != MRTC_STATUS_OK ||
             mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY, binary, sizeof(binary)) != MRTC_STATUS_OK ||
             callback_state.text_pong_count != 1 ||
+            callback_state.text_nonce_pong_count != 1 ||
             callback_state.binary_count != 1) {
             mrtc_peer_connection_free(handle);
             return 1;
