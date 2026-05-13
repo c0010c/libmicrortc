@@ -2,6 +2,7 @@
 #define MRTC_PEER_CONNECTION_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifndef MRTC_STATUS_DEFINED
 #define MRTC_STATUS_DEFINED
@@ -20,6 +21,7 @@ extern "C" {
 
 typedef struct MRTC_PEER_CONNECTION *MRTC_PEER_CONNECTION_HANDLE;
 typedef struct MRTC_DATA_CHANNEL *MRTC_DATA_CHANNEL_HANDLE;
+typedef struct MRTC_RTP_TRANSCEIVER *MRTC_RTP_TRANSCEIVER_HANDLE;
 
 typedef struct MRTC_ICE_SERVER {
     const char *urls;
@@ -41,6 +43,38 @@ typedef enum MRTC_DATA_CHANNEL_MESSAGE_TYPE {
     MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY = 1
 } MRTC_DATA_CHANNEL_MESSAGE_TYPE;
 
+typedef enum MRTC_MEDIA_KIND {
+    MRTC_MEDIA_KIND_AUDIO = 0,
+    MRTC_MEDIA_KIND_VIDEO = 1
+} MRTC_MEDIA_KIND;
+
+typedef enum MRTC_CODEC {
+    MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1 = 0,
+    MRTC_CODEC_OPUS = 1
+} MRTC_CODEC;
+
+typedef enum MRTC_RTP_TRANSCEIVER_DIRECTION {
+    MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV = 0,
+    MRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY = 1,
+    MRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY = 2,
+    MRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE = 3
+} MRTC_RTP_TRANSCEIVER_DIRECTION;
+
+typedef enum MRTC_FRAME_FLAG {
+    MRTC_FRAME_FLAG_NONE = 0,
+    MRTC_FRAME_FLAG_KEY_FRAME = 1u << 0
+} MRTC_FRAME_FLAG;
+
+typedef struct MRTC_FRAME {
+    const unsigned char *data;
+    size_t size;
+    uint64_t presentation_ts;
+    uint64_t decoding_ts;
+    uint64_t duration;
+    uint64_t index;
+    uint32_t flags;
+} MRTC_FRAME;
+
 typedef struct MRTC_DATA_CHANNEL_INIT {
     int ordered;
     int negotiated;
@@ -56,6 +90,20 @@ typedef struct MRTC_DATA_CHANNEL_CALLBACKS {
                        size_t data_len);
     void (*on_close)(void *user_data, MRTC_DATA_CHANNEL_HANDLE channel);
 } MRTC_DATA_CHANNEL_CALLBACKS;
+
+typedef struct MRTC_TRANSCEIVER_CALLBACKS {
+    void (*on_frame)(void *user_data,
+                     MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                     const MRTC_FRAME *frame);
+    void (*on_picture_loss)(void *user_data, MRTC_RTP_TRANSCEIVER_HANDLE transceiver);
+} MRTC_TRANSCEIVER_CALLBACKS;
+
+typedef struct MRTC_TRANSCEIVER_INIT {
+    MRTC_MEDIA_KIND kind;
+    MRTC_CODEC codec;
+    MRTC_RTP_TRANSCEIVER_DIRECTION direction;
+    MRTC_TRANSCEIVER_CALLBACKS callbacks;
+} MRTC_TRANSCEIVER_INIT;
 
 typedef struct MRTC_PEER_CONNECTION_CONFIG {
     const char *bundle_policy;
@@ -103,6 +151,31 @@ MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE
                                                      const MRTC_DATA_CHANNEL_CALLBACKS *callbacks,
                                                      void *user_data,
                                                      MRTC_DATA_CHANNEL_HANDLE *channel);
+
+MRTC_STATUS mrtc_peer_connection_add_transceiver(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                 const MRTC_TRANSCEIVER_INIT *init,
+                                                 void *user_data,
+                                                 MRTC_RTP_TRANSCEIVER_HANDLE *transceiver);
+
+MRTC_STATUS mrtc_transceiver_set_callbacks(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                           const MRTC_TRANSCEIVER_CALLBACKS *callbacks,
+                                           void *user_data);
+
+MRTC_STATUS mrtc_transceiver_on_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                      void (*on_frame)(void *user_data,
+                                                       MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                       const MRTC_FRAME *frame),
+                                      void *user_data);
+
+MRTC_STATUS mrtc_transceiver_on_picture_loss(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                             void (*on_picture_loss)(void *user_data,
+                                                                     MRTC_RTP_TRANSCEIVER_HANDLE transceiver),
+                                             void *user_data);
+
+MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                         const MRTC_FRAME *frame);
+
+void mrtc_transceiver_free(MRTC_RTP_TRANSCEIVER_HANDLE transceiver);
 
 MRTC_STATUS mrtc_data_channel_set_callbacks(MRTC_DATA_CHANNEL_HANDLE channel,
                                             const MRTC_DATA_CHANNEL_CALLBACKS *callbacks,

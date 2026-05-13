@@ -32,6 +32,8 @@ typedef struct TestCallbacks {
     int text_pong_count;
     int binary_count;
     int close_count;
+    int media_frame_count;
+    int picture_loss_count;
 } TestCallbacks;
 
 static void on_ice_candidate(void *user_data, const char *candidate)
@@ -85,6 +87,62 @@ static void on_data_channel_message(void *user_data,
     }
 }
 
+static void on_media_frame(void *user_data, MRTC_RTP_TRANSCEIVER_HANDLE transceiver, const MRTC_FRAME *frame)
+{
+    TestCallbacks *callbacks = (TestCallbacks *) user_data;
+    (void) transceiver;
+    if (frame != 0 && frame->data != 0 && frame->size > 0) {
+        callbacks->media_frame_count++;
+    }
+}
+
+static void on_picture_loss(void *user_data, MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
+{
+    TestCallbacks *callbacks = (TestCallbacks *) user_data;
+    (void) transceiver;
+    callbacks->picture_loss_count++;
+}
+
+static int media_api_contract_is_visible(void)
+{
+    MRTC_TRANSCEIVER_INIT init = {0};
+    MRTC_TRANSCEIVER_CALLBACKS media_callbacks = {0};
+    MRTC_FRAME frame = {0};
+    unsigned char payload[] = {0x65, 0x88};
+
+    media_callbacks.on_frame = on_media_frame;
+    media_callbacks.on_picture_loss = on_picture_loss;
+    init.kind = MRTC_MEDIA_KIND_VIDEO;
+    init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+    init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    init.callbacks = media_callbacks;
+
+    frame.data = payload;
+    frame.size = sizeof(payload);
+    frame.presentation_ts = 1000;
+    frame.decoding_ts = 900;
+    frame.duration = 33333;
+    frame.index = 7;
+    frame.flags = MRTC_FRAME_FLAG_KEY_FRAME;
+
+    return init.kind == MRTC_MEDIA_KIND_VIDEO &&
+           init.codec == MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1 &&
+           init.direction == MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV &&
+           init.callbacks.on_frame == on_media_frame &&
+           frame.data == payload &&
+           frame.size == sizeof(payload) &&
+           frame.presentation_ts == 1000 &&
+           frame.decoding_ts == 900 &&
+           frame.duration == 33333 &&
+           frame.index == 7 &&
+           (frame.flags & MRTC_FRAME_FLAG_KEY_FRAME) != 0 &&
+           MRTC_MEDIA_KIND_AUDIO == 0 &&
+           MRTC_CODEC_OPUS == 1 &&
+           MRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY == 1 &&
+           MRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY == 2 &&
+           MRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE == 3;
+}
+
 int main(void)
 {
     MRTC_ICE_SERVER ice_server = {"turn:example.test:3478?transport=udp", "user", "secret"};
@@ -107,6 +165,10 @@ int main(void)
     channel_callbacks.on_close = on_data_channel_close;
 
     if (!read_fixture(offer, sizeof(offer))) {
+        return 1;
+    }
+
+    if (!media_api_contract_is_visible()) {
         return 1;
     }
 
