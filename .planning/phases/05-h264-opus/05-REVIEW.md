@@ -42,10 +42,16 @@ files_reviewed_list:
   - tests/sdp/test_sdp_roundtrip.c
   - tests/transport/test_dtls_srtp.c
 findings:
+  critical: 0
+  warning: 2
+  info: 0
+  total: 2
+original_findings:
   critical: 2
   warning: 3
   info: 0
   total: 5
+remediation_commit: a8bc539
 status: issues_found
 ---
 
@@ -60,11 +66,26 @@ status: issues_found
 
 审查覆盖了 Phase 05 的公共 API、RTP/H264/Opus/RTCP/SRTP 媒体路径、SDP 生成、打包配置和相关测试/fixture。当前 `build` 配置中 `MRTC_SRTP_LIBRARY` 与 `MRTC_USRSCTP_LIBRARY` 均为 `NOTFOUND`，`ctest --test-dir build --output-on-failure` 18/18 通过，但这些测试是在 SRTP 明文透传 fallback 下通过的，不能证明真实 WebRTC 安全媒体路径可用。
 
-主要风险集中在两处：默认缺少 libsrtp 时仍把会话标记为 ready 并明文传 RTP/RTCP；接收端按 payload type 绑定 SSRC 时会先绑定到不能接收的 transceiver，导致合法入站媒体被永久拒绝。
+主要风险最初集中在两处：默认缺少 libsrtp 时仍把会话标记为 ready 并使用可检测的 RTP/RTCP passthrough fallback；接收端按 payload type 绑定 SSRC 时会先绑定到不能接收的 transceiver，导致合法入站媒体被永久拒绝。
+
+## Remediation Update
+
+修复提交：`a8bc539 fix(05): address media review findings`
+
+当前开放项：
+
+- `CR-01` 已降级为 Phase 6/真实依赖风险：Phase 5 计划明确要求无 libsrtp 时保留 deterministic passthrough fallback，并通过 `mrtc_srtp_session_is_passthrough()` 可检测；真实 libsrtp/browser E2E 属于 Phase 6。
+- `WR-03` 仍为 warning：默认 SDP helper 的固定 ICE/fingerprint 测试便利入口后续应收紧或限制可见性。
+
+已修复项：
+
+- `CR-02` 已修复：入站 SSRC 只绑定到可接收 transceiver，并补充 sendonly-before-recvonly 回归测试。
+- `WR-01` 已修复：H264 packetizer 改为动态 NALU 表，并补充超过 32 个 NALU 的回归测试。
+- `WR-02` 已修复：H264 接收缓冲增加最大帧大小与扩容/加法溢出保护。
 
 ## Critical Issues
 
-### CR-01: SRTP 缺失时媒体路径退化为明文透传 [BLOCKER]
+### CR-01: SRTP 缺失时媒体路径退化为明文透传 [ACCEPTED RISK FOR PHASE 5]
 
 **File:** `src/srtp/srtp_session.c:116`
 
@@ -89,7 +110,7 @@ status: issues_found
 
 同时让配置在启用真实媒体功能时强制发现 libsrtp，并新增一个测试断言：协商完成后 `mrtc_peer_connection_media_is_srtp_passthrough(peer_connection)` 必须为 false，或在无 libsrtp 构建下连接失败而不是明文发送。
 
-### CR-02: 入站 SSRC 会绑定到 sendonly/inactive transceiver，后续合法媒体被拒绝 [BLOCKER]
+### CR-02: 入站 SSRC 会绑定到 sendonly/inactive transceiver，后续合法媒体被拒绝 [FIXED]
 
 **File:** `src/peer_connection.c:259`
 
@@ -115,7 +136,7 @@ if (!mrtc_transceiver_can_receive(current)) {
 
 ## Warnings
 
-### WR-01: H264 packetizer 固定最多 32 个 NALU，会拒绝合法多 slice 帧 [WARNING]
+### WR-01: H264 packetizer 固定最多 32 个 NALU，会拒绝合法多 slice 帧 [FIXED]
 
 **File:** `src/rtp/codecs/h264.c:177`
 
@@ -123,7 +144,7 @@ if (!mrtc_transceiver_can_receive(current)) {
 
 **Fix:** 改成两遍解析：第一遍只计数，第二遍按实际 NALU 数动态分配数组；或者在 packetize 过程中边解析边累计 payload 大小，避免保存固定长度 NALU 表。新增超过 32 个小 NALU 的 Annex-B fixture/单测。
 
-### WR-02: H264 接收重组缓冲区对远端输入没有上限或溢出保护 [WARNING]
+### WR-02: H264 接收重组缓冲区对远端输入没有上限或溢出保护 [FIXED]
 
 **File:** `src/peer_connection.c:318`
 
