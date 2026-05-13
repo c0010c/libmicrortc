@@ -5,6 +5,9 @@
 #include "dtls/dtls_session.h"
 #include "ice/ice_agent.h"
 #include "media/media_transceiver.h"
+#include "rtp/codecs/h264.h"
+#include "rtp/codecs/opus.h"
+#include "rtp/rtp_packet.h"
 #include "sdp.h"
 #include "srtp/srtp_session.h"
 #include "sctp/sctp_session.h"
@@ -42,10 +45,17 @@ struct MRTC_PEER_CONNECTION {
     unsigned short next_stream_id;
     MRTC_DATA_CHANNEL_HANDLE data_channels;
     MRTC_RTP_TRANSCEIVER_HANDLE transceivers;
+    MRTC_MEDIA_SEND_HOOK media_send_hook;
+    void *media_send_hook_user_data;
     unsigned int next_audio_mid;
     unsigned int next_video_mid;
     uint32_t next_media_ssrc;
 };
+
+#define MRTC_MEDIA_RTP_MTU 1200u
+#define MRTC_MEDIA_SRTP_TRAILER_CAPACITY 32u
+#define MRTC_H264_CLOCK_RATE 90000u
+#define MRTC_100NS_PER_SECOND_U64 10000000ull
 
 static int mrtc_string_equals(const char *left, const char *right)
 {
@@ -208,6 +218,14 @@ static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECT
     }
     peer_connection->dtls_started = 1;
     return MRTC_STATUS_OK;
+}
+
+static uint32_t mrtc_video_rtp_timestamp_from_frame(const MRTC_FRAME *frame)
+{
+    if (frame == 0) {
+        return 0;
+    }
+    return (uint32_t) ((frame->presentation_ts * (uint64_t) MRTC_H264_CLOCK_RATE) / MRTC_100NS_PER_SECOND_U64);
 }
 
 static void mrtc_free_ice_servers(MRTC_PEER_CONNECTION_HANDLE peer_connection)
@@ -641,6 +659,17 @@ MRTC_STATUS mrtc_transceiver_on_picture_loss(MRTC_RTP_TRANSCEIVER_HANDLE transce
 MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
                                          const MRTC_FRAME *frame)
 {
+    MRTC_PEER_CONNECTION_HANDLE owner;
+    uint8_t *payloads = 0;
+    size_t payloads_size = 0;
+    size_t *payload_lengths = 0;
+    size_t payload_count = 0;
+    size_t payload_offset = 0;
+    uint32_t rtp_timestamp;
+    uint16_t sequence_number;
+    size_t i;
+    MRTC_STATUS status;
+
     if (transceiver == 0 || frame == 0 || (frame->data == 0 && frame->size > 0) || frame->size == 0) {
         return MRTC_STATUS_INVALID_ARG;
     }
@@ -651,8 +680,146 @@ MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver
     if (transceiver->owner == 0 || !transceiver->owner->srtp_session.ready) {
         return MRTC_STATUS_INVALID_STATE;
     }
+    owner = transceiver->owner;
+    if (!owner->has_remote_description || !owner->has_local_description || !owner->selected_pair_ready ||
+        owner->media_send_hook == 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
 
-    return MRTC_STATUS_INVALID_STATE;
+    if (transceiver->codec == MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1) {
+        status = mrtc_h264_packetize_annexb(frame->data,
+                                            frame->size,
+                                            MRTC_MEDIA_RTP_MTU,
+                                            0,
+                                            &payloads_size,
+                                            0,
+                                            &payload_count);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        payloads = (uint8_t *) malloc(payloads_size);
+        payload_lengths = (size_t *) calloc(payload_count, sizeof(*payload_lengths));
+        if (payloads == 0 || payload_lengths == 0) {
+            free(payloads);
+            free(payload_lengths);
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        status = mrtc_h264_packetize_annexb(frame->data,
+                                            frame->size,
+                                            MRTC_MEDIA_RTP_MTU,
+                                            payloads,
+                                            &payloads_size,
+                                            payload_lengths,
+                                            &payload_count);
+        rtp_timestamp = mrtc_video_rtp_timestamp_from_frame(frame);
+    } else if (transceiver->codec == MRTC_CODEC_OPUS) {
+        payload_count = 1u;
+        status = mrtc_opus_payload_frame(frame, 0, &payloads_size);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        payloads = (uint8_t *) malloc(payloads_size);
+        payload_lengths = (size_t *) calloc(1u, sizeof(*payload_lengths));
+        if (payloads == 0 || payload_lengths == 0) {
+            free(payloads);
+            free(payload_lengths);
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        payload_lengths[0] = payloads_size;
+        status = mrtc_opus_payload_frame(frame, payloads, &payloads_size);
+        rtp_timestamp = mrtc_opus_rtp_timestamp_from_frame(frame);
+    } else {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (status != MRTC_STATUS_OK) {
+        free(payloads);
+        free(payload_lengths);
+        return status;
+    }
+
+    sequence_number = transceiver->sequence_number;
+    for (i = 0; i < payload_count; ++i) {
+        MRTC_RTP_PACKET rtp_packet;
+        size_t raw_capacity = MRTC_RTP_FIXED_HEADER_SIZE + payload_lengths[i] + MRTC_MEDIA_SRTP_TRAILER_CAPACITY;
+        uint8_t *raw = (uint8_t *) malloc(raw_capacity);
+        size_t raw_size = 0;
+        size_t protected_size;
+
+        if (raw == 0) {
+            free(payloads);
+            free(payload_lengths);
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        status = mrtc_rtp_packet_build(&rtp_packet,
+                                       (uint8_t) (i + 1u == payload_count),
+                                       transceiver->payload_type,
+                                       sequence_number,
+                                       rtp_timestamp,
+                                       transceiver->local_ssrc,
+                                       payloads + payload_offset,
+                                       payload_lengths[i]);
+        if (status == MRTC_STATUS_OK) {
+            status = mrtc_rtp_packet_serialize(&rtp_packet, raw, raw_capacity, &raw_size);
+        }
+        protected_size = raw_size;
+        if (status == MRTC_STATUS_OK) {
+            status = mrtc_srtp_protect_rtp(&owner->srtp_session, raw, raw_capacity, &protected_size);
+        }
+        if (status == MRTC_STATUS_OK) {
+            status = mrtc_peer_connection_send_protected_media_packet(owner, transceiver, raw, protected_size);
+        }
+        if (status != MRTC_STATUS_OK) {
+            free(raw);
+            free(payloads);
+            free(payload_lengths);
+            return status;
+        }
+
+        free(raw);
+        sequence_number = mrtc_rtp_sequence_next(sequence_number);
+        transceiver->sequence_number = sequence_number;
+        payload_offset += payload_lengths[i];
+    }
+
+    transceiver->frames_sent++;
+    free(payloads);
+    free(payload_lengths);
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_peer_connection_set_media_send_hook(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                     MRTC_MEDIA_SEND_HOOK hook,
+                                                     void *user_data)
+{
+    if (peer_connection == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    peer_connection->media_send_hook = hook;
+    peer_connection->media_send_hook_user_data = user_data;
+    return MRTC_STATUS_OK;
+}
+
+int mrtc_peer_connection_media_is_srtp_passthrough(MRTC_PEER_CONNECTION_HANDLE peer_connection)
+{
+    return peer_connection != 0 && mrtc_srtp_session_is_passthrough(&peer_connection->srtp_session);
+}
+
+MRTC_STATUS mrtc_peer_connection_send_protected_media_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                            MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                            const uint8_t *packet,
+                                                            size_t packet_size)
+{
+    if (peer_connection == 0 || transceiver == 0 || packet == 0 || packet_size == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (peer_connection->media_send_hook == 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    return peer_connection->media_send_hook(peer_connection->media_send_hook_user_data,
+                                            peer_connection,
+                                            transceiver,
+                                            packet,
+                                            packet_size);
 }
 
 void mrtc_transceiver_free(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
