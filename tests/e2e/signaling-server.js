@@ -7,7 +7,8 @@ const readline = require("node:readline");
 const { spawn } = require("node:child_process");
 const { WebSocket, WebSocketServer } = require("ws");
 
-const MESSAGE_TYPES = new Set(["hello", "offer", "answer", "candidate", "event", "done", "error"]);
+const MESSAGE_TYPES = new Set(["hello", "offer", "answer", "candidate", "event", "done", "error", "start-media", "stop"]);
+const ANSWERER_INPUT_TYPES = new Set(["hello", "offer", "candidate", "start-media", "stop"]);
 const SECRET_KEYS = new Set(["credential", "password", "username"]);
 
 function usage() {
@@ -211,7 +212,7 @@ async function startServer(options) {
         const message = normalizeMessage(data, "browser websocket");
         summary.messages.push({ direction: "browser-to-answerer", message: redactSecrets(message) });
         logEvent("browser", message.type, message);
-        if (child && child.stdin.writable) {
+        if (child && child.stdin.writable && ANSWERER_INPUT_TYPES.has(message.type)) {
           child.stdin.write(`${JSON.stringify(message)}\n`);
         }
       } catch (error) {
@@ -281,6 +282,7 @@ if (require.main === module) {
 
 module.exports = {
   MESSAGE_TYPES,
+  ANSWERER_INPUT_TYPES,
   normalizeMessage,
   parseArgs,
   redactSecrets,

@@ -20,6 +20,7 @@
   let pc = null;
   let ws = null;
   let dataChannel = null;
+  const pendingRemoteCandidates = [];
 
   function recordEvent(name, fields) {
     const event = {
@@ -187,14 +188,16 @@
       await pc.setRemoteDescription({ type: "answer", sdp: message.sdp });
       state.answerApplied = true;
       recordEvent("answer.applied");
+      while (pendingRemoteCandidates.length) {
+        await applyRemoteCandidate(pendingRemoteCandidates.shift());
+      }
     } else if (message.type === "candidate") {
-      state.candidatesReceived += 1;
-      await pc.addIceCandidate({
-        candidate: message.candidate,
-        sdpMid: message.sdpMid || null,
-        sdpMLineIndex: typeof message.sdpMLineIndex === "number" ? message.sdpMLineIndex : null,
-      });
-      recordEvent("candidate.applied");
+      if (!state.answerApplied) {
+        pendingRemoteCandidates.push(message);
+        recordEvent("candidate.queued");
+      } else {
+        await applyRemoteCandidate(message);
+      }
     } else if (message.type === "event") {
       recordEvent(message.name || "remote.event", message.fields || {});
     } else if (message.type === "done") {
@@ -202,6 +205,16 @@
     } else if (message.type === "error") {
       recordError(message.stage || "remote", new Error(message.message || "remote error"));
     }
+  }
+
+  async function applyRemoteCandidate(message) {
+    state.candidatesReceived += 1;
+    await pc.addIceCandidate({
+      candidate: message.candidate,
+      sdpMid: message.sdpMid || null,
+      sdpMLineIndex: typeof message.sdpMLineIndex === "number" ? message.sdpMLineIndex : null,
+    });
+    recordEvent("candidate.applied");
   }
 
   async function connect() {
