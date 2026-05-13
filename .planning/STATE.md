@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 status: ready_to_execute_phase_6
-last_updated: "2026-05-13T06:30:00.000Z"
+last_updated: "2026-05-13T06:21:57.893Z"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -79,7 +79,7 @@ $gsd-execute-phase 6
 | Phase 05-h264-opus P02 | 8min | 5 tasks | 14 files |
 | Phase 05-h264-opus P03 | 10min | 4 tasks | 9 files |
 | Phase 05-h264-opus P04 | 13min | 4 tasks | 13 files |
-| Phase 05-h264-opus P05 | pending summary | 4 tasks | pending summary |
+| Phase 05-h264-opus P05 | 11min | 4 tasks | 13 files |
 
 ## Decisions
 
@@ -97,3 +97,4 @@ $gsd-execute-phase 6
 - [Phase 05]: 05-04: RTCP Plan 04 仅实现 SR/RR/NACK/PLI 最小行为，不实现 REMB/TWCC/FIR/SLI 或拥塞控制。
 - [Phase 05]: 05-05: Phase 5 完成标准采用固定 H264/Opus fixture C harness；Chrome 自动化 browser media E2E 明确保留在 Phase 6。
 - [Phase 05]: 05-05: H264 fixture 采用 Annex-B SPS/PPS/IDR bytestream，Opus fixture 采用 big-endian 16-bit length-prefixed packet 序列，不引入解码器或容器解析。
+- [Phase 05]: 05-05: installed static package 在导出 OpenSSL link dependency 时同步生成 find_dependency(OpenSSL)。

@@ -46,7 +46,7 @@
 - [x] **MEDIA-04**: v1 必须优先支持从 Chrome 接收 H264 视频路径，并能在 demo/测试中证明收到媒体。
 - [x] **MEDIA-05**: v1 必须优先支持 Opus 音频发送到 Chrome。
 - [x] **MEDIA-06**: v1 必须优先支持从 Chrome 接收 Opus 音频路径，并能在 demo/测试中证明收到媒体。
-- [ ] **MEDIA-07**: C 端 E2E 发送媒体源必须支持读取固定 H264/Opus 测试文件。
+- [x] **MEDIA-07**: C 端 E2E 发送媒体源必须支持读取固定 H264/Opus 测试文件。
 
 ### ICE 与网络互通
 
@@ -138,7 +138,7 @@
 | MEDIA-04 | Phase 5 | Complete |
 | MEDIA-05 | Phase 5 | Complete |
 | MEDIA-06 | Phase 5 | Complete |
-| MEDIA-07 | Phase 5 | Pending |
+| MEDIA-07 | Phase 5 | Complete |
 | NET-01 | Phase 4 | Pending |
 | NET-02 | Phase 4 | Pending |
 | NET-03 | Phase 4 | Pending |
