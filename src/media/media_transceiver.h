@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef struct MRTC_RTP_ROLLING_BUFFER MRTC_RTP_ROLLING_BUFFER;
+typedef struct MRTC_RTCP_RETRANSMIT_RESULT MRTC_RTCP_RETRANSMIT_RESULT;
+
 typedef MRTC_STATUS (*MRTC_MEDIA_SEND_HOOK)(void *user_data,
                                             MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                             MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
@@ -24,10 +27,14 @@ struct MRTC_RTP_TRANSCEIVER {
     uint16_t sequence_number;
     uint64_t frames_sent;
     uint64_t frames_received;
+    uint64_t nack_packets_received;
+    uint64_t retransmitted_packets_sent;
+    uint64_t retransmit_packets_missing;
     uint8_t *receive_frame_buffer;
     size_t receive_frame_size;
     size_t receive_frame_capacity;
     uint32_t receive_frame_timestamp;
+    MRTC_RTP_ROLLING_BUFFER *rtp_rolling_buffer;
     MRTC_TRANSCEIVER_CALLBACKS callbacks;
     void *user_data;
     struct MRTC_RTP_TRANSCEIVER *next;
@@ -54,5 +61,10 @@ MRTC_STATUS mrtc_peer_connection_send_protected_media_packet(MRTC_PEER_CONNECTIO
 MRTC_STATUS mrtc_peer_connection_receive_protected_media_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                                                const uint8_t *packet,
                                                                size_t packet_size);
+MRTC_STATUS mrtc_peer_connection_receive_protected_rtcp_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                              const uint8_t *packet,
+                                                              size_t packet_size,
+                                                              MRTC_RTCP_RETRANSMIT_RESULT *retransmit_result);
+MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_get_transceivers(MRTC_PEER_CONNECTION_HANDLE peer_connection);
 
 #endif /* MRTC_MEDIA_TRANSCEIVER_H */

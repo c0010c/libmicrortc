@@ -1,8 +1,12 @@
 #include "media_transceiver.h"
 
+#include "../rtcp/rtp_rolling_buffer.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define MRTC_TRANSCEIVER_RTP_ROLLING_BUFFER_CAPACITY 128u
 
 int mrtc_media_transceiver_kind_codec_valid(MRTC_MEDIA_KIND kind, MRTC_CODEC codec)
 {
@@ -63,12 +67,18 @@ MRTC_RTP_TRANSCEIVER_HANDLE mrtc_media_transceiver_alloc(MRTC_PEER_CONNECTION_HA
     transceiver->callbacks = init->callbacks;
     transceiver->user_data = user_data;
     (void) snprintf(transceiver->mid, sizeof(transceiver->mid), "%s", mid);
+    if (mrtc_rtp_rolling_buffer_create(MRTC_TRANSCEIVER_RTP_ROLLING_BUFFER_CAPACITY,
+                                       &transceiver->rtp_rolling_buffer) != MRTC_STATUS_OK) {
+        free(transceiver);
+        return 0;
+    }
     return transceiver;
 }
 
 void mrtc_media_transceiver_free_internal(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
 {
     if (transceiver != 0) {
+        mrtc_rtp_rolling_buffer_free(transceiver->rtp_rolling_buffer);
         free(transceiver->receive_frame_buffer);
     }
     free(transceiver);

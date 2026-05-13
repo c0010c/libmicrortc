@@ -7,6 +7,9 @@
 #include "media/media_transceiver.h"
 #include "rtp/codecs/h264.h"
 #include "rtp/codecs/opus.h"
+#include "rtcp/retransmitter.h"
+#include "rtcp/rtcp_packet.h"
+#include "rtcp/rtp_rolling_buffer.h"
 #include "rtp/rtp_packet.h"
 #include "sdp.h"
 #include "srtp/srtp_session.h"
@@ -886,6 +889,22 @@ MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver
             return status;
         }
 
+        /*
+         * Keep the exact protected packet bytes that were sent. NACK retransmit
+         * can resend these bytes directly through the media send hook without
+         * re-running SRTP protect for an old RTP sequence number.
+         */
+        status = mrtc_rtp_rolling_buffer_add(transceiver->rtp_rolling_buffer,
+                                             sequence_number,
+                                             raw,
+                                             protected_size);
+        if (status != MRTC_STATUS_OK) {
+            free(raw);
+            free(payloads);
+            free(payload_lengths);
+            return status;
+        }
+
         free(raw);
         sequence_number = mrtc_rtp_sequence_next(sequence_number);
         transceiver->sequence_number = sequence_number;
@@ -1041,6 +1060,52 @@ MRTC_STATUS mrtc_peer_connection_receive_protected_media_packet(MRTC_PEER_CONNEC
 
     free(mutable_packet);
     return status;
+}
+
+MRTC_STATUS mrtc_peer_connection_receive_protected_rtcp_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                              const uint8_t *packet,
+                                                              size_t packet_size,
+                                                              MRTC_RTCP_RETRANSMIT_RESULT *retransmit_result)
+{
+    uint8_t *mutable_packet;
+    size_t unprotected_size;
+    MRTC_RTCP_HEADER header;
+    MRTC_STATUS status;
+
+    if (peer_connection == 0 || packet == 0 || packet_size == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (!peer_connection->srtp_session.ready) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (retransmit_result != 0) {
+        memset(retransmit_result, 0, sizeof(*retransmit_result));
+    }
+
+    mutable_packet = (uint8_t *) malloc(packet_size);
+    if (mutable_packet == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    memcpy(mutable_packet, packet, packet_size);
+    unprotected_size = packet_size;
+
+    status = mrtc_srtp_unprotect_rtcp(&peer_connection->srtp_session, mutable_packet, &unprotected_size);
+    if (status == MRTC_STATUS_OK) {
+        status = mrtc_rtcp_parse_header(mutable_packet, unprotected_size, &header);
+    }
+    if (status == MRTC_STATUS_OK &&
+        header.packet_type == MRTC_RTCP_TYPE_RTPFB &&
+        header.count == MRTC_RTCP_FMT_NACK) {
+        status = mrtc_rtcp_retransmit_nack(peer_connection, mutable_packet, header.packet_size, retransmit_result);
+    }
+
+    free(mutable_packet);
+    return status;
+}
+
+MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_get_transceivers(MRTC_PEER_CONNECTION_HANDLE peer_connection)
+{
+    return peer_connection == 0 ? 0 : peer_connection->transceivers;
 }
 
 void mrtc_transceiver_free(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
