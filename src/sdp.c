@@ -1,5 +1,8 @@
 #include "sdp.h"
 
+#include "media/media_transceiver.h"
+
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -141,6 +144,28 @@ static MRTC_STATUS mrtc_append_line(char **buffer, size_t *len, size_t *capacity
     return MRTC_STATUS_OK;
 }
 
+static MRTC_STATUS mrtc_append_literal_line(char **buffer, size_t *len, size_t *capacity, const char *line)
+{
+    return mrtc_append_line(buffer, len, capacity, line, strlen(line));
+}
+
+static MRTC_STATUS mrtc_append_formatted_line(char **buffer, size_t *len, size_t *capacity, const char *format, ...)
+{
+    char line[256];
+    va_list args;
+    int written;
+
+    va_start(args, format);
+    written = vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+
+    if (written < 0 || (size_t) written >= sizeof(line)) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    return mrtc_append_line(buffer, len, capacity, line, (size_t) written);
+}
+
 static MRTC_STATUS mrtc_write_buffer(const char *value, char *buffer, size_t buffer_len, size_t *required_len)
 {
     size_t needed;
@@ -158,6 +183,282 @@ static MRTC_STATUS mrtc_write_buffer(const char *value, char *buffer, size_t buf
 
     memcpy(buffer, value, needed);
     return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_append_bundle_line(char **buffer,
+                                           size_t *len,
+                                           size_t *capacity,
+                                           MRTC_RTP_TRANSCEIVER_HANDLE transceivers,
+                                           int include_data_channel)
+{
+    char line[256];
+    size_t used;
+    MRTC_RTP_TRANSCEIVER_HANDLE current;
+
+    (void) snprintf(line, sizeof(line), "a=group:BUNDLE");
+    used = strlen(line);
+    current = transceivers;
+    while (current != 0) {
+        int written = snprintf(line + used, sizeof(line) - used, " %s", current->mid);
+        if (written < 0 || (size_t) written >= sizeof(line) - used) {
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        used += (size_t) written;
+        current = current->next;
+    }
+    if (include_data_channel) {
+        int written = snprintf(line + used, sizeof(line) - used, " data");
+        if (written < 0 || (size_t) written >= sizeof(line) - used) {
+            return MRTC_STATUS_INVALID_ARG;
+        }
+    }
+
+    return mrtc_append_line(buffer, len, capacity, line, strlen(line));
+}
+
+static MRTC_STATUS mrtc_append_common_media_attrs(char **buffer,
+                                                  size_t *len,
+                                                  size_t *capacity,
+                                                  MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                  const char *local_ice_ufrag,
+                                                  const char *local_ice_pwd,
+                                                  const char *local_fingerprint,
+                                                  const char *local_setup)
+{
+    MRTC_STATUS status;
+
+    status = mrtc_append_literal_line(buffer, len, capacity, "c=IN IP4 0.0.0.0");
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=mid:%s", transceiver->mid);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer,
+                                        len,
+                                        capacity,
+                                        "a=%s",
+                                        mrtc_media_transceiver_direction_name(transceiver->direction));
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_literal_line(buffer, len, capacity, "a=rtcp-mux");
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=ice-ufrag:%s", local_ice_ufrag);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=ice-pwd:%s", local_ice_pwd);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer,
+                                        len,
+                                        capacity,
+                                        "a=fingerprint:sha-256 %s",
+                                        local_fingerprint);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    return mrtc_append_formatted_line(buffer, len, capacity, "a=setup:%s", local_setup);
+}
+
+static MRTC_STATUS mrtc_append_transceiver_media(char **buffer,
+                                                 size_t *len,
+                                                 size_t *capacity,
+                                                 MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                 const char *local_ice_ufrag,
+                                                 const char *local_ice_pwd,
+                                                 const char *local_fingerprint,
+                                                 const char *local_setup)
+{
+    MRTC_STATUS status;
+
+    if (transceiver->kind == MRTC_MEDIA_KIND_AUDIO) {
+        status = mrtc_append_literal_line(buffer, len, capacity, "m=audio 9 UDP/TLS/RTP/SAVPF 111");
+    } else {
+        status = mrtc_append_literal_line(buffer, len, capacity, "m=video 9 UDP/TLS/RTP/SAVPF 96");
+    }
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+
+    status = mrtc_append_common_media_attrs(buffer,
+                                            len,
+                                            capacity,
+                                            transceiver,
+                                            local_ice_ufrag,
+                                            local_ice_pwd,
+                                            local_fingerprint,
+                                            local_setup);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+
+    if (transceiver->kind == MRTC_MEDIA_KIND_AUDIO) {
+        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtpmap:111 opus/48000/2");
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_append_literal_line(buffer, len, capacity, "a=fmtp:111 minptime=10;useinbandfec=1");
+    } else {
+        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtpmap:96 H264/90000");
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_append_literal_line(buffer,
+                                          len,
+                                          capacity,
+                                          "a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtcp-fb:96 nack");
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtcp-fb:96 nack pli");
+    }
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+
+    status = mrtc_append_formatted_line(buffer,
+                                        len,
+                                        capacity,
+                                        "a=ssrc:%u cname:libmicrortc",
+                                        transceiver->local_ssrc);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    return mrtc_append_formatted_line(buffer,
+                                      len,
+                                      capacity,
+                                      "a=ssrc:%u msid:libmicrortc %s",
+                                      transceiver->local_ssrc,
+                                      transceiver->mid);
+}
+
+static MRTC_STATUS mrtc_append_data_channel_media(char **buffer,
+                                                  size_t *len,
+                                                  size_t *capacity,
+                                                  const char *local_ice_ufrag,
+                                                  const char *local_ice_pwd,
+                                                  const char *local_fingerprint,
+                                                  const char *local_setup)
+{
+    MRTC_STATUS status;
+
+    status = mrtc_append_literal_line(buffer, len, capacity, "m=application 9 UDP/DTLS/SCTP webrtc-datachannel");
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_literal_line(buffer, len, capacity, "c=IN IP4 0.0.0.0");
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_literal_line(buffer, len, capacity, "a=mid:data");
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=ice-ufrag:%s", local_ice_ufrag);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=ice-pwd:%s", local_ice_pwd);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=fingerprint:sha-256 %s", local_fingerprint);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    status = mrtc_append_formatted_line(buffer, len, capacity, "a=setup:%s", local_setup);
+    if (status != MRTC_STATUS_OK) {
+        return status;
+    }
+    return mrtc_append_literal_line(buffer, len, capacity, "a=sctp-port:5000");
+}
+
+static MRTC_STATUS mrtc_sdp_create_media_description(MRTC_RTP_TRANSCEIVER_HANDLE transceivers,
+                                                     int include_data_channel,
+                                                     const char *local_ice_ufrag,
+                                                     const char *local_ice_pwd,
+                                                     const char *local_fingerprint,
+                                                     const char *local_setup,
+                                                     char *buffer,
+                                                     size_t buffer_len,
+                                                     size_t *required_len)
+{
+    MRTC_STATUS status;
+    char *sdp = 0;
+    size_t len = 0;
+    size_t capacity = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE current;
+
+    status = mrtc_append_literal_line(&sdp, &len, &capacity, "v=0");
+    if (status != MRTC_STATUS_OK) {
+        free(sdp);
+        return status;
+    }
+    status = mrtc_append_literal_line(&sdp, &len, &capacity, "o=- 0 0 IN IP4 127.0.0.1");
+    if (status != MRTC_STATUS_OK) {
+        free(sdp);
+        return status;
+    }
+    status = mrtc_append_literal_line(&sdp, &len, &capacity, "s=libmicrortc");
+    if (status != MRTC_STATUS_OK) {
+        free(sdp);
+        return status;
+    }
+    status = mrtc_append_literal_line(&sdp, &len, &capacity, "t=0 0");
+    if (status != MRTC_STATUS_OK) {
+        free(sdp);
+        return status;
+    }
+    status = mrtc_append_bundle_line(&sdp, &len, &capacity, transceivers, include_data_channel);
+    if (status != MRTC_STATUS_OK) {
+        free(sdp);
+        return status;
+    }
+
+    current = transceivers;
+    while (current != 0) {
+        status = mrtc_append_transceiver_media(&sdp,
+                                               &len,
+                                               &capacity,
+                                               current,
+                                               local_ice_ufrag,
+                                               local_ice_pwd,
+                                               local_fingerprint,
+                                               local_setup);
+        if (status != MRTC_STATUS_OK) {
+            free(sdp);
+            return status;
+        }
+        current = current->next;
+    }
+
+    if (include_data_channel) {
+        status = mrtc_append_data_channel_media(&sdp,
+                                                &len,
+                                                &capacity,
+                                                local_ice_ufrag,
+                                                local_ice_pwd,
+                                                local_fingerprint,
+                                                local_setup);
+        if (status != MRTC_STATUS_OK) {
+            free(sdp);
+            return status;
+        }
+    }
+
+    status = mrtc_write_buffer(sdp, buffer, buffer_len, required_len);
+    free(sdp);
+    return status;
 }
 
 MRTC_STATUS mrtc_sdp_parse(const char *sdp, MRTC_SDP **parsed_sdp)
@@ -307,6 +608,27 @@ MRTC_STATUS mrtc_sdp_create_answer_ex(const char *remote_offer,
                                       size_t buffer_len,
                                       size_t *required_len)
 {
+    return mrtc_sdp_create_answer_with_media(remote_offer,
+                                             include_data_channel,
+                                             0,
+                                             local_ice_ufrag,
+                                             local_ice_pwd,
+                                             local_fingerprint,
+                                             buffer,
+                                             buffer_len,
+                                             required_len);
+}
+
+MRTC_STATUS mrtc_sdp_create_answer_with_media(const char *remote_offer,
+                                              int include_data_channel,
+                                              MRTC_RTP_TRANSCEIVER_HANDLE transceivers,
+                                              const char *local_ice_ufrag,
+                                              const char *local_ice_pwd,
+                                              const char *local_fingerprint,
+                                              char *buffer,
+                                              size_t buffer_len,
+                                              size_t *required_len)
+{
     MRTC_STATUS status;
     MRTC_SDP *offer = 0;
     char answer[2048];
@@ -322,6 +644,19 @@ MRTC_STATUS mrtc_sdp_create_answer_ex(const char *remote_offer,
     }
 
     local_setup = mrtc_local_setup_from_remote(offer->setup);
+    if (transceivers != 0) {
+        mrtc_sdp_free(offer);
+        return mrtc_sdp_create_media_description(transceivers,
+                                                 include_data_channel,
+                                                 local_ice_ufrag,
+                                                 local_ice_pwd,
+                                                 local_fingerprint,
+                                                 local_setup,
+                                                 buffer,
+                                                 buffer_len,
+                                                 required_len);
+    }
+
     (void) snprintf(answer,
                    sizeof(answer),
                    "v=0\r\n"
@@ -370,6 +705,30 @@ MRTC_STATUS mrtc_sdp_create_answer_ex(const char *remote_offer,
 
     mrtc_sdp_free(offer);
     return mrtc_write_buffer(answer, buffer, buffer_len, required_len);
+}
+
+MRTC_STATUS mrtc_sdp_create_offer_with_media(int include_data_channel,
+                                             MRTC_RTP_TRANSCEIVER_HANDLE transceivers,
+                                             const char *local_ice_ufrag,
+                                             const char *local_ice_pwd,
+                                             const char *local_fingerprint,
+                                             char *buffer,
+                                             size_t buffer_len,
+                                             size_t *required_len)
+{
+    if (transceivers == 0 || local_ice_ufrag == 0 || local_ice_pwd == 0 || local_fingerprint == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    return mrtc_sdp_create_media_description(transceivers,
+                                             include_data_channel,
+                                             local_ice_ufrag,
+                                             local_ice_pwd,
+                                             local_fingerprint,
+                                             "actpass",
+                                             buffer,
+                                             buffer_len,
+                                             required_len);
 }
 
 const char *mrtc_sdp_get_setup(const MRTC_SDP *parsed_sdp)

@@ -411,14 +411,15 @@ MRTC_STATUS mrtc_peer_connection_create_answer(MRTC_PEER_CONNECTION_HANDLE peer_
         return MRTC_STATUS_INVALID_STATE;
     }
 
-    return mrtc_sdp_create_answer_ex(peer_connection->remote_description_sdp,
-                                     peer_connection->data_channels != 0,
-                                     peer_connection->local_ice_ufrag,
-                                     peer_connection->local_ice_pwd,
-                                     peer_connection->local_fingerprint,
-                                     buffer,
-                                     buffer_len,
-                                     required_len);
+    return mrtc_sdp_create_answer_with_media(peer_connection->remote_description_sdp,
+                                             peer_connection->data_channels != 0,
+                                             peer_connection->transceivers,
+                                             peer_connection->local_ice_ufrag,
+                                             peer_connection->local_ice_pwd,
+                                             peer_connection->local_fingerprint,
+                                             buffer,
+                                             buffer_len,
+                                             required_len);
 }
 
 MRTC_STATUS mrtc_peer_connection_set_local_description(MRTC_PEER_CONNECTION_HANDLE peer_connection,
@@ -468,15 +469,23 @@ MRTC_STATUS mrtc_peer_connection_create_offer(MRTC_PEER_CONNECTION_HANDLE peer_c
                                               size_t buffer_len,
                                               size_t *required_len)
 {
-    (void) buffer;
-    (void) buffer_len;
-
     if (peer_connection == 0 || required_len == 0) {
         return MRTC_STATUS_INVALID_ARG;
     }
 
-    *required_len = 0;
-    return MRTC_STATUS_NOT_IMPLEMENTED;
+    if (peer_connection->transceivers == 0) {
+        *required_len = 0;
+        return MRTC_STATUS_NOT_IMPLEMENTED;
+    }
+
+    return mrtc_sdp_create_offer_with_media(peer_connection->data_channels != 0,
+                                            peer_connection->transceivers,
+                                            peer_connection->local_ice_ufrag,
+                                            peer_connection->local_ice_pwd,
+                                            peer_connection->local_fingerprint,
+                                            buffer,
+                                            buffer_len,
+                                            required_len);
 }
 
 MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE peer_connection,

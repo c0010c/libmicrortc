@@ -306,7 +306,18 @@ int main(void)
     }
 
     if (!contains(answer, "v=0") || !contains(answer, "m=") || !contains(answer, "a=fingerprint:sha-256") ||
-        !contains(answer, "a=ice-ufrag:") || !contains(answer, "m=application") || !contains(answer, "a=sctp-port:5000")) {
+        !contains(answer, "a=ice-ufrag:") || !contains(answer, "m=application") || !contains(answer, "a=sctp-port:5000") ||
+        !contains(answer, "m=video 9 UDP/TLS/RTP/SAVPF 96") ||
+        !contains(answer, "a=mid:video0") ||
+        !contains(answer, "a=rtpmap:96 H264/90000") ||
+        !contains(answer, "a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f") ||
+        !contains(answer, "a=rtcp-fb:96 nack") ||
+        !contains(answer, "a=rtcp-fb:96 nack pli") ||
+        !contains(answer, "m=audio 9 UDP/TLS/RTP/SAVPF 111") ||
+        !contains(answer, "a=mid:audio0") ||
+        !contains(answer, "a=rtpmap:111 opus/48000/2") ||
+        !contains(answer, "a=fmtp:111 minptime=10;useinbandfec=1") ||
+        !contains(answer, "a=rtcp-mux")) {
         mrtc_peer_connection_free(handle);
         return 1;
     }
@@ -320,7 +331,11 @@ int main(void)
         return 1;
     }
 
-    if (mrtc_peer_connection_create_offer(handle, answer, sizeof(answer), &required_len) != MRTC_STATUS_NOT_IMPLEMENTED) {
+    if (mrtc_peer_connection_create_offer(handle, answer, sizeof(answer), &required_len) != MRTC_STATUS_OK ||
+        !contains(answer, "m=video 9 UDP/TLS/RTP/SAVPF 96") ||
+        !contains(answer, "m=audio 9 UDP/TLS/RTP/SAVPF 111") ||
+        !contains(answer, "m=application 9 UDP/DTLS/SCTP webrtc-datachannel") ||
+        !contains(answer, "a=setup:actpass")) {
         mrtc_peer_connection_free(handle);
         return 1;
     }
