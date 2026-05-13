@@ -242,6 +242,11 @@ install(EXPORT micrortcTargets
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/micrortc"
 )
 
+set(MRTC_CONFIG_FIND_OPENSSL "")
+if(MRTC_ENABLE_PHASE4_TRANSPORT AND OpenSSL_FOUND)
+    set(MRTC_CONFIG_FIND_OPENSSL "find_dependency(OpenSSL)")
+endif()
+
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/micrortcConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/micrortcConfig.cmake"

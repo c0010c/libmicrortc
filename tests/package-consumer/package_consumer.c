@@ -1,4 +1,5 @@
 #include <micrortc/micrortc.h>
+#include <micrortc/peer_connection.h>
 
 int main(void)
 {
@@ -7,8 +8,12 @@ int main(void)
     MRTC_PEER_CONNECTION_CONFIG config = {0};
     MRTC_DATA_CHANNEL_INIT channel_init = {0};
     MRTC_DATA_CHANNEL_CALLBACKS channel_callbacks = {0};
+    MRTC_TRANSCEIVER_INIT video_init = {0};
+    MRTC_TRANSCEIVER_INIT audio_init = {0};
     MRTC_PEER_CONNECTION_HANDLE handle = 0;
     MRTC_DATA_CHANNEL_HANDLE channel = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE video = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE audio = 0;
     MRTC_STATUS unavailable = MRTC_STATUS_NOT_IMPLEMENTED;
     MRTC_STATUS invalid_state = MRTC_STATUS_INVALID_STATE;
     MRTC_STATUS parse_error = MRTC_STATUS_PARSE_ERROR;
@@ -16,6 +21,12 @@ int main(void)
     config.ice_servers = &ice_server;
     config.ice_server_count = 1;
     channel_init.ordered = 1;
+    video_init.kind = MRTC_MEDIA_KIND_VIDEO;
+    video_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+    video_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    audio_init.kind = MRTC_MEDIA_KIND_AUDIO;
+    audio_init.codec = MRTC_CODEC_OPUS;
+    audio_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
 
     if (version == 0 || version[0] == '\0') {
         return 1;
@@ -29,6 +40,12 @@ int main(void)
         return 1;
     }
     if (mrtc_peer_connection_create(&config, 0, 0, &handle) != MRTC_STATUS_OK) {
+        return 1;
+    }
+    if (mrtc_peer_connection_add_transceiver(handle, &video_init, 0, &video) != MRTC_STATUS_OK ||
+        mrtc_peer_connection_add_transceiver(handle, &audio_init, 0, &audio) != MRTC_STATUS_OK ||
+        video == 0 || audio == 0) {
+        mrtc_peer_connection_free(handle);
         return 1;
     }
     if (mrtc_peer_connection_create_data_channel(handle, "package", &channel_init, &channel_callbacks, 0, &channel) != MRTC_STATUS_OK) {
