@@ -138,7 +138,7 @@
 - Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/06-chrome-e2e/06-02-PLAN.md` — Complete. C Answerer demo、DataChannel ping/pong、固定 H264/Opus 媒体源和 C 侧结构化事件。
 - Wave 3 *(blocked on Wave 1/2 completion)*: `.planning/phases/06-chrome-e2e/06-03-PLAN.md` — Executed with failed self-check. SDP mid/order、真实 host candidate 和分层 smoke 已建立，但真实 Chrome transport 仍 blocked。
 - Wave 4 *(gap closure; blocked on Wave 3 execution result)*: `.planning/phases/06-chrome-e2e/06-07-PLAN.md` — Executed with failed self-check. STUN/ICE polling 和假阳性防护已加强，但 strict transport 仍 blocked，且本机缺 `libsrtp`/`usrsctp`。
-- Wave 4 *(gap closure; blocked on 06-07 execution result)*: `.planning/phases/06-chrome-e2e/06-08-PLAN.md` — Planned. 解锁严格 transport 依赖，补齐 OpenSSL DTLS BIO、DTLS-SRTP export、usrsctp/DCEP 和 PeerConnection packet pump，使严格 transport smoke 通过。
+- Wave 4 *(gap closure; blocked on 06-07 execution result)*: `.planning/phases/06-chrome-e2e/06-08-PLAN.md` — Executed with failed self-check. 严格依赖门槛已加固，但本机仍缺 `libsrtp`/`usrsctp`，后续 OpenSSL DTLS BIO、DTLS-SRTP export、usrsctp/DCEP 和 PeerConnection packet pump 未执行。
 - Wave 5 *(blocked on Wave 4 strict transport pass)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Planned. Chrome host E2E 的连接、DataChannel、浏览器媒体和 C 端媒体断言。
 - Wave 6 *(blocked on Wave 5 completion)*: `.planning/phases/06-chrome-e2e/06-05-PLAN.md` — Planned. TURN relay E2E、selected relay candidate stats 校验和 secret redaction。
 - Wave 7 *(blocked on Wave 5/6 completion)*: `.planning/phases/06-chrome-e2e/06-06-PLAN.md` — Planned. v1 总验收脚本、输出摘要、文档、状态和来源追溯收口。
