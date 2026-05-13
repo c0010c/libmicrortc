@@ -659,7 +659,11 @@ static MRTC_STATUS mrtc_sdp_create_answer_media_description(const MRTC_SDP *offe
                                                                                            section->kind,
                                                                                            used,
                                                                                            used_count);
-            if (transceiver == 0 || used_count >= MRTC_SDP_MAX_MEDIA_SECTIONS) {
+            if (transceiver == 0) {
+                status = MRTC_STATUS_OK;
+                continue;
+            }
+            if (used_count >= MRTC_SDP_MAX_MEDIA_SECTIONS) {
                 free(sdp);
                 return MRTC_STATUS_PARSE_ERROR;
             }
