@@ -25,14 +25,23 @@ if(MRTC_ENABLE_PHASE4_TRANSPORT)
     find_package_handle_standard_args(MRTC_USRSCTP DEFAULT_MSG MRTC_USRSCTP_LIBRARY MRTC_USRSCTP_INCLUDE_DIR)
 
     if(MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS)
+        set(MRTC_MISSING_TRANSPORT_DEPS "")
         if(NOT OpenSSL_FOUND)
-            message(FATAL_ERROR "OpenSSL is required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON")
+            list(APPEND MRTC_MISSING_TRANSPORT_DEPS "OpenSSL")
         endif()
         if(NOT MRTC_SRTP_FOUND)
-            message(FATAL_ERROR "libsrtp is required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON")
+            list(APPEND MRTC_MISSING_TRANSPORT_DEPS "libsrtp")
         endif()
         if(NOT MRTC_USRSCTP_FOUND)
-            message(FATAL_ERROR "usrsctp is required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON")
+            list(APPEND MRTC_MISSING_TRANSPORT_DEPS "usrsctp")
+        endif()
+        if(MRTC_MISSING_TRANSPORT_DEPS)
+            string(REPLACE ";" ", " MRTC_MISSING_TRANSPORT_DEPS_TEXT "${MRTC_MISSING_TRANSPORT_DEPS}")
+            message(FATAL_ERROR
+                "Missing required system transport dependencies: ${MRTC_MISSING_TRANSPORT_DEPS_TEXT}. "
+                "OpenSSL, libsrtp and usrsctp are required when MRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON. "
+                "On Ubuntu/Debian install development packages for libssl, libsrtp2 and usrsctp before rerunning strict transport verification."
+            )
         endif()
     endif()
 endif()

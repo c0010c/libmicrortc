@@ -56,6 +56,9 @@ updated: 2026-05-13
 - timestamp: 2026-05-13T12:51:22Z
   observation: 本机严格 transport configure 仍失败在系统依赖缺口。
   detail: `cmake -S . -B build-transport -DMRTC_BUILD_TESTS=ON -DMRTC_BUILD_EXAMPLES=ON -DMRTC_REQUIRE_SYSTEM_TRANSPORT_DEPS=ON` 报告缺少 `libsrtp` 和 `usrsctp`；OpenSSL 可用。
+- timestamp: 2026-05-13T13:16:38Z
+  observation: 06-08 前置依赖门槛执行后仍阻塞。
+  detail: 严格 configure 一次性汇总缺失依赖为 `libsrtp` 和 `usrsctp`；按 06-08 计划停止后续 DTLS/SCTP/PeerConnection packet pump 任务，避免生成假阳性 transport 通过。
 
 ## Eliminated
 
@@ -71,4 +74,5 @@ updated: 2026-05-13
 - **root_cause:** 当前 PeerConnection transport 是内部 harness 语义，不是真实 Chrome WebRTC transport：host candidate 有真实 UDP socket，但没有 ICE STUN request/response 和 nominated pair；DTLS/SCTP/DataChannel 也是 stub/loopback，C 内部 connected/datachannel.open 由 remote candidate 触发，不能让 browser 侧 connectionState connected。
 - **fix:** 已修复 smoke 假阳性风险并推进部分 transport 收口：browser-client 诊断事件仍保持 `remote.*`；C answerer 主循环会轮询 PeerConnection UDP/STUN transport；STUN helper 覆盖 Binding request/response、XOR-MAPPED-ADDRESS、MESSAGE-INTEGRITY 和 FINGERPRINT；DTLS fingerprint 改为 OpenSSL self-signed certificate SHA-256 digest；SCTP/DataChannel 不再在 connect/addIceCandidate 时触发 in-process open/message 假阳性。
 - **verification:** `ctest --test-dir build --output-on-failure` 18/18 passed；classification `MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` passed；strict `MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` 仍失败在 connection stage。
+- **latest_06_08_gate:** 严格 system transport configure 仍因缺 `libsrtp` 和 `usrsctp` 阻塞；OpenSSL 可用。后续必须先安装系统开发依赖，再实现真实 OpenSSL DTLS packet BIO、DTLS-SRTP exporter、usrsctp/DCEP packet IO 和 PeerConnection packet pump。
 - **files_changed:** `src/stun/stun_message.*`, `src/ice/ice_agent.*`, `src/dtls/dtls_session.c`, `src/sctp/sctp_session.*`, `src/data_channel/data_channel.h`, `src/peer_connection.c`, `include/micrortc/peer_connection.h`, `examples/chrome-e2e/mrtc_chrome_answerer.c`, `tests/transport/test_stun_message.c`, `tests/transport/test_sctp_data_channel.c`, `tests/peer_connection/test_peer_connection_api.c`, `.planning/phases/01-/SOURCE-MANIFEST.md`, `.planning/debug/chrome-transport-smoke-blocks.md`

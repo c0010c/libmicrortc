@@ -133,6 +133,11 @@
 | `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls_openssl.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `rewritten-derived` | Phase 6 Plan 07 参考 OpenSSL certificate fingerprint 语义，将本地 fingerprint 改为 self-signed certificate SHA-256 digest；packet BIO handshake 尚未完成。 | `core` | `E2E-03, E2E-04, TEST-02` | `06` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.c` | `src/sctp/sctp_session.c` | `9eebcc4` | `rewritten-derived` | Phase 6 Plan 07 参考 usrsctp/DCEP 状态边界，移除 connect-time in-process open/message 假阳性；系统 usrsctp 缺失时严格 transport 仍阻塞。 | `core` | `E2E-04, E2E-05, TEST-02` | `06` | `draft` |
 | `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.c` | `src/peer_connection.c` | `9eebcc4` | `rewritten-derived` | Phase 6 Plan 07 参考 DataChannel 只能由真实 transport/DCEP 驱动 open/message 的边界，停止把 addIceCandidate 或本地 send loopback 当作 Chrome 互通成功。 | `core` | `E2E-04, E2E-05, TEST-04` | `06` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `reference-only` | Phase 6 Plan 08 继续以本地 KVS DTLS role、packet BIO 生命周期和 handshake 状态边界为参考；本机缺 libsrtp/usrsctp，未执行真实搬迁。 | `core` | `E2E-03, E2E-04, TEST-02` | `06` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Crypto/Dtls_openssl.c` | `src/dtls/dtls_session.c` | `9eebcc4` | `reference-only` | Phase 6 Plan 08 继续以本地 KVS OpenSSL DTLS handshake、certificate verify 和 SRTP exporter 路径为参考；严格依赖门槛未通过前不落假实现。 | `core` | `E2E-03, E2E-04, TEST-02` | `06` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Srtp/SrtpSession.c` | `src/srtp/srtp_session.c` | `9eebcc4` | `reference-only` | Phase 6 Plan 08 继续以本地 KVS DTLS-SRTP key/salt 方向映射为参考；必须等待真实 DTLS exporter 和系统 libsrtp。 | `core` | `E2E-03, E2E-04, TEST-02` | `06` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/Sctp/Sctp.c` | `src/sctp/sctp_session.c` | `9eebcc4` | `reference-only` | Phase 6 Plan 08 继续以本地 KVS usrsctp association、DCEP 和 PPID packet path 为参考；必须等待系统 usrsctp 依赖。 | `core` | `E2E-04, E2E-05, TEST-04` | `06` | `draft` |
+| `reflib/kvs-webrtc-sdk/src/source/PeerConnection/DataChannel.c` | `src/peer_connection.c` | `9eebcc4` | `reference-only` | Phase 6 Plan 08 继续以本地 KVS DataChannel over SCTP 编排为参考；browser pong 成功只能来自真实 DTLS/SCTP 往返。 | `core` | `E2E-04, E2E-05, TEST-04` | `06` | `draft` |
 
 ## 后续记录模板
 
