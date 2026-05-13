@@ -68,5 +68,8 @@ MRTC_RTP_TRANSCEIVER_HANDLE mrtc_media_transceiver_alloc(MRTC_PEER_CONNECTION_HA
 
 void mrtc_media_transceiver_free_internal(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)
 {
+    if (transceiver != 0) {
+        free(transceiver->receive_frame_buffer);
+    }
     free(transceiver);
 }

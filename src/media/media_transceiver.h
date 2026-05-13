@@ -24,6 +24,10 @@ struct MRTC_RTP_TRANSCEIVER {
     uint16_t sequence_number;
     uint64_t frames_sent;
     uint64_t frames_received;
+    uint8_t *receive_frame_buffer;
+    size_t receive_frame_size;
+    size_t receive_frame_capacity;
+    uint32_t receive_frame_timestamp;
     MRTC_TRANSCEIVER_CALLBACKS callbacks;
     void *user_data;
     struct MRTC_RTP_TRANSCEIVER *next;
@@ -47,5 +51,8 @@ MRTC_STATUS mrtc_peer_connection_send_protected_media_packet(MRTC_PEER_CONNECTIO
                                                             MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
                                                             const uint8_t *packet,
                                                             size_t packet_size);
+MRTC_STATUS mrtc_peer_connection_receive_protected_media_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                               const uint8_t *packet,
+                                                               size_t packet_size);
 
 #endif /* MRTC_MEDIA_TRANSCEIVER_H */

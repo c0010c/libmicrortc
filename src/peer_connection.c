@@ -228,6 +228,117 @@ static uint32_t mrtc_video_rtp_timestamp_from_frame(const MRTC_FRAME *frame)
     return (uint32_t) ((frame->presentation_ts * (uint64_t) MRTC_H264_CLOCK_RATE) / MRTC_100NS_PER_SECOND_U64);
 }
 
+static uint64_t mrtc_video_frame_timestamp_from_rtp(uint32_t rtp_timestamp)
+{
+    return ((uint64_t) rtp_timestamp * MRTC_100NS_PER_SECOND_U64) / (uint64_t) MRTC_H264_CLOCK_RATE;
+}
+
+static uint64_t mrtc_opus_frame_timestamp_from_rtp(uint32_t rtp_timestamp)
+{
+    return ((uint64_t) rtp_timestamp * MRTC_100NS_PER_SECOND_U64) / (uint64_t) MRTC_OPUS_CLOCK_RATE;
+}
+
+static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_peer_connection_find_media_receiver(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                                            const MRTC_RTP_PACKET *packet)
+{
+    MRTC_RTP_TRANSCEIVER_HANDLE current;
+    MRTC_RTP_TRANSCEIVER_HANDLE payload_match = 0;
+
+    if (peer_connection == 0 || packet == 0) {
+        return 0;
+    }
+
+    current = peer_connection->transceivers;
+    while (current != 0) {
+        if (current->remote_ssrc != 0u && current->remote_ssrc == packet->ssrc) {
+            return current->payload_type == packet->payload_type ? current : 0;
+        }
+        if (current->remote_ssrc == 0u && current->payload_type == packet->payload_type && payload_match == 0) {
+            payload_match = current;
+        }
+        current = current->next;
+    }
+
+    if (payload_match != 0) {
+        payload_match->remote_ssrc = packet->ssrc;
+    }
+    return payload_match;
+}
+
+static MRTC_STATUS mrtc_transceiver_append_receive_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                        const uint8_t *data,
+                                                        size_t data_size)
+{
+    size_t needed;
+    uint8_t *grown;
+
+    if (transceiver == 0 || data == 0 || data_size == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    needed = transceiver->receive_frame_size + data_size;
+    if (needed > transceiver->receive_frame_capacity) {
+        size_t capacity = transceiver->receive_frame_capacity == 0u ? 1024u : transceiver->receive_frame_capacity;
+        while (capacity < needed) {
+            capacity *= 2u;
+        }
+        grown = (uint8_t *) realloc(transceiver->receive_frame_buffer, capacity);
+        if (grown == 0) {
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        transceiver->receive_frame_buffer = grown;
+        transceiver->receive_frame_capacity = capacity;
+    }
+    memcpy(transceiver->receive_frame_buffer + transceiver->receive_frame_size, data, data_size);
+    transceiver->receive_frame_size += data_size;
+    return MRTC_STATUS_OK;
+}
+
+static uint32_t mrtc_h264_frame_flags_from_annexb(const uint8_t *data, size_t size)
+{
+    size_t i;
+
+    if (data == 0 || size < MRTC_H264_START_CODE_SIZE + 1u) {
+        return MRTC_FRAME_FLAG_NONE;
+    }
+    for (i = 0; i + MRTC_H264_START_CODE_SIZE < size; ++i) {
+        if (data[i] == 0x00 && data[i + 1u] == 0x00 && data[i + 2u] == 0x00 && data[i + 3u] == 0x01) {
+            uint8_t nalu_type = data[i + MRTC_H264_START_CODE_SIZE] & MRTC_H264_NAL_TYPE_MASK;
+            if (nalu_type == 5u) {
+                return MRTC_FRAME_FLAG_KEY_FRAME;
+            }
+        }
+    }
+    return MRTC_FRAME_FLAG_NONE;
+}
+
+static MRTC_STATUS mrtc_transceiver_deliver_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                  const uint8_t *data,
+                                                  size_t data_size,
+                                                  uint64_t presentation_ts,
+                                                  uint32_t flags)
+{
+    MRTC_FRAME frame;
+
+    if (transceiver == 0 || data == 0 || data_size == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    memset(&frame, 0, sizeof(frame));
+    frame.data = data;
+    frame.size = data_size;
+    frame.presentation_ts = presentation_ts;
+    frame.decoding_ts = presentation_ts;
+    frame.index = transceiver->frames_received;
+    frame.flags = flags;
+
+    if (transceiver->callbacks.on_frame != 0) {
+        transceiver->callbacks.on_frame(transceiver->user_data, transceiver, &frame);
+    }
+    transceiver->frames_received++;
+    return MRTC_STATUS_OK;
+}
+
 static void mrtc_free_ice_servers(MRTC_PEER_CONNECTION_HANDLE peer_connection)
 {
     size_t i;
@@ -820,6 +931,116 @@ MRTC_STATUS mrtc_peer_connection_send_protected_media_packet(MRTC_PEER_CONNECTIO
                                             transceiver,
                                             packet,
                                             packet_size);
+}
+
+MRTC_STATUS mrtc_peer_connection_receive_protected_media_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                               const uint8_t *packet,
+                                                               size_t packet_size)
+{
+    uint8_t *mutable_packet;
+    size_t unprotected_size;
+    MRTC_RTP_PACKET rtp_packet;
+    MRTC_RTP_TRANSCEIVER_HANDLE transceiver;
+    MRTC_STATUS status;
+
+    if (peer_connection == 0 || packet == 0 || packet_size == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (!peer_connection->srtp_session.ready) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    mutable_packet = (uint8_t *) malloc(packet_size);
+    if (mutable_packet == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    memcpy(mutable_packet, packet, packet_size);
+    unprotected_size = packet_size;
+
+    status = mrtc_srtp_unprotect_rtp(&peer_connection->srtp_session, mutable_packet, &unprotected_size);
+    if (status == MRTC_STATUS_OK) {
+        status = mrtc_rtp_packet_parse(mutable_packet, unprotected_size, &rtp_packet);
+    }
+    if (status != MRTC_STATUS_OK) {
+        free(mutable_packet);
+        return status;
+    }
+
+    transceiver = mrtc_peer_connection_find_media_receiver(peer_connection, &rtp_packet);
+    if (transceiver == 0 ||
+        transceiver->direction == MRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY ||
+        transceiver->direction == MRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE) {
+        free(mutable_packet);
+        return MRTC_STATUS_INVALID_STATE;
+    }
+
+    if (transceiver->codec == MRTC_CODEC_OPUS) {
+        uint8_t *frame_data;
+        size_t frame_size = 0;
+
+        status = mrtc_opus_depayload(rtp_packet.payload, rtp_packet.payload_size, 0, &frame_size);
+        if (status != MRTC_STATUS_OK) {
+            free(mutable_packet);
+            return status;
+        }
+        frame_data = (uint8_t *) malloc(frame_size);
+        if (frame_data == 0) {
+            free(mutable_packet);
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        status = mrtc_opus_depayload(rtp_packet.payload, rtp_packet.payload_size, frame_data, &frame_size);
+        if (status == MRTC_STATUS_OK) {
+            status = mrtc_transceiver_deliver_frame(transceiver,
+                                                    frame_data,
+                                                    frame_size,
+                                                    mrtc_opus_frame_timestamp_from_rtp(rtp_packet.timestamp),
+                                                    MRTC_FRAME_FLAG_NONE);
+        }
+        free(frame_data);
+    } else if (transceiver->codec == MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1) {
+        uint8_t *annexb;
+        size_t annexb_size = 0;
+        int is_start = 0;
+
+        status = mrtc_h264_depacketize_payload(rtp_packet.payload, rtp_packet.payload_size, 0, &annexb_size, &is_start);
+        if (status != MRTC_STATUS_OK) {
+            free(mutable_packet);
+            return status;
+        }
+        annexb = (uint8_t *) malloc(annexb_size);
+        if (annexb == 0) {
+            free(mutable_packet);
+            return MRTC_STATUS_INVALID_ARG;
+        }
+        status = mrtc_h264_depacketize_payload(rtp_packet.payload, rtp_packet.payload_size, annexb, &annexb_size, &is_start);
+        if (status == MRTC_STATUS_OK) {
+            if (is_start) {
+                transceiver->receive_frame_size = 0;
+                transceiver->receive_frame_timestamp = rtp_packet.timestamp;
+            } else if (transceiver->receive_frame_size == 0u ||
+                       transceiver->receive_frame_timestamp != rtp_packet.timestamp) {
+                status = MRTC_STATUS_PARSE_ERROR;
+            }
+        }
+        if (status == MRTC_STATUS_OK) {
+            status = mrtc_transceiver_append_receive_frame(transceiver, annexb, annexb_size);
+        }
+        if (status == MRTC_STATUS_OK && rtp_packet.marker) {
+            status = mrtc_transceiver_deliver_frame(transceiver,
+                                                    transceiver->receive_frame_buffer,
+                                                    transceiver->receive_frame_size,
+                                                    mrtc_video_frame_timestamp_from_rtp(rtp_packet.timestamp),
+                                                    mrtc_h264_frame_flags_from_annexb(transceiver->receive_frame_buffer,
+                                                                                      transceiver->receive_frame_size));
+            transceiver->receive_frame_size = 0;
+        }
+        free(annexb);
+    } else {
+        status = MRTC_STATUS_INVALID_ARG;
+    }
+
+    free(mutable_packet);
+    return status;
 }
 
 void mrtc_transceiver_free(MRTC_RTP_TRANSCEIVER_HANDLE transceiver)

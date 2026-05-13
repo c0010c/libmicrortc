@@ -8,6 +8,8 @@
 #define CHECK_TRUE(expr) do { if (!(expr)) { return 1; } } while (0)
 
 typedef struct SendCapture {
+    uint8_t packets[8][1600];
+    size_t packet_sizes[8];
     size_t packet_count;
     size_t h264_packets;
     size_t opus_packets;
@@ -17,6 +19,15 @@ typedef struct SendCapture {
     int saw_marker;
     int passthrough;
 } SendCapture;
+
+typedef struct FrameCapture {
+    uint8_t data[2048];
+    size_t size;
+    uint64_t presentation_ts;
+    uint64_t index;
+    uint32_t flags;
+    size_t frame_count;
+} FrameCapture;
 
 static int read_fixture(char *buffer, size_t buffer_len)
 {
@@ -47,6 +58,10 @@ static MRTC_STATUS capture_send(void *user_data,
     }
 
     capture->packet_count++;
+    if (capture->packet_count <= 8u && packet_size <= sizeof(capture->packets[0])) {
+        memcpy(capture->packets[capture->packet_count - 1u], packet, packet_size);
+        capture->packet_sizes[capture->packet_count - 1u] = packet_size;
+    }
     if (transceiver->codec == MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1) {
         capture->h264_packets++;
     } else if (transceiver->codec == MRTC_CODEC_OPUS) {
@@ -63,6 +78,29 @@ static MRTC_STATUS capture_send(void *user_data,
         capture->saw_marker = parsed.marker != 0u;
     }
     return MRTC_STATUS_OK;
+}
+
+static void capture_frame(void *user_data, MRTC_RTP_TRANSCEIVER_HANDLE transceiver, const MRTC_FRAME *frame)
+{
+    FrameCapture *capture = (FrameCapture *) user_data;
+    (void) transceiver;
+
+    if (capture == 0 || frame == 0 || frame->data == 0 || frame->size > sizeof(capture->data)) {
+        return;
+    }
+    memcpy(capture->data, frame->data, frame->size);
+    capture->size = frame->size;
+    capture->presentation_ts = frame->presentation_ts;
+    capture->index = frame->index;
+    capture->flags = frame->flags;
+    capture->frame_count++;
+}
+
+static void reset_capture(SendCapture *capture)
+{
+    int passthrough = capture->passthrough;
+    memset(capture, 0, sizeof(*capture));
+    capture->passthrough = passthrough;
 }
 
 static int connect_peer(MRTC_PEER_CONNECTION_HANDLE peer_connection)
@@ -92,6 +130,10 @@ int main(void)
     MRTC_TRANSCEIVER_INIT video_init = {0};
     MRTC_TRANSCEIVER_INIT audio_init = {0};
     SendCapture capture = {0};
+    FrameCapture video_frames = {0};
+    FrameCapture audio_frames = {0};
+    MRTC_TRANSCEIVER_CALLBACKS video_callbacks = {0};
+    MRTC_TRANSCEIVER_CALLBACKS audio_callbacks = {0};
     const uint8_t small_h264[] = {0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84};
     uint8_t large_h264[1508];
     const uint8_t opus_payload[] = {0x11, 0x22, 0x33, 0x44};
@@ -162,6 +204,82 @@ int main(void)
         CHECK_TRUE(capture.last_sequence_number == 0u);
         CHECK_TRUE(capture.last_ssrc == audio->local_ssrc);
         CHECK_TRUE(capture.saw_marker);
+    }
+
+    video_callbacks.on_frame = capture_frame;
+    audio_callbacks.on_frame = capture_frame;
+    CHECK_TRUE(mrtc_transceiver_set_callbacks(video, &video_callbacks, &video_frames) == MRTC_STATUS_OK);
+    CHECK_TRUE(mrtc_transceiver_set_callbacks(audio, &audio_callbacks, &audio_frames) == MRTC_STATUS_OK);
+
+    reset_capture(&capture);
+    frame.data = large_h264;
+    frame.size = sizeof(large_h264);
+    frame.presentation_ts = 30000000ull;
+    frame.decoding_ts = frame.presentation_ts;
+    frame.index = 10;
+    frame.flags = MRTC_FRAME_FLAG_KEY_FRAME;
+    CHECK_TRUE(mrtc_transceiver_write_frame(video, &frame) == MRTC_STATUS_OK);
+    CHECK_TRUE(capture.packet_count > 1u);
+    for (before_packets = 0; before_packets < capture.packet_count; ++before_packets) {
+        CHECK_TRUE(mrtc_peer_connection_receive_protected_media_packet(peer_connection,
+                                                                       capture.packets[before_packets],
+                                                                       capture.packet_sizes[before_packets]) == MRTC_STATUS_OK);
+    }
+    CHECK_TRUE(video_frames.frame_count == 1u);
+    CHECK_TRUE(video_frames.size == sizeof(large_h264));
+    CHECK_TRUE(memcmp(video_frames.data, large_h264, sizeof(large_h264)) == 0);
+    CHECK_TRUE(video_frames.presentation_ts == 30000000ull);
+    CHECK_TRUE(video_frames.index == 0u);
+    CHECK_TRUE((video_frames.flags & MRTC_FRAME_FLAG_KEY_FRAME) != 0u);
+    CHECK_TRUE(video->frames_received == 1u);
+
+    reset_capture(&capture);
+    frame.data = opus_payload;
+    frame.size = sizeof(opus_payload);
+    frame.presentation_ts = 400000ull;
+    frame.decoding_ts = frame.presentation_ts;
+    frame.index = 11;
+    frame.flags = MRTC_FRAME_FLAG_NONE;
+    CHECK_TRUE(mrtc_transceiver_write_frame(audio, &frame) == MRTC_STATUS_OK);
+    CHECK_TRUE(capture.packet_count == 1u);
+    CHECK_TRUE(mrtc_peer_connection_receive_protected_media_packet(peer_connection,
+                                                                   capture.packets[0],
+                                                                   capture.packet_sizes[0]) == MRTC_STATUS_OK);
+    CHECK_TRUE(audio_frames.frame_count == 1u);
+    CHECK_TRUE(audio_frames.size == sizeof(opus_payload));
+    CHECK_TRUE(memcmp(audio_frames.data, opus_payload, sizeof(opus_payload)) == 0);
+    CHECK_TRUE(audio_frames.presentation_ts == 400000ull);
+    CHECK_TRUE(audio_frames.index == 0u);
+    CHECK_TRUE(audio->frames_received == 1u);
+
+    if (capture.passthrough) {
+        MRTC_RTP_PACKET wrong_packet;
+        uint8_t wrong_raw[64];
+        size_t wrong_size = 0;
+        CHECK_TRUE(mrtc_rtp_packet_build(&wrong_packet,
+                                         1,
+                                         120,
+                                         77,
+                                         900,
+                                         0x01020304u,
+                                         opus_payload,
+                                         sizeof(opus_payload)) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_rtp_packet_serialize(&wrong_packet, wrong_raw, sizeof(wrong_raw), &wrong_size) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_peer_connection_receive_protected_media_packet(peer_connection, wrong_raw, wrong_size) == MRTC_STATUS_INVALID_STATE);
+        CHECK_TRUE(video_frames.frame_count == 1u);
+        CHECK_TRUE(audio_frames.frame_count == 1u);
+
+        CHECK_TRUE(mrtc_rtp_packet_build(&wrong_packet,
+                                         1,
+                                         111,
+                                         78,
+                                         960,
+                                         0x01020304u,
+                                         opus_payload,
+                                         sizeof(opus_payload)) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_rtp_packet_serialize(&wrong_packet, wrong_raw, sizeof(wrong_raw), &wrong_size) == MRTC_STATUS_OK);
+        CHECK_TRUE(mrtc_peer_connection_receive_protected_media_packet(peer_connection, wrong_raw, wrong_size) == MRTC_STATUS_INVALID_STATE);
+        CHECK_TRUE(audio_frames.frame_count == 1u);
     }
 
     mrtc_peer_connection_free(peer_connection);
