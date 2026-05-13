@@ -1,1 +1,3 @@
 mrtc-ice-servers.local.json
+tests/e2e/artifacts/
+tests/e2e/node_modules/
