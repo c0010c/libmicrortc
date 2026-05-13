@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: executing_phase_6
-last_updated: "2026-05-13T20:52:18+08:00"
+last_updated: "2026-05-13T21:10:00+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 20
+  total_plans: 21
   completed_plans: 15
   percent: 75
 ---
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/7 plans completed; 06-03 和 06-07 均已执行但 self-check failed，真实 Chrome transport 仍阻塞在 connection/DTLS-SCTP |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/8 plans completed; 06-03 和 06-07 均已执行但 self-check failed，06-08 已规划用于解锁严格 DTLS/SCTP transport |
 
 ## Decisions To Carry Forward
 
@@ -62,14 +62,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Plan/execute the next Chrome transport gap closure before media E2E:
+Execute the next Chrome transport gap closure before media E2E:
 
 ```bash
-$gsd-plan-phase 06 --gaps
+$gsd-execute-phase 06 --plan 08
 ```
 
 ---
-*Last updated: 2026-05-13 after executing Phase 6 Plan 07 partial transport gap closure*
+*Last updated: 2026-05-13 after planning Phase 6 Plan 08 strict transport gap closure*
 
 ## Performance Metrics
 
@@ -110,3 +110,4 @@ $gsd-plan-phase 06 --gaps
 - [Phase 06]: 06-03 前置修复: Chrome host E2E 不能把 C demo 内部 connected/datachannel.open 当作浏览器互通成功；先补真实 host transport，再执行媒体 E2E。
 - [Phase 06]: 06-03 执行结果: SDP mid/order、真实 host candidate 和 transport smoke 已建立；真实 Chrome connection/datachannel 仍阻塞在 DTLS/SCTP transport 层，Plan 06-03 self-check failed。
 - [Phase 06]: 06-07 gap closure: 媒体、TURN 和 v1 总验收计划必须等待严格 Chrome transport smoke 通过；缺口范围锁定 ICE/STUN packet IO、OpenSSL DTLS、usrsctp/DCEP 和 PeerConnection transport pump。
+- [Phase 06]: 06-08 gap closure planned: 06-07 已完成 STUN/ICE polling 和假阳性防护但 strict smoke 仍 blocked；下一步需要本地 `libsrtp`/`usrsctp` 依赖、OpenSSL DTLS memory BIO、DTLS-SRTP key export、usrsctp/DCEP 和真实 packet pump 后才能解除 06-04 媒体 E2E 阻塞。
