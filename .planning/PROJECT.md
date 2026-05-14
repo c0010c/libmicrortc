@@ -44,7 +44,10 @@ scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 
 ### Active
 
-- [ ] 定义下一里程碑需求。候选方向包括 API 命名清理、Offerer 主路径、更多浏览器/平台、媒体适配层、依赖抽象、拥塞控制和发布包整理。
+- [ ] v1.1 继续完成剥离收口：清理公共 API、头文件、CMake/package、示例和文档中的 AWS/KVS 残留命名与概念耦合。
+- [ ] v1.1 梳理独立 libmicrortc 风格 API，明确兼容层、迁移路径和破坏性变更边界。
+- [ ] v1.1 强化发布包质量：install/export、consumer、版本信息、NOTICE/溯源和最小依赖边界。
+- [ ] v1.1 补强回归验收，确保 Chrome、TURN relay、DataChannel、H264/Opus 双向媒体能力在剥离清理后不退化。
 
 ### Out of Scope
 
@@ -89,7 +92,36 @@ v1.0 已完成从基线、构建、API、传输、安全、DataChannel、媒体�
 
 ## Next Milestone Goals
 
-下一里程碑尚未定义。建议从 `$gsd-new-milestone` 开始，重新收集目标、约束和需求，再生成新的 `REQUIREMENTS.md` 与 `ROADMAP.md`。
+## Current Milestone: v1.1 剥离收口
+
+**Goal:** 在 v1.0 已经可构建、可互通、可验收的基础上，继续完成 AWS/KVS 剥离收口，把 libmicrortc 打磨成更独立、命名更清晰、边界更干净、交付更可用的 C WebRTC 协议栈库。
+
+**Target features:**
+- 清理公共 API、头文件、CMake/package、示例和文档中的 AWS/KVS 残留命名与概念耦合。
+- 梳理独立 libmicrortc 风格 API，明确兼容层、迁移路径和破坏性变更边界。
+- 强化发布包质量：install/export、consumer、版本信息、NOTICE/溯源、最小依赖边界。
+- 补强回归验收，确保 Chrome、TURN relay、DataChannel、H264/Opus 双向媒体能力在清理后不退化。
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `$gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `$gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+## Next Milestone Goals
+
+v1.1 当前聚焦剥离收口，不优先扩展 Firefox/Safari/macOS，也不优先做应用层媒体适配。
 
 ---
-*Last updated: 2026-05-14 after v1.0 milestone*
+*Last updated: 2026-05-14 after v1.1 milestone start*
