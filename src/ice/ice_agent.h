@@ -44,6 +44,9 @@ MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
                                         unsigned char *non_stun_packet,
                                         size_t non_stun_packet_capacity,
                                         size_t *non_stun_packet_len);
+MRTC_STATUS mrtc_ice_host_endpoint_send_selected(MRTC_ICE_HOST_ENDPOINT *endpoint,
+                                                 const unsigned char *packet,
+                                                 size_t packet_len);
 int mrtc_ice_packet_is_stun(const unsigned char *packet, size_t packet_len);
 
 #endif /* MRTC_ICE_AGENT_H */

@@ -155,10 +155,147 @@ static void mrtc_peer_connection_set_state(MRTC_PEER_CONNECTION_HANDLE peer_conn
     }
 }
 
+static MRTC_STATUS mrtc_peer_connection_drain_dtls(MRTC_PEER_CONNECTION_HANDLE peer_connection)
+{
+    uint8_t packet[2048];
+    size_t packet_len = 0;
+    MRTC_STATUS status;
+
+    if (peer_connection == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    do {
+        packet_len = 0;
+        status = mrtc_dtls_session_drain_outbound_packet(&peer_connection->dtls_session,
+                                                         packet,
+                                                         sizeof(packet),
+                                                         &packet_len);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        if (packet_len > 0u) {
+            status = mrtc_ice_host_endpoint_send_selected(&peer_connection->host_endpoint, packet, packet_len);
+            if (status != MRTC_STATUS_OK) {
+                return status;
+            }
+        }
+    } while (packet_len > 0u);
+    return MRTC_STATUS_OK;
+}
+
+static void mrtc_peer_connection_on_sctp_outbound(void *user_data, const uint8_t *packet, size_t packet_len)
+{
+    MRTC_PEER_CONNECTION_HANDLE peer_connection = (MRTC_PEER_CONNECTION_HANDLE) user_data;
+
+    if (peer_connection == 0 || packet == 0 || packet_len == 0u) {
+        return;
+    }
+    if (mrtc_dtls_session_send_application_data(&peer_connection->dtls_session, packet, packet_len) == MRTC_STATUS_OK) {
+        (void) mrtc_peer_connection_drain_dtls(peer_connection);
+    }
+}
+
+static MRTC_DATA_CHANNEL_HANDLE mrtc_peer_connection_find_data_channel_by_id(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                                             uint16_t stream_id)
+{
+    MRTC_DATA_CHANNEL_HANDLE current;
+
+    if (peer_connection == 0) {
+        return 0;
+    }
+    current = peer_connection->data_channels;
+    while (current != 0) {
+        if (current->stream_id == stream_id) {
+            return current;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
+static void mrtc_peer_connection_on_sctp_message(void *user_data,
+                                                uint16_t stream_id,
+                                                uint32_t ppid,
+                                                const uint8_t *message,
+                                                size_t message_len)
+{
+    MRTC_PEER_CONNECTION_HANDLE peer_connection = (MRTC_PEER_CONNECTION_HANDLE) user_data;
+    MRTC_DATA_CHANNEL_HANDLE channel;
+
+    if (peer_connection == 0 || (message == 0 && message_len > 0u)) {
+        return;
+    }
+    channel = mrtc_peer_connection_find_data_channel_by_id(peer_connection, stream_id);
+    if (channel == 0) {
+        channel = peer_connection->data_channels;
+    }
+    if (channel == 0) {
+        return;
+    }
+    if (ppid == MRTC_SCTP_PPID_DCEP) {
+        mrtc_data_channel_mark_open(channel);
+        if (peer_connection->callbacks.on_data_channel != 0) {
+            peer_connection->callbacks.on_data_channel(peer_connection->user_data, channel);
+        }
+    } else if (ppid == MRTC_SCTP_PPID_STRING || ppid == MRTC_SCTP_PPID_STRING_EMPTY) {
+        (void) mrtc_data_channel_deliver(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_TEXT, message, message_len);
+    } else if (ppid == MRTC_SCTP_PPID_BINARY || ppid == MRTC_SCTP_PPID_BINARY_EMPTY) {
+        (void) mrtc_data_channel_deliver(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY, message, message_len);
+    }
+}
+
+static void mrtc_peer_connection_on_dtls_application_data(void *user_data, const uint8_t *data, size_t data_len)
+{
+    MRTC_PEER_CONNECTION_HANDLE peer_connection = (MRTC_PEER_CONNECTION_HANDLE) user_data;
+
+    if (peer_connection == 0 || data == 0 || data_len == 0u || !peer_connection->sctp_started) {
+        return;
+    }
+    (void) mrtc_sctp_session_handle_inbound_packet(&peer_connection->sctp_session, data, data_len);
+}
+
+static MRTC_STATUS mrtc_peer_connection_finish_secure_transport_if_ready(MRTC_PEER_CONNECTION_HANDLE peer_connection)
+{
+    MRTC_DTLS_KEYING_MATERIAL keying_material;
+    MRTC_STATUS status;
+
+    if (peer_connection == 0 || !mrtc_dtls_session_is_connected(&peer_connection->dtls_session)) {
+        return MRTC_STATUS_OK;
+    }
+    if (!peer_connection->srtp_session.ready) {
+        status = mrtc_dtls_session_export_srtp_keying_material(&peer_connection->dtls_session, &keying_material);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_srtp_session_init_from_dtls(&peer_connection->srtp_session,
+                                                  &keying_material,
+                                                  peer_connection->dtls_session.role);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+    }
+    if (!peer_connection->sctp_started && (peer_connection->data_channels != 0 || peer_connection->remote_has_application)) {
+        status = mrtc_sctp_session_init(&peer_connection->sctp_session);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        mrtc_sctp_session_set_callbacks(&peer_connection->sctp_session,
+                                        mrtc_peer_connection_on_sctp_outbound,
+                                        mrtc_peer_connection_on_sctp_message,
+                                        peer_connection);
+        status = mrtc_sctp_session_connect(&peer_connection->sctp_session);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        peer_connection->sctp_started = 1;
+    }
+    mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTED);
+    return MRTC_STATUS_OK;
+}
+
 static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECTION_HANDLE peer_connection)
 {
     MRTC_DTLS_ROLE role;
-    MRTC_DTLS_KEYING_MATERIAL keying_material;
     MRTC_STATUS status;
 
     if (peer_connection == 0 || !peer_connection->selected_pair_ready) {
@@ -176,33 +313,24 @@ static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECT
     if (status != MRTC_STATUS_OK) {
         return status;
     }
-    status = mrtc_dtls_session_set_verified_peer_fingerprint(&peer_connection->dtls_session, peer_connection->remote_fingerprint);
+    status = mrtc_dtls_session_set_remote_fingerprint(&peer_connection->dtls_session, peer_connection->remote_fingerprint);
     if (status != MRTC_STATUS_OK) {
         return status;
     }
-    status = mrtc_dtls_session_verify_remote_fingerprint(&peer_connection->dtls_session, peer_connection->remote_fingerprint);
+    (void) mrtc_dtls_session_set_application_data_callback(&peer_connection->dtls_session,
+                                                           mrtc_peer_connection_on_dtls_application_data,
+                                                           peer_connection);
+    status = mrtc_dtls_session_start(&peer_connection->dtls_session);
     if (status != MRTC_STATUS_OK) {
         return status;
     }
-    status = mrtc_dtls_session_export_srtp_keying_material(&peer_connection->dtls_session, &keying_material);
+    status = mrtc_peer_connection_drain_dtls(peer_connection);
     if (status != MRTC_STATUS_OK) {
         return status;
     }
-    status = mrtc_srtp_session_init_from_dtls(&peer_connection->srtp_session, &keying_material, role);
+    status = mrtc_peer_connection_finish_secure_transport_if_ready(peer_connection);
     if (status != MRTC_STATUS_OK) {
         return status;
-    }
-    if (peer_connection->data_channels != 0 || peer_connection->remote_has_application) {
-        status = mrtc_sctp_session_init(&peer_connection->sctp_session);
-        if (status != MRTC_STATUS_OK) {
-            return status;
-        }
-        mrtc_sctp_session_set_callbacks(&peer_connection->sctp_session, 0, 0, peer_connection);
-        status = mrtc_sctp_session_connect(&peer_connection->sctp_session);
-        if (status != MRTC_STATUS_OK) {
-            return status;
-        }
-        peer_connection->sctp_started = 1;
     }
     peer_connection->dtls_started = 1;
     return MRTC_STATUS_OK;
@@ -688,12 +816,6 @@ MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE p
         return MRTC_STATUS_INVALID_ARG;
     }
 
-    if (peer_connection->has_remote_description && peer_connection->has_local_description) {
-        peer_connection->selected_pair_ready = 1;
-        (void) mrtc_peer_connection_start_secure_transport(peer_connection);
-        mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTING);
-    }
-
     return MRTC_STATUS_OK;
 }
 
@@ -729,7 +851,18 @@ MRTC_STATUS mrtc_peer_connection_poll_transport(MRTC_PEER_CONNECTION_HANDLE peer
     }
     if (packet_len > 0u) {
         if (packet[0] > 19u && packet[0] < 64u) {
-            return MRTC_STATUS_NOT_IMPLEMENTED;
+            if (!peer_connection->dtls_started) {
+                return MRTC_STATUS_INVALID_STATE;
+            }
+            status = mrtc_dtls_session_handle_inbound_packet(&peer_connection->dtls_session, packet, packet_len);
+            if (status != MRTC_STATUS_OK) {
+                return status;
+            }
+            status = mrtc_peer_connection_drain_dtls(peer_connection);
+            if (status != MRTC_STATUS_OK) {
+                return status;
+            }
+            return mrtc_peer_connection_finish_secure_transport_if_ready(peer_connection);
         }
         if ((packet[0] & 0xc0u) == 0x80u) {
             return mrtc_peer_connection_receive_protected_media_packet(peer_connection, packet, packet_len);

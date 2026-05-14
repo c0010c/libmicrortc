@@ -285,3 +285,33 @@ MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
     }
     return MRTC_STATUS_OK;
 }
+
+MRTC_STATUS mrtc_ice_host_endpoint_send_selected(MRTC_ICE_HOST_ENDPOINT *endpoint,
+                                                 const unsigned char *packet,
+                                                 size_t packet_len)
+{
+    struct sockaddr_in remote_addr;
+
+    if (endpoint == 0 || packet == 0 || packet_len == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (endpoint->fd < 0 || !endpoint->selected_pair_ready ||
+        endpoint->selected_remote_ip[0] == '\0' || endpoint->selected_remote_port == 0u) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    memset(&remote_addr, 0, sizeof(remote_addr));
+    remote_addr.sin_family = AF_INET;
+    remote_addr.sin_port = htons(endpoint->selected_remote_port);
+    if (inet_pton(AF_INET, endpoint->selected_remote_ip, &remote_addr.sin_addr) != 1) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (sendto(endpoint->fd,
+               packet,
+               packet_len,
+               0,
+               (const struct sockaddr *) &remote_addr,
+               (socklen_t) sizeof(remote_addr)) < 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    return MRTC_STATUS_OK;
+}
