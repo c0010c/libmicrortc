@@ -3,6 +3,7 @@
 #include "common/mrtc_mutex.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,6 +24,31 @@
 static MRTC_MUTEX g_sctp_mutex;
 static int g_sctp_mutex_ready = 0;
 static unsigned int g_sctp_ref_count = 0;
+
+static int mrtc_sctp_transport_debug_enabled(void)
+{
+    const char *value = getenv("MRTC_TRANSPORT_DEBUG");
+    return value != 0 && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
+static void mrtc_sctp_debug_packet(const char *direction, const uint8_t *packet, size_t packet_len)
+{
+    size_t offset = 12u;
+
+    if (!mrtc_sctp_transport_debug_enabled() || direction == 0 || packet == 0 || packet_len < 13u) {
+        return;
+    }
+    fprintf(stderr, "mrtc transport: sctp %s len=%lu chunks=", direction, (unsigned long) packet_len);
+    while (offset + 4u <= packet_len) {
+        uint16_t chunk_len = (uint16_t) (((uint16_t) packet[offset + 2u] << 8) | (uint16_t) packet[offset + 3u]);
+        fprintf(stderr, "%s%u", offset == 12u ? "" : ",", (unsigned int) packet[offset]);
+        if (chunk_len < 4u) {
+            break;
+        }
+        offset += (size_t) ((chunk_len + 3u) & ~3u);
+    }
+    fprintf(stderr, "\n");
+}
 
 static MRTC_STATUS mrtc_sctp_handle_dcep(MRTC_SCTP_SESSION *session,
                                          uint16_t stream_id,
@@ -178,7 +204,7 @@ static void mrtc_sctp_init_addr(MRTC_SCTP_SESSION *session, void *address, struc
 {
     memset(addr, 0, sizeof(*addr));
     addr->sconn_family = AF_CONN;
-    addr->sconn_port = (uint16_t) MRTC_SCTP_PORT;
+    addr->sconn_port = htons((uint16_t) MRTC_SCTP_PORT);
     addr->sconn_addr = address == 0 ? session : address;
 }
 
@@ -211,7 +237,23 @@ static MRTC_STATUS mrtc_sctp_sendv(MRTC_SCTP_SESSION *session,
                          SCTP_SENDV_SPA,
                          0);
     if (sent < 0) {
+        if (mrtc_sctp_transport_debug_enabled()) {
+            fprintf(stderr,
+                    "mrtc transport: sctp sendv ppid=%u stream=%u len=%lu errno=%d\n",
+                    (unsigned int) ppid,
+                    (unsigned int) stream_id,
+                    (unsigned long) message_len,
+                    errno);
+        }
         return mrtc_sctp_emit_test_frame(session, stream_id, ppid, message, message_len);
+    }
+    if (mrtc_sctp_transport_debug_enabled()) {
+        fprintf(stderr,
+                "mrtc transport: sctp sendv ppid=%u stream=%u len=%lu sent=%ld\n",
+                (unsigned int) ppid,
+                (unsigned int) stream_id,
+                (unsigned long) message_len,
+                (long) sent);
     }
     session->last_outbound_ppid = ppid;
     session->last_outbound_stream_id = stream_id;
@@ -275,6 +317,10 @@ static int mrtc_sctp_outbound_packet(void *addr, void *data, size_t length, uint
         }
         return -1;
     }
+    if (mrtc_sctp_transport_debug_enabled()) {
+        fprintf(stderr, "mrtc transport: sctp outbound packet len=%lu\n", (unsigned long) length);
+    }
+    mrtc_sctp_debug_packet("outbound", (const uint8_t *) data, length);
     session->on_outbound(session->user_data, (const uint8_t *) data, length);
     return 0;
 }
@@ -298,6 +344,14 @@ static int mrtc_sctp_inbound_packet(struct socket *sock,
     }
     if ((flags & MSG_NOTIFICATION) != 0 && data != 0 && length >= sizeof(union sctp_notification)) {
         union sctp_notification *notification = (union sctp_notification *) data;
+        if (mrtc_sctp_transport_debug_enabled()) {
+            fprintf(stderr,
+                    "mrtc transport: sctp notification type=%u state=%u len=%lu\n",
+                    (unsigned int) notification->sn_header.sn_type,
+                    notification->sn_header.sn_type == SCTP_ASSOC_CHANGE ?
+                        (unsigned int) notification->sn_assoc_change.sac_state : 0u,
+                    (unsigned long) length);
+        }
         if (notification->sn_header.sn_type == SCTP_ASSOC_CHANGE &&
             notification->sn_assoc_change.sac_state == SCTP_COMM_UP) {
             session->connected = 1;
@@ -306,9 +360,19 @@ static int mrtc_sctp_inbound_packet(struct socket *sock,
         return 1;
     }
     if (ppid == MRTC_SCTP_PPID_DCEP) {
+        if (mrtc_sctp_transport_debug_enabled()) {
+            fprintf(stderr, "mrtc transport: sctp inbound DCEP stream=%u len=%lu\n", (unsigned int) rcv.rcv_sid, (unsigned long) length);
+        }
         (void) mrtc_sctp_handle_dcep(session, rcv.rcv_sid, (const uint8_t *) data, length);
     } else if (ppid == MRTC_SCTP_PPID_STRING || ppid == MRTC_SCTP_PPID_STRING_EMPTY ||
                ppid == MRTC_SCTP_PPID_BINARY || ppid == MRTC_SCTP_PPID_BINARY_EMPTY) {
+        if (mrtc_sctp_transport_debug_enabled()) {
+            fprintf(stderr,
+                    "mrtc transport: sctp inbound message ppid=%u stream=%u len=%lu\n",
+                    (unsigned int) ppid,
+                    (unsigned int) rcv.rcv_sid,
+                    (unsigned long) length);
+        }
         session->connected = 1;
         if (session->on_message != 0) {
             session->on_message(session->user_data, rcv.rcv_sid, ppid, (const uint8_t *) data, length);
@@ -488,8 +552,16 @@ MRTC_STATUS mrtc_sctp_session_handle_inbound_packet(MRTC_SCTP_SESSION *session,
     if (packet_len >= 14u && mrtc_sctp_get_u32(packet) == MRTC_SCTP_TEST_FRAME_MAGIC) {
         return mrtc_sctp_handle_test_frame(session, packet, packet_len);
     }
+    mrtc_sctp_debug_packet("inbound", packet, packet_len);
     usrsctp_conninput(session, packet, packet_len, 0);
     usrsctp_handle_timers(1);
+    if (mrtc_sctp_transport_debug_enabled()) {
+        fprintf(stderr, "mrtc transport: sctp conninput len=%lu connected=%d dcep=%d ack=%d\n",
+                (unsigned long) packet_len,
+                session->connected,
+                session->dcep_open_received,
+                session->dcep_ack_sent);
+    }
     return MRTC_STATUS_OK;
 #else
     (void) packet;

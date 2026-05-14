@@ -183,6 +183,8 @@ static MRTC_STATUS mrtc_peer_connection_drain_dtls(MRTC_PEER_CONNECTION_HANDLE p
     return MRTC_STATUS_OK;
 }
 
+static MRTC_STATUS mrtc_peer_connection_finish_secure_transport_if_ready(MRTC_PEER_CONNECTION_HANDLE peer_connection);
+
 static void mrtc_peer_connection_on_sctp_outbound(void *user_data, const uint8_t *packet, size_t packet_len)
 {
     MRTC_PEER_CONNECTION_HANDLE peer_connection = (MRTC_PEER_CONNECTION_HANDLE) user_data;
@@ -228,6 +230,9 @@ static void mrtc_peer_connection_on_sctp_message(void *user_data,
     channel = mrtc_peer_connection_find_data_channel_by_id(peer_connection, stream_id);
     if (channel == 0) {
         channel = peer_connection->data_channels;
+        if (channel != 0 && !channel->open) {
+            channel->stream_id = stream_id;
+        }
     }
     if (channel == 0) {
         return;
@@ -248,7 +253,14 @@ static void mrtc_peer_connection_on_dtls_application_data(void *user_data, const
 {
     MRTC_PEER_CONNECTION_HANDLE peer_connection = (MRTC_PEER_CONNECTION_HANDLE) user_data;
 
-    if (peer_connection == 0 || data == 0 || data_len == 0u || !peer_connection->sctp_started) {
+    if (peer_connection == 0 || data == 0 || data_len == 0u) {
+        return;
+    }
+    if (!peer_connection->sctp_started &&
+        mrtc_peer_connection_finish_secure_transport_if_ready(peer_connection) != MRTC_STATUS_OK) {
+        return;
+    }
+    if (!peer_connection->sctp_started) {
         return;
     }
     (void) mrtc_sctp_session_handle_inbound_packet(&peer_connection->sctp_session, data, data_len);
@@ -865,7 +877,8 @@ MRTC_STATUS mrtc_peer_connection_poll_transport(MRTC_PEER_CONNECTION_HANDLE peer
             return mrtc_peer_connection_finish_secure_transport_if_ready(peer_connection);
         }
         if ((packet[0] & 0xc0u) == 0x80u) {
-            return mrtc_peer_connection_receive_protected_media_packet(peer_connection, packet, packet_len);
+            (void) mrtc_peer_connection_receive_protected_media_packet(peer_connection, packet, packet_len);
+            return MRTC_STATUS_OK;
         }
     }
     return MRTC_STATUS_OK;

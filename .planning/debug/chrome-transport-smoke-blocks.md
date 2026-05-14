@@ -1,6 +1,6 @@
 ---
-status: blocked
-trigger: "Chrome transport smoke blocks at connection stage after SDP mid alignment and real host candidate; investigate DTLS/SCTP/DataChannel interop needed for MRTC_E2E_REQUIRE_TRANSPORT=1"
+status: resolved
+trigger: "Chrome strict transport smoke now passes after STUN/ICE/SCTP stream fixes; keep this as historical evidence for the 06-08 gate"
 created: 2026-05-13
 updated: 2026-05-14
 ---
@@ -10,17 +10,17 @@ updated: 2026-05-14
 ## Symptoms
 
 - **Expected behavior:** `MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` 应让浏览器侧 `RTCPeerConnection.connectionState === "connected"`，并完成 browser `ping:<nonce>` 到 C `pong:<nonce>` 的真实 DataChannel 往返。
-- **Actual behavior:** 06-03 transport smoke 在分类模式下通过，但 artifact 记录 `signaling: passed`、`connection: blocked`、`datachannel: blocked`、`failure_stage: connection`。
-- **Error messages:** Playwright 等待 browser connection 超时，最近 summary 记录 `page.waitForFunction: Timeout 10000ms exceeded.`。
+- **Actual behavior:** 已解决。最新严格 smoke 记录 `signaling: passed`、`connection: passed`、`datachannel: passed`，浏览器收到 `pong:<nonce>`。
+- **Historical error messages:** 早期 Playwright 等待 browser connection 或 `datachannel.open/message` 超时。
 - **Timeline:** 06-03 已修复 SDP mid/order、真实 host candidate 端口和 browser diagnostic filtering 后仍存在。
 - **Reproduction:** 运行严格 smoke：`MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"`。
 
 ## Current Focus
 
-- **hypothesis:** 根因已定位：当前代码只绑定并发布 UDP host candidate，没有 ICE connectivity check 处理、没有 UDP receive loop、没有真实 DTLS handshake，也没有 usrsctp DataChannel transport；因此 Chrome 只能进入 ICE checking / PeerConnection connecting。
-- **test:** 严格 smoke 已复现；代码审计确认 `mrtc_peer_connection_add_ice_candidate()` 在收到 remote candidate 后直接把 C 内部状态置为 connected，但没有网络收包路径。
-- **expecting:** 要让 `MRTC_E2E_REQUIRE_TRANSPORT=1` 通过，需要先实现/接入真实 ICE STUN binding response、DTLS 1.2 handshake、SRTP key export、SCTP/DCEP/DataChannel over DTLS。
-- **next_action:** 规划真实 Chrome transport 实现，优先从本地 `reflib/kvs-webrtc-sdk` 搬迁 ICE/DTLS/SCTP packet path 或接入系统 libsrtp/usrsctp 后重构当前 stub。
+- **hypothesis:** 已验证。剩余 blocker 不是 SDP/signaling，而是 STUN HMAC、ICE username 匹配、SCTP AF_CONN 端口字节序和远端 DataChannel stream 绑定。
+- **test:** 严格 smoke 已通过；C 传输测试 6/6 通过。
+- **expecting:** 06-04 可以在真实 Chrome transport 上继续补媒体 E2E 断言。
+- **next_action:** 执行 06-04 host Chrome E2E 媒体计划。
 - **reasoning_checkpoint:** 
 - **tdd_checkpoint:** 
 
@@ -65,6 +65,12 @@ updated: 2026-05-14
 - timestamp: 2026-05-14T02:46:37Z
   observation: 严格 Chrome transport smoke 仍失败在 browser connection stage。
   detail: `tests/e2e/artifacts/summary.json` 记录 `signaling: "passed"`、`connection: "blocked"`、`datachannel: "blocked"`、`failure_stage: "connection"`、`failure_reason: "page.waitForFunction: Timeout 10000ms exceeded."`。signaling artifact 显示 answer/candidate 已交换，browser 进入 `ice.checking` / `pc.connecting` 后未到 `connected`。
+- timestamp: 2026-05-14T03:02:11Z
+  observation: 严格 Chrome transport smoke 通过。
+  detail: `MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` 1/1 passed；browser 本地事件包含 `pc.connected`、`datachannel.open` 和 `datachannel.message`，payload 为 `pong:<nonce>`。
+- timestamp: 2026-05-14T03:02:11Z
+  observation: 根因修复覆盖 STUN、ICE、SCTP 和 DataChannel stream。
+  detail: 修正 STUN `MESSAGE-INTEGRITY` HMAC 输入范围；ICE username 接受 Chrome 的 `localUfrag:remoteUfrag` 形式；SCTP `sockaddr_conn.sconn_port` 改为 `htons(5000)`；远端 DCEP 到来时复用 channel 继承 Chrome stream id。
 
 ## Eliminated
 
@@ -77,8 +83,8 @@ updated: 2026-05-14
 
 ## Resolution
 
-- **root_cause:** 当前 PeerConnection transport 是内部 harness 语义，不是真实 Chrome WebRTC transport：host candidate 有真实 UDP socket，但没有 ICE STUN request/response 和 nominated pair；DTLS/SCTP/DataChannel 也是 stub/loopback，C 内部 connected/datachannel.open 由 remote candidate 触发，不能让 browser 侧 connectionState connected。
-- **fix:** 已修复 smoke 假阳性风险并推进部分 transport 收口：browser-client 诊断事件仍保持 `remote.*`；C answerer 主循环会轮询 PeerConnection UDP/STUN transport；STUN helper 覆盖 Binding request/response、XOR-MAPPED-ADDRESS、MESSAGE-INTEGRITY 和 FINGERPRINT；DTLS fingerprint 改为 OpenSSL self-signed certificate SHA-256 digest；SCTP/DataChannel 不再在 connect/addIceCandidate 时触发 in-process open/message 假阳性。
-- **verification:** `ctest --test-dir build --output-on-failure` 18/18 passed；classification `MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` passed；strict `MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` 仍失败在 connection stage。
-- **latest_06_08_gate:** 严格 system transport 依赖门槛已解除，OpenSSL/libsrtp/usrsctp 均可用；C 单测覆盖 DTLS exporter、libsrtp 和 SCTP/DCEP/PPID path。严格 Chrome smoke 仍在 `connection` stage 阻塞，说明剩余问题已经从本机依赖缺口收窄到 browser 真实 ICE/DTLS/SCTP 互通路径。
+- **root_cause:** 严格 transport path 已从 stub 迁移到真实包路径后，Chrome 互通仍被几处协议细节阻塞：STUN HMAC 覆盖长度不符合 Chrome、ICE username 只接受错误方向、SCTP AF_CONN 端口不是网络字节序、pong 发送到本地默认 stream 而不是 Chrome DCEP stream。
+- **fix:** 修正 STUN HMAC、ICE username 匹配、SCTP `htons(5000)`、DataChannel 远端 stream 绑定，并让 strict smoke 发送 ping 前等待 browser `datachannel.open`。
+- **verification:** `ctest --test-dir build-transport -R "stun|ice|dtls|srtp|sctp|data_channel|peer_connection|transport" --output-on-failure` 6/6 passed；strict `MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` 1/1 passed。
+- **latest_06_08_gate:** 严格 system transport 依赖门槛已解除，OpenSSL/libsrtp/usrsctp 均可用；严格 Chrome smoke 已通过，06-04 host media E2E 可以继续。
 - **files_changed:** `src/stun/stun_message.*`, `src/ice/ice_agent.*`, `src/dtls/dtls_session.c`, `src/sctp/sctp_session.*`, `src/data_channel/data_channel.h`, `src/peer_connection.c`, `include/micrortc/peer_connection.h`, `examples/chrome-e2e/mrtc_chrome_answerer.c`, `tests/transport/test_stun_message.c`, `tests/transport/test_sctp_data_channel.c`, `tests/peer_connection/test_peer_connection_api.c`, `.planning/phases/01-/SOURCE-MANIFEST.md`, `.planning/debug/chrome-transport-smoke-blocks.md`

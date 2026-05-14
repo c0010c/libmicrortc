@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -183,7 +184,15 @@ static int mrtc_ice_username_matches_local_ufrag(const char *username, const cha
     if (colon == 0) {
         return strcmp(username, local_ufrag) == 0;
     }
-    return strcmp(username, local_ufrag) == 0 || strcmp(colon + 1, local_ufrag) == 0;
+    return ((size_t) (colon - username) == strlen(local_ufrag) &&
+            memcmp(username, local_ufrag, (size_t) (colon - username)) == 0) ||
+           strcmp(colon + 1, local_ufrag) == 0;
+}
+
+static int mrtc_ice_transport_debug_enabled(void)
+{
+    const char *value = getenv("MRTC_TRANSPORT_DEBUG");
+    return value != 0 && value[0] != '\0' && strcmp(value, "0") != 0;
 }
 
 MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
@@ -240,20 +249,44 @@ MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
         char remote_ip[64];
         unsigned char response[512];
         size_t response_len = 0;
+        MRTC_STATUS parse_status;
 
         if (inet_ntop(AF_INET, &remote_addr.sin_addr, remote_ip, sizeof(remote_ip)) == 0) {
             return MRTC_STATUS_INVALID_STATE;
         }
-        if (mrtc_stun_parse_binding_request(packet, (size_t) received, local_pwd, &request) != MRTC_STATUS_OK) {
+        parse_status = mrtc_stun_parse_binding_request(packet, (size_t) received, local_pwd, &request);
+        if (mrtc_ice_transport_debug_enabled()) {
+            fprintf(stderr,
+                    "mrtc transport: stun from %s:%u len=%ld parse=%d username=%s mi=%d/%d fp=%d/%d\n",
+                    remote_ip,
+                    (unsigned int) ntohs(remote_addr.sin_port),
+                    (long) received,
+                    (int) parse_status,
+                    parse_status == MRTC_STATUS_OK ? request.username : "",
+                    parse_status == MRTC_STATUS_OK ? request.has_message_integrity : 0,
+                    parse_status == MRTC_STATUS_OK ? request.message_integrity_valid : 0,
+                    parse_status == MRTC_STATUS_OK ? request.has_fingerprint : 0,
+                    parse_status == MRTC_STATUS_OK ? request.fingerprint_valid : 0);
+        }
+        if (parse_status != MRTC_STATUS_OK) {
             return MRTC_STATUS_OK;
         }
         if (!mrtc_ice_username_matches_local_ufrag(request.username, local_ufrag)) {
+            if (mrtc_ice_transport_debug_enabled()) {
+                fprintf(stderr, "mrtc transport: stun username ignored for local ufrag %s\n", local_ufrag);
+            }
             return MRTC_STATUS_OK;
         }
         if (request.has_message_integrity && !request.message_integrity_valid) {
+            if (mrtc_ice_transport_debug_enabled()) {
+                fprintf(stderr, "mrtc transport: stun message-integrity invalid\n");
+            }
             return MRTC_STATUS_OK;
         }
         if (request.has_fingerprint && !request.fingerprint_valid) {
+            if (mrtc_ice_transport_debug_enabled()) {
+                fprintf(stderr, "mrtc transport: stun fingerprint invalid\n");
+            }
             return MRTC_STATUS_OK;
         }
         if (mrtc_stun_write_binding_success_response(response,
@@ -273,6 +306,13 @@ MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
                    remote_len) < 0) {
             return MRTC_STATUS_INVALID_STATE;
         }
+        if (mrtc_ice_transport_debug_enabled()) {
+            fprintf(stderr,
+                    "mrtc transport: stun response sent to %s:%u len=%lu\n",
+                    remote_ip,
+                    (unsigned int) ntohs(remote_addr.sin_port),
+                    (unsigned long) response_len);
+        }
         (void) snprintf(endpoint->selected_remote_ip, sizeof(endpoint->selected_remote_ip), "%s", remote_ip);
         endpoint->selected_remote_port = ntohs(remote_addr.sin_port);
         endpoint->selected_pair_ready = 1;
@@ -282,6 +322,14 @@ MRTC_STATUS mrtc_ice_host_endpoint_poll(MRTC_ICE_HOST_ENDPOINT *endpoint,
     if (non_stun_packet != 0 && non_stun_packet_len != 0 && non_stun_packet_capacity >= (size_t) received) {
         memcpy(non_stun_packet, packet, (size_t) received);
         *non_stun_packet_len = (size_t) received;
+        if (mrtc_ice_transport_debug_enabled()) {
+            fprintf(stderr,
+                    "mrtc transport: non-stun packet from %s:%u len=%ld first=0x%02x\n",
+                    inet_ntoa(remote_addr.sin_addr),
+                    (unsigned int) ntohs(remote_addr.sin_port),
+                    (long) received,
+                    packet[0]);
+        }
     }
     return MRTC_STATUS_OK;
 }

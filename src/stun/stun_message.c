@@ -173,7 +173,7 @@ MRTC_STATUS mrtc_stun_write_binding_request_with_credentials(uint8_t *buffer,
         mrtc_write_be16(buffer + mi_attr_offset + 2u, 20u);
         offset += 24u;
         mrtc_write_be16(buffer + 2u, (uint16_t) (offset - 20u));
-        if (!mrtc_stun_hmac_sha1(buffer, mi_attr_offset + 4u, password, digest)) {
+        if (!mrtc_stun_hmac_sha1(buffer, mi_attr_offset, password, digest)) {
             return MRTC_STATUS_INVALID_STATE;
         }
         memcpy(buffer + mi_attr_offset + 4u, digest, sizeof(digest));
@@ -283,7 +283,7 @@ MRTC_STATUS mrtc_stun_parse_binding_request(const uint8_t *buffer,
             uint8_t digest[20];
             uint8_t scratch[2048];
             size_t mi_attr_offset = value_offset - 4u;
-            size_t hmac_len = mi_attr_offset + 4u;
+            size_t hmac_len = mi_attr_offset;
 
             request->has_message_integrity = 1;
             if (attr_len != 20u || hmac_len > sizeof(scratch) || value_offset + 20u > message_end) {
@@ -370,7 +370,7 @@ MRTC_STATUS mrtc_stun_write_binding_success_response(uint8_t *buffer,
         mrtc_write_be16(buffer + mi_attr_offset + 2u, 20u);
         offset += 24u;
         mrtc_write_be16(buffer + 2u, (uint16_t) (offset - 20u));
-        if (!mrtc_stun_hmac_sha1(buffer, mi_attr_offset + 4u, password, digest)) {
+        if (!mrtc_stun_hmac_sha1(buffer, mi_attr_offset, password, digest)) {
             return MRTC_STATUS_INVALID_STATE;
         }
         memcpy(buffer + mi_attr_offset + 4u, digest, sizeof(digest));

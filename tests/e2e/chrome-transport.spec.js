@@ -81,6 +81,9 @@ test("transport smoke: signaling, connection, and datachannel stages are classif
       const nonce = `nonce-${Date.now()}`;
       const pong = await page.evaluate(async (value) => {
         const api = window.__mrtcE2E;
+        if (api.getState().dataChannelState !== "open") {
+          await api.waitForEvent("datachannel.open", 10_000);
+        }
         api.dataChannel.send(`ping:${value}`);
         const event = await api.waitForEvent("datachannel.message", 10_000);
         return event.fields && event.fields.data;

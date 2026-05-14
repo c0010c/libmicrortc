@@ -138,8 +138,8 @@
 - Wave 2 *(blocked on Wave 1 completion)*: `.planning/phases/06-chrome-e2e/06-02-PLAN.md` — Complete. C Answerer demo、DataChannel ping/pong、固定 H264/Opus 媒体源和 C 侧结构化事件。
 - Wave 3 *(blocked on Wave 1/2 completion)*: `.planning/phases/06-chrome-e2e/06-03-PLAN.md` — Executed with failed self-check. SDP mid/order、真实 host candidate 和分层 smoke 已建立，但真实 Chrome transport 仍 blocked。
 - Wave 4 *(gap closure; blocked on Wave 3 execution result)*: `.planning/phases/06-chrome-e2e/06-07-PLAN.md` — Executed with failed self-check. STUN/ICE polling 和假阳性防护已加强，但 strict transport 仍 blocked，且本机缺 `libsrtp`/`usrsctp`。
-- Wave 4 *(gap closure; blocked on 06-07 execution result)*: `.planning/phases/06-chrome-e2e/06-08-PLAN.md` — Executed with failed self-check. 严格依赖门槛已加固，但本机仍缺 `libsrtp`/`usrsctp`，后续 OpenSSL DTLS BIO、DTLS-SRTP export、usrsctp/DCEP 和 PeerConnection packet pump 未执行。
-- Wave 5 *(blocked on Wave 4 strict transport pass)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Planned. Chrome host E2E 的连接、DataChannel、浏览器媒体和 C 端媒体断言。
+- Wave 4 *(gap closure; blocked on 06-07 execution result)*: `.planning/phases/06-chrome-e2e/06-08-PLAN.md` — Complete. OpenSSL/libsrtp/usrsctp strict transport path 已接通，严格 Chromium smoke 的 browser connection 与 DataChannel ping/pong 已通过。
+- Wave 5 *(unblocked by Wave 4 strict transport pass)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Planned. Chrome host E2E 的连接、DataChannel、浏览器媒体和 C 端媒体断言。
 - Wave 6 *(blocked on Wave 5 completion)*: `.planning/phases/06-chrome-e2e/06-05-PLAN.md` — Planned. TURN relay E2E、selected relay candidate stats 校验和 secret redaction。
 - Wave 7 *(blocked on Wave 5/6 completion)*: `.planning/phases/06-chrome-e2e/06-06-PLAN.md` — Planned. v1 总验收脚本、输出摘要、文档、状态和来源追溯收口。
 
@@ -147,7 +147,7 @@
 - WebSocket signaling、Playwright runner 和 C demo 都属于 demo/test 层；核心 `micrortc` target 不引入应用层 signaling、Node、WebSocket、GStreamer、FFmpeg 或媒体采集/编码依赖。
 - 默认 `ctest` 保持确定性 C/协议测试；Chrome E2E 使用显式命令运行。
 - Host Chrome E2E 必须先证明真实 browser `RTCPeerConnection.connectionState === "connected"` 和 DataChannel 双向消息，再证明浏览器收到 H264/Opus、C 端收到 H264/Opus。
-- 06-03 的 C 内部 connected/DataChannel open 诊断不能作为 Chrome 互通成功；06-08 严格 transport smoke 通过前不得执行 06-04 媒体断言。
+- 06-03 的 C 内部 connected/DataChannel open 诊断不能作为 Chrome 互通成功；06-08 严格 transport smoke 已通过，06-04 可以在真实 transport 上执行媒体断言。
 - TURN relay E2E 是单独真实网络命令；缺少本地 TURN 配置时必须失败，不能静默跳过。
 - 真实 TURN credential 不得写入计划、文档、脚本默认值、测试日志、summary artifact 或提交内容。
 
