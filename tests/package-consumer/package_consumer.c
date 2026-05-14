@@ -14,6 +14,7 @@ int main(void)
     MRTC_DATA_CHANNEL_HANDLE channel = 0;
     MRTC_RTP_TRANSCEIVER_HANDLE video = 0;
     MRTC_RTP_TRANSCEIVER_HANDLE audio = 0;
+    MRTC_SELECTED_CANDIDATE_PAIR_INFO selected_pair = {0};
     MRTC_STATUS unavailable = MRTC_STATUS_NOT_IMPLEMENTED;
     MRTC_STATUS invalid_state = MRTC_STATUS_INVALID_STATE;
     MRTC_STATUS parse_error = MRTC_STATUS_PARSE_ERROR;
@@ -53,6 +54,15 @@ int main(void)
         return 1;
     }
     if (mrtc_data_channel_send(channel, MRTC_DATA_CHANNEL_MESSAGE_TYPE_BINARY, (const unsigned char *) "x", 1) != MRTC_STATUS_INVALID_STATE) {
+        mrtc_peer_connection_free(handle);
+        return 1;
+    }
+    if (mrtc_data_channel_label(channel) == 0 || mrtc_data_channel_label(channel)[0] == '\0') {
+        mrtc_peer_connection_free(handle);
+        return 1;
+    }
+    (void) mrtc_data_channel_id(channel);
+    if (mrtc_peer_connection_get_selected_candidate_pair_info(handle, &selected_pair) != MRTC_STATUS_OK) {
         mrtc_peer_connection_free(handle);
         return 1;
     }
