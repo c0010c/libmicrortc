@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 06
-status: completed_v1_phase_6
-last_updated: "2026-05-14T06:47:00Z"
+status: Awaiting next milestone
+last_updated: "2026-05-14T07:29:24.294Z"
+last_activity: 2026-05-14
 progress:
   total_phases: 6
   completed_phases: 6
@@ -27,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
 **Current focus:** Phase 06 — chrome-e2e 已完成；v1 验收入口为 `scripts/verify-v1.sh`
-**Last activity:** 2026-05-14 - Completed quick task 260514-kea: 浏览器手动一键开始拉流验证入口
+**Last activity:** 2026-05-14
 
 ## Artifacts
 
@@ -125,3 +126,14 @@ scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 - [Phase 06]: 06-04 execution result: 默认 host/local Chromium E2E 已通过真实 browser connection、DataChannel ping/pong、C→Chrome H264/Opus stats/DOM 证据和 Chrome→C H264/Opus on_frame 事件；06-05 TURN relay E2E 可以继续。
 - [Phase 06]: 06-05 execution result: 显式 TURN relay E2E 已通过，Chrome 和 C 端 selected pair 均为 relay；缺配置路径硬失败且 summary/log 不泄露 TURN credential。
 - [Phase 06]: 06-06 execution result: `scripts/verify-v1.sh` 默认串起 build、CTest 和 host Chromium E2E；`--turn-config ./mrtc-ice-servers.local.json` 串起真实 TURN relay E2E；最终 summary 固定在 `build/reports/mrtc-v1-summary.json`。
+
+## Current Position
+
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-14 — Milestone v1.0 completed and archived
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
