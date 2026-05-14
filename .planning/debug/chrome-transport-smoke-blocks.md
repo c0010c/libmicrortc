@@ -2,7 +2,7 @@
 status: blocked
 trigger: "Chrome transport smoke blocks at connection stage after SDP mid alignment and real host candidate; investigate DTLS/SCTP/DataChannel interop needed for MRTC_E2E_REQUIRE_TRANSPORT=1"
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 ---
 
 # Debug Session: chrome-transport-smoke-blocks
@@ -59,6 +59,12 @@ updated: 2026-05-13
 - timestamp: 2026-05-13T13:16:38Z
   observation: 06-08 前置依赖门槛执行后仍阻塞。
   detail: 严格 configure 一次性汇总缺失依赖为 `libsrtp` 和 `usrsctp`；按 06-08 计划停止后续 DTLS/SCTP/PeerConnection packet pump 任务，避免生成假阳性 transport 通过。
+- timestamp: 2026-05-14T02:46:37Z
+  observation: 依赖安装后重新执行 06-08，严格 system transport configure/build 和 `ctest -R "dtls|srtp|sctp|data_channel|peer_connection|transport"` 均通过。
+  detail: `build-transport/CMakeCache.txt` 中 `MRTC_SRTP_LIBRARY=/usr/lib/x86_64-linux-gnu/libsrtp2.so`、`MRTC_USRSCTP_LIBRARY=/usr/lib/x86_64-linux-gnu/libusrsctp.so`；DTLS memory BIO 单测覆盖 OpenSSL handshake、fingerprint mismatch 和 libsrtp protect/unprotect。
+- timestamp: 2026-05-14T02:46:37Z
+  observation: 严格 Chrome transport smoke 仍失败在 browser connection stage。
+  detail: `tests/e2e/artifacts/summary.json` 记录 `signaling: "passed"`、`connection: "blocked"`、`datachannel: "blocked"`、`failure_stage: "connection"`、`failure_reason: "page.waitForFunction: Timeout 10000ms exceeded."`。signaling artifact 显示 answer/candidate 已交换，browser 进入 `ice.checking` / `pc.connecting` 后未到 `connected`。
 
 ## Eliminated
 
@@ -74,5 +80,5 @@ updated: 2026-05-13
 - **root_cause:** 当前 PeerConnection transport 是内部 harness 语义，不是真实 Chrome WebRTC transport：host candidate 有真实 UDP socket，但没有 ICE STUN request/response 和 nominated pair；DTLS/SCTP/DataChannel 也是 stub/loopback，C 内部 connected/datachannel.open 由 remote candidate 触发，不能让 browser 侧 connectionState connected。
 - **fix:** 已修复 smoke 假阳性风险并推进部分 transport 收口：browser-client 诊断事件仍保持 `remote.*`；C answerer 主循环会轮询 PeerConnection UDP/STUN transport；STUN helper 覆盖 Binding request/response、XOR-MAPPED-ADDRESS、MESSAGE-INTEGRITY 和 FINGERPRINT；DTLS fingerprint 改为 OpenSSL self-signed certificate SHA-256 digest；SCTP/DataChannel 不再在 connect/addIceCandidate 时触发 in-process open/message 假阳性。
 - **verification:** `ctest --test-dir build --output-on-failure` 18/18 passed；classification `MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` passed；strict `MRTC_E2E_REQUIRE_TRANSPORT=1 MRTC_E2E_BROWSER_CHANNEL=chromium npm --prefix tests/e2e run test:host -- --grep "transport smoke"` 仍失败在 connection stage。
-- **latest_06_08_gate:** 严格 system transport configure 仍因缺 `libsrtp` 和 `usrsctp` 阻塞；OpenSSL 可用。后续必须先安装系统开发依赖，再实现真实 OpenSSL DTLS packet BIO、DTLS-SRTP exporter、usrsctp/DCEP packet IO 和 PeerConnection packet pump。
+- **latest_06_08_gate:** 严格 system transport 依赖门槛已解除，OpenSSL/libsrtp/usrsctp 均可用；C 单测覆盖 DTLS exporter、libsrtp 和 SCTP/DCEP/PPID path。严格 Chrome smoke 仍在 `connection` stage 阻塞，说明剩余问题已经从本机依赖缺口收窄到 browser 真实 ICE/DTLS/SCTP 互通路径。
 - **files_changed:** `src/stun/stun_message.*`, `src/ice/ice_agent.*`, `src/dtls/dtls_session.c`, `src/sctp/sctp_session.*`, `src/data_channel/data_channel.h`, `src/peer_connection.c`, `include/micrortc/peer_connection.h`, `examples/chrome-e2e/mrtc_chrome_answerer.c`, `tests/transport/test_stun_message.c`, `tests/transport/test_sctp_data_channel.c`, `tests/peer_connection/test_peer_connection_api.c`, `.planning/phases/01-/SOURCE-MANIFEST.md`, `.planning/debug/chrome-transport-smoke-blocks.md`
