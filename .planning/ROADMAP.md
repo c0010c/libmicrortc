@@ -140,8 +140,8 @@
 - Wave 4 *(gap closure; blocked on Wave 3 execution result)*: `.planning/phases/06-chrome-e2e/06-07-PLAN.md` — Executed with failed self-check. STUN/ICE polling 和假阳性防护已加强，但 strict transport 仍 blocked，且本机缺 `libsrtp`/`usrsctp`。
 - Wave 4 *(gap closure; blocked on 06-07 execution result)*: `.planning/phases/06-chrome-e2e/06-08-PLAN.md` — Complete. OpenSSL/libsrtp/usrsctp strict transport path 已接通，严格 Chromium smoke 的 browser connection 与 DataChannel ping/pong 已通过。
 - Wave 5 *(unblocked by Wave 4 strict transport pass)*: `.planning/phases/06-chrome-e2e/06-04-PLAN.md` — Complete. 默认 host/local Chrome E2E 的连接、DataChannel、浏览器 H264/Opus 和 C 端 H264/Opus on_frame 断言已通过。
-- Wave 6 *(unblocked by Wave 5 completion)*: `.planning/phases/06-chrome-e2e/06-05-PLAN.md` — Planned. TURN relay E2E、selected relay candidate stats 校验和 secret redaction。
-- Wave 7 *(blocked on Wave 5/6 completion)*: `.planning/phases/06-chrome-e2e/06-06-PLAN.md` — Planned. v1 总验收脚本、输出摘要、文档、状态和来源追溯收口。
+- Wave 6 *(unblocked by Wave 5 completion)*: `.planning/phases/06-chrome-e2e/06-05-PLAN.md` — Complete. TURN relay E2E、selected relay candidate stats 校验和 secret redaction 已通过；缺失 TURN 配置硬失败。
+- Wave 7 *(blocked on Wave 5/6 completion)*: `.planning/phases/06-chrome-e2e/06-06-PLAN.md` — Complete. `scripts/verify-v1.sh` 串起 build、CTest、host Chrome/Chromium E2E，并在显式 `--turn-config` 时运行 TURN relay E2E；最终 summary 写入 `build/reports/mrtc-v1-summary.json`。
 
 **Cross-cutting constraints:**
 - WebSocket signaling、Playwright runner 和 C demo 都属于 demo/test 层；核心 `micrortc` target 不引入应用层 signaling、Node、WebSocket、GStreamer、FFmpeg 或媒体采集/编码依赖。
@@ -150,6 +150,7 @@
 - 06-03 的 C 内部 connected/DataChannel open 诊断不能作为 Chrome 互通成功；06-08 严格 transport smoke 已通过，06-04 已在真实 transport 上通过默认 host 双向媒体断言。
 - TURN relay E2E 是单独真实网络命令；缺少本地 TURN 配置时必须失败，不能静默跳过。
 - 真实 TURN credential 不得写入计划、文档、脚本默认值、测试日志、summary artifact 或提交内容。
+- Phase 6 总验收命令已收口为 `scripts/verify-v1.sh`；默认使用 Playwright bundled Chromium，系统 Chrome 可通过 `--browser-channel chrome` 显式选择。
 
 ## Dependency Notes
 

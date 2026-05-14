@@ -53,7 +53,7 @@
 - [ ] **NET-01**: v1 必须支持 Chrome 与 C 端在 host candidate 场景建立连接。
 - [ ] **NET-02**: v1 必须支持 STUN server-reflexive candidate 路径。
 - [ ] **NET-03**: v1 必须支持 TURN relay candidate 路径。
-- [ ] **NET-04**: TURN relay 路径必须进入自动化或半自动化验收范围，而不是只保留未验证代码。
+- [x] **NET-04**: TURN relay 路径必须进入自动化或半自动化验收范围，而不是只保留未验证代码。
 - [x] **NET-05**: C 端必须先支持 Answerer 模式，后续同一 v1 路线内补齐 Offerer 模式。
 
 ### Demo 与自动化验收
@@ -63,14 +63,14 @@
 - [x] **E2E-03**: 验收脚本必须能自动启动 C demo 和 Chrome，并完成 SDP/candidate 交换。
 - [x] **E2E-04**: 验收脚本必须断言 PeerConnection 连接成功。
 - [x] **E2E-05**: 验收脚本必须断言 DataChannel 可收发消息。
-- [ ] **E2E-06**: 验收脚本必须断言浏览器实际收到来自 C 端的 H264 视频帧或可观察视频输出。
+- [x] **E2E-06**: 验收脚本必须断言浏览器实际收到来自 C 端的 H264 视频帧或可观察视频输出。
 - [x] **E2E-07**: 验收脚本必须断言 C 端实际收到来自 Chrome 的视频媒体包或编码后帧路径输出。
 - [x] **E2E-08**: 验收脚本必须断言双向 Opus 音频路径有媒体流动证据。
 
 ### 测试与质量
 
 - [x] **TEST-01**: 项目必须保留或迁移协议单元测试，覆盖 STUN、ICE、TURN、DTLS、SRTP、RTP/RTCP、SDP、SCTP/DataChannel 等核心模块。
-- [ ] **TEST-02**: E2E 浏览器互通测试必须作为 v1 完成的核心验收标准。
+- [x] **TEST-02**: E2E 浏览器互通测试必须作为 v1 完成的核心验收标准。
 - [x] **TEST-03**: 构建和测试必须可通过一组明确命令在 Linux x86_64 上运行。
 - [x] **TEST-04**: 测试输出必须能区分编译成功、协议单元测试成功、浏览器互通成功和媒体流动成功。
 
@@ -142,18 +142,18 @@
 | NET-01 | Phase 4 | Pending |
 | NET-02 | Phase 4 | Pending |
 | NET-03 | Phase 4 | Pending |
-| NET-04 | Phase 6 | Pending |
+| NET-04 | Phase 6 | Complete |
 | NET-05 | Phase 3 | Complete |
 | E2E-01 | Phase 6 | Complete |
 | E2E-02 | Phase 6 | Complete |
 | E2E-03 | Phase 6 | Complete |
 | E2E-04 | Phase 6 | Complete |
 | E2E-05 | Phase 6 | Complete |
-| E2E-06 | Phase 6 | Pending |
+| E2E-06 | Phase 6 | Complete |
 | E2E-07 | Phase 6 | Complete |
 | E2E-08 | Phase 6 | Complete |
 | TEST-01 | Phase 6 | Complete |
-| TEST-02 | Phase 6 | Pending |
+| TEST-02 | Phase 6 | Complete |
 | TEST-03 | Phase 6 | Complete |
 | TEST-04 | Phase 6 | Complete |
 

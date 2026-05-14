@@ -1,10 +1,10 @@
 # libmicrortc
 
-`libmicrortc` 的目标是从本地 `reflib/kvs-webrtc-sdk` 基线中剥离可复用的 C WebRTC 协议栈能力，形成一个独立、可构建、可验证、可逐步清理的静态库。当前 Phase 5 已提供 AWS 风格裁剪后的 PeerConnection、DataChannel、media transceiver public API，以及 H264/Opus RTP/RTCP/SRTP 编码后媒体路径；核心库仍不内置应用层 signaling、媒体采集或编码。
+`libmicrortc` 的目标是从本地 `reflib/kvs-webrtc-sdk` 基线中剥离可复用的 C WebRTC 协议栈能力，形成一个独立、可构建、可验证、可逐步清理的静态库。当前 v1 路径已提供 AWS 风格裁剪后的 PeerConnection、DataChannel、media transceiver public API、H264/Opus RTP/RTCP/SRTP 编码后媒体路径，以及显式 Chrome/Chromium E2E 验收；核心库仍不内置应用层 signaling、媒体采集或编码。
 
 ## 当前构建状态
 
-当前工程提供独立 CMake 构建，核心 target 为 `micrortc`，导出命名空间为 `micrortc::`，静态库产物为 `libmicrortc.a`。CTest 会覆盖最小链接、SDP round-trip、PeerConnection/DataChannel API、RTP/H264/Opus/RTCP primitives、SRTP media send/receive、NACK/PLI 行为和 Phase 5 fixture verifier。
+当前工程提供独立 CMake 构建，核心 target 为 `micrortc`，导出命名空间为 `micrortc::`，静态库产物为 `libmicrortc.a`。CTest 会覆盖最小链接、SDP round-trip、PeerConnection/DataChannel API、STUN/ICE config、DTLS/SRTP wrapper、SCTP/DataChannel、RTP/H264/Opus/RTCP primitives、SRTP media send/receive、NACK/PLI 行为和 Phase 5 fixture verifier。默认 `ctest` 只运行确定性 C/协议测试；Chrome/Chromium E2E 必须用显式命令运行，不属于默认 CTest。
 
 ```bash
 cmake -S . -B build -DMRTC_BUILD_TESTS=ON
@@ -20,6 +20,46 @@ test -f build/libmicrortc.a
 ```
 
 该 verifier 读取 `tests/fixtures/h264_annexb_sample.h264` 和 `tests/fixtures/opus_packets.bin`，用 C harness 证明 public media API、H264 send/receive、Opus send/receive、SRTP media path、RTCP NACK retransmit 和 PLI callback。H264 fixture 是 Annex-B bytestream，关键帧前自带 SPS/PPS；Opus fixture 是 big-endian 16-bit length-prefixed Opus packet 序列，不引入 Ogg/MP4/GStreamer/FFmpeg 或音视频解码依赖。
+
+## v1 验收矩阵
+
+总验收入口会串起 build、CTest、host Chrome/Chromium E2E，并写出机器可读摘要：
+
+```bash
+scripts/verify-v1.sh
+```
+
+默认浏览器 channel 是 Playwright bundled Chromium，适合没有系统 Google Chrome 的 Linux 环境。需要使用系统 Chrome 时显式指定：
+
+```bash
+scripts/verify-v1.sh --browser-channel chrome
+```
+
+TURN relay 是 opt-in 验收，必须显式提供根目录本地配置；缺配置或配置无效会在 `CHROME TURN E2E` 阶段硬失败：
+
+```bash
+scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
+```
+
+最终 summary 固定写到 `build/reports/mrtc-v1-summary.json`，包含 `build`、`ctest`、`chrome_host`、`chrome_turn`、`connection`、`datachannel`、`browser_media.video`、`browser_media.audio`、`c_media.video`、`c_media.audio`、`turn_relay`、`failure_stage`、`failure_reason` 和 `duration_ms`。该文件会屏蔽 TURN URL、username、password、credential、token 等敏感字段；不要提交 `mrtc-ice-servers.local.json` 或任何真实 credential。
+
+Playwright/Node 依赖固定在 `tests/e2e/`，根目录不是 JS 项目：
+
+```bash
+npm --prefix tests/e2e ci
+npm --prefix tests/e2e run install:browsers
+npm --prefix tests/e2e run test:host
+npm --prefix tests/e2e run test:turn -- --turn-config ./mrtc-ice-servers.local.json
+```
+
+测试需求到命令的映射如下：
+
+| Requirement | 命令 | 主要输出 |
+|-------------|------|----------|
+| TEST-01 协议单元测试 | `ctest --test-dir build --output-on-failure` | CTest labels `protocol`, `transport`, `media`, `integration`；覆盖 STUN、ICE config、DTLS/SRTP、SCTP/DataChannel、SDP、RTP/RTCP/H264/Opus。 |
+| TEST-02 浏览器互通验收 | `scripts/verify-v1.sh` | `CHROME HOST E2E` 阶段断言 browser connection、DataChannel ping/pong、浏览器 H264/Opus inbound、C 端 H264/Opus inbound。 |
+| TEST-03 Linux x86_64 明确命令 | `scripts/verify-v1.sh --help` 和 `scripts/verify-v1.sh` | 支持 `--build-dir`、`--fixtures`、`--turn-config`、`--skip-npm-install`、`--browser-channel`。 |
+| TEST-04 分层失败输出 | `build/reports/mrtc-v1-summary.json` | `failure_stage` 区分 build、ctest、chrome_host、chrome_turn、connection、datachannel、browser-media、c-media、turn-relay。 |
 
 ## 安装与下游消费
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 06
-status: executing_phase_6
-last_updated: "2026-05-14T11:21:55+08:00"
+status: completed_v1_phase_6
+last_updated: "2026-05-14T04:56:06Z"
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 21
-  completed_plans: 17
-  percent: 81
+  completed_plans: 21
+  percent: 100
 ---
 
 # State: libmicrortc
@@ -26,7 +26,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 06 — chrome-e2e
+**Current focus:** Phase 06 — chrome-e2e 已完成；v1 验收入口为 `scripts/verify-v1.sh`
 
 ## Artifacts
 
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 4/8 plans completed; 06-08 strict transport smoke 与 06-04 host 双向媒体 E2E 已通过 |
+| 6. Chrome 自动化 E2E 与测试收口 | Complete | 13 | 8/8 plans completed; `scripts/verify-v1.sh` 与显式 TURN relay E2E 已通过 |
 
 ## Decisions To Carry Forward
 
@@ -62,14 +62,15 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-继续执行 06-05 TURN relay E2E；06-08 strict transport gate 与 06-04 host Chrome 双向媒体 E2E 已通过，06-06 仍等待 06-05 完成：
+Phase 6 已完成。默认 v1 验收和显式 TURN relay 验收命令：
 
 ```bash
-$gsd-execute-phase 06 --plan 05
+scripts/verify-v1.sh
+scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 ```
 
 ---
-*Last updated: 2026-05-14 after Phase 6 Plan 04 host Chrome media E2E passed*
+*Last updated: 2026-05-14 after Phase 6 Plan 06 v1 total verification passed*
 
 ## Performance Metrics
 
@@ -83,6 +84,7 @@ $gsd-execute-phase 06 --plan 05
 | Phase 06-chrome-e2e P01 | 11min | 4 tasks | 9 files |
 | Phase 06-chrome-e2e P02 | 16min | 4 tasks | 6 files |
 | Phase 06-chrome-e2e P04 | 52min | 4 tasks | host Chrome bidirectional media E2E |
+| Phase 06-chrome-e2e P06 | 31min | 4 tasks | v1 verify script, summary schema, docs/state closeout |
 
 ## Decisions
 
@@ -114,3 +116,5 @@ $gsd-execute-phase 06 --plan 05
 - [Phase 06]: 06-08 execution result: 严格 transport 依赖门槛已加固为一次性汇总缺失项；本机仍缺 `libsrtp`/`usrsctp`，按计划停止后续 DTLS/SCTP/PeerConnection packet pump，06-04 媒体 E2E 继续阻塞。
 - [Phase 06]: 06-08 resumed result: OpenSSL/libsrtp/usrsctp strict configure/build、C transport tests 和 strict Chromium transport smoke 已通过；browser connection/DataChannel ping-pong gate 解除，06-04 可以继续。
 - [Phase 06]: 06-04 execution result: 默认 host/local Chromium E2E 已通过真实 browser connection、DataChannel ping/pong、C→Chrome H264/Opus stats/DOM 证据和 Chrome→C H264/Opus on_frame 事件；06-05 TURN relay E2E 可以继续。
+- [Phase 06]: 06-05 execution result: 显式 TURN relay E2E 已通过，Chrome 和 C 端 selected pair 均为 relay；缺配置路径硬失败且 summary/log 不泄露 TURN credential。
+- [Phase 06]: 06-06 execution result: `scripts/verify-v1.sh` 默认串起 build、CTest 和 host Chromium E2E；`--turn-config ./mrtc-ice-servers.local.json` 串起真实 TURN relay E2E；最终 summary 固定在 `build/reports/mrtc-v1-summary.json`。
