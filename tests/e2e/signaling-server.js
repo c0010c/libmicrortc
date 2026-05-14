@@ -149,9 +149,13 @@ function runRedactionSelfTest() {
   process.stdout.write("redaction self-test ok\n");
 }
 
-function spawnAnswerer(answererPath, answererArgs, onMessage) {
+function spawnAnswerer(answererPath, answererArgs, onMessage, answererEnv) {
   const child = spawn(answererPath, answererArgs || [], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...(answererEnv || {}),
+    },
   });
 
   const lines = readline.createInterface({ input: child.stdout });
@@ -197,11 +201,13 @@ async function startServer(options) {
   };
 
   if (options.answerer) {
-    child = spawnAnswerer(options.answerer, options.answererArgs || [], broadcast);
+    child = spawnAnswerer(options.answerer, options.answererArgs || [], broadcast, options.answererEnv || {});
     logEvent("answerer", "spawned", { path: options.answerer, args: options.answererArgs || [] });
   }
 
-  const wss = new WebSocketServer({ host: "127.0.0.1", port: options.port });
+  const listenHost = options.host || "127.0.0.1";
+  const publicHost = options.publicHost || listenHost;
+  const wss = new WebSocketServer({ host: listenHost, port: options.port });
 
   wss.on("connection", (socket) => {
     clients.add(socket);
@@ -230,7 +236,7 @@ async function startServer(options) {
 
   await new Promise((resolve) => wss.once("listening", resolve));
   const address = wss.address();
-  const url = `ws://127.0.0.1:${address.port}`;
+  const url = `ws://${publicHost}:${address.port}`;
   logEvent("signaling", "listening", { url, message_types: [...MESSAGE_TYPES] });
 
   const timeout = setTimeout(() => {

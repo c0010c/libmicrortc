@@ -25,16 +25,16 @@
 - [x] **API-02**: API 必须支持创建和释放 PeerConnection。
 - [x] **API-03**: API 必须支持设置本地/远端 SDP、创建 Offer、创建 Answer，以及添加 ICE candidate。
 - [x] **API-04**: API 必须支持添加音视频 transceiver，并通过 `writeFrame` 类接口发送编码后媒体帧。
-- [ ] **API-05**: API 必须支持 DataChannel 创建、打开、关闭和消息收发。
+- [x] **API-05**: API 必须支持 DataChannel 创建、打开、关闭和消息收发。
 - [x] **API-06**: v1 必须先沿用 AWS SDK 的线程和回调模型。
 
 ### 协议栈模块
 
-- [ ] **PROTO-01**: 核心库必须包含可独立构建的 ICE/STUN/TURN 模块。
-- [ ] **PROTO-02**: 核心库必须包含 DTLS 模块，并优先使用 OpenSSL 路径。
-- [ ] **PROTO-03**: 核心库必须包含 SRTP 会话模块，用于音视频 RTP 保护。
+- [x] **PROTO-01**: 核心库必须包含可独立构建的 ICE/STUN/TURN 模块。
+- [x] **PROTO-02**: 核心库必须包含 DTLS 模块，并优先使用 OpenSSL 路径。
+- [x] **PROTO-03**: 核心库必须包含 SRTP 会话模块，用于音视频 RTP 保护。
 - [x] **PROTO-04**: 核心库必须包含 RTP/RTCP 模块，支持基本 packetize/depacketize、RTCP 处理和 NACK 相关路径。
-- [ ] **PROTO-05**: 核心库必须包含 SCTP/DataChannel 模块。
+- [x] **PROTO-05**: 核心库必须包含 SCTP/DataChannel 模块。
 - [x] **PROTO-06**: 核心库必须包含 SDP 序列化和反序列化能力。
 - [x] **PROTO-07**: 核心库不得依赖 AWS KVS signaling client 才能完成 PeerConnection 协议流程。
 
@@ -50,9 +50,9 @@
 
 ### ICE 与网络互通
 
-- [ ] **NET-01**: v1 必须支持 Chrome 与 C 端在 host candidate 场景建立连接。
-- [ ] **NET-02**: v1 必须支持 STUN server-reflexive candidate 路径。
-- [ ] **NET-03**: v1 必须支持 TURN relay candidate 路径。
+- [x] **NET-01**: v1 必须支持 Chrome 与 C 端在 host candidate 场景建立连接。
+- [x] **NET-02**: v1 必须支持 STUN server-reflexive candidate 路径。
+- [x] **NET-03**: v1 必须支持 TURN relay candidate 路径。
 - [x] **NET-04**: TURN relay 路径必须进入自动化或半自动化验收范围，而不是只保留未验证代码。
 - [x] **NET-05**: C 端必须先支持 Answerer 模式，后续同一 v1 路线内补齐 Offerer 模式。
 
@@ -123,13 +123,13 @@
 | API-02 | Phase 3 | Complete |
 | API-03 | Phase 3 | Complete |
 | API-04 | Phase 5 | Complete |
-| API-05 | Phase 4 | Pending |
+| API-05 | Phase 4 | Complete |
 | API-06 | Phase 3 | Complete |
-| PROTO-01 | Phase 4 | Pending |
-| PROTO-02 | Phase 4 | Pending |
-| PROTO-03 | Phase 4 | Pending |
+| PROTO-01 | Phase 4 | Complete |
+| PROTO-02 | Phase 4 | Complete |
+| PROTO-03 | Phase 4 | Complete |
 | PROTO-04 | Phase 5 | Complete |
-| PROTO-05 | Phase 4 | Pending |
+| PROTO-05 | Phase 4 | Complete |
 | PROTO-06 | Phase 3 | Complete |
 | PROTO-07 | Phase 3 | Complete |
 | MEDIA-01 | Phase 5 | Complete |
@@ -139,9 +139,9 @@
 | MEDIA-05 | Phase 5 | Complete |
 | MEDIA-06 | Phase 5 | Complete |
 | MEDIA-07 | Phase 5 | Complete |
-| NET-01 | Phase 4 | Pending |
-| NET-02 | Phase 4 | Pending |
-| NET-03 | Phase 4 | Pending |
+| NET-01 | Phase 4 | Complete |
+| NET-02 | Phase 4 | Complete |
+| NET-03 | Phase 4 | Complete |
 | NET-04 | Phase 6 | Complete |
 | NET-05 | Phase 3 | Complete |
 | E2E-01 | Phase 6 | Complete |

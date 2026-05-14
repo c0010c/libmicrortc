@@ -12,6 +12,12 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+static const char *mrtc_ice_env_or_default(const char *name, const char *fallback)
+{
+    const char *value = getenv(name);
+    return value != 0 && value[0] != '\0' ? value : fallback;
+}
+
 MRTC_STATUS mrtc_ice_parse_candidate(const char *candidate, MRTC_ICE_CANDIDATE *parsed)
 {
     int matched;
@@ -60,6 +66,8 @@ MRTC_STATUS mrtc_ice_host_endpoint_bind(MRTC_ICE_HOST_ENDPOINT *endpoint)
     int fd;
     struct sockaddr_in addr;
     socklen_t addr_len;
+    const char *bind_ip;
+    const char *announce_ip;
 
     if (endpoint == 0) {
         return MRTC_STATUS_INVALID_ARG;
@@ -76,7 +84,13 @@ MRTC_STATUS mrtc_ice_host_endpoint_bind(MRTC_ICE_HOST_ENDPOINT *endpoint)
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(0);
-    if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1) {
+    bind_ip = mrtc_ice_env_or_default("MRTC_ICE_BIND_IP", "127.0.0.1");
+    announce_ip = mrtc_ice_env_or_default("MRTC_ICE_ANNOUNCE_IP", bind_ip);
+    if (inet_pton(AF_INET, bind_ip, &addr.sin_addr) != 1 || inet_pton(AF_INET, announce_ip, &addr.sin_addr) != 1) {
+        close(fd);
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (inet_pton(AF_INET, bind_ip, &addr.sin_addr) != 1) {
         close(fd);
         return MRTC_STATUS_INVALID_STATE;
     }
@@ -92,7 +106,7 @@ MRTC_STATUS mrtc_ice_host_endpoint_bind(MRTC_ICE_HOST_ENDPOINT *endpoint)
     }
 
     endpoint->fd = fd;
-    (void) snprintf(endpoint->ip, sizeof(endpoint->ip), "127.0.0.1");
+    (void) snprintf(endpoint->ip, sizeof(endpoint->ip), "%s", announce_ip);
     endpoint->port = ntohs(addr.sin_port);
     if (endpoint->port == 0u) {
         mrtc_ice_host_endpoint_close(endpoint);
