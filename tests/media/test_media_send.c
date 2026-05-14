@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CHECK_TRUE(expr) do { if (!(expr)) { return 1; } } while (0)
+#define CHECK_TRUE(expr) do { if (!(expr)) { fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, #expr); return 1; } } while (0)
 
 typedef struct SendCapture {
     uint8_t packets[8][1600];

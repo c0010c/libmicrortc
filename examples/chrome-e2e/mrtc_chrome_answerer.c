@@ -14,6 +14,7 @@
 #define MRTC_ANSWERER_SDP_MAX 65536u
 #define MRTC_ANSWERER_PATH_MAX 512u
 #define MRTC_ANSWERER_ICE_MAX 8u
+#define MRTC_ANSWERER_CAPTURE_MAX 128u
 
 typedef struct CliOptions {
     const char *fixtures_dir;
@@ -65,8 +66,8 @@ typedef struct MediaFrameStats {
 } MediaFrameStats;
 
 typedef struct ProtectedPacketCapture {
-    uint8_t packets[32][1600];
-    size_t sizes[32];
+    uint8_t packets[MRTC_ANSWERER_CAPTURE_MAX][1600];
+    size_t sizes[MRTC_ANSWERER_CAPTURE_MAX];
     size_t count;
 } ProtectedPacketCapture;
 
@@ -726,7 +727,7 @@ static MRTC_STATUS on_media_packet(void *user_data,
         app->media_send_stats.audio_packets++;
         app->media_send_stats.audio_bytes += packet_size;
     }
-    if (app->packet_capture.count < 32u && packet_size <= sizeof(app->packet_capture.packets[0])) {
+    if (app->packet_capture.count < MRTC_ANSWERER_CAPTURE_MAX && packet_size <= sizeof(app->packet_capture.packets[0])) {
         size_t index = app->packet_capture.count++;
         memcpy(app->packet_capture.packets[index], packet, packet_size);
         app->packet_capture.sizes[index] = packet_size;
@@ -958,18 +959,26 @@ static int send_media_fixtures(AnswererApp *app)
     memset(&frame, 0, sizeof(frame));
     before_packets = app->media_send_stats.video_packets;
     before_bytes = app->media_send_stats.video_bytes;
-    frame.data = h264.data;
-    frame.size = h264.size;
-    frame.presentation_ts = 10000000ull;
-    frame.decoding_ts = frame.presentation_ts;
-    frame.duration = 333333ull;
-    frame.index = app->media_send_stats.video_frames;
-    frame.flags = MRTC_FRAME_FLAG_KEY_FRAME;
-    if (mrtc_transceiver_write_frame(app->video_transceiver, &frame) != MRTC_STATUS_OK) {
-        emit_error(app, "media.video", "failed to send H264 fixture");
-        ok = 0;
-    } else {
+    for (size_t i = 0; i < 10u; ++i) {
+        frame.data = h264.data;
+        frame.size = h264.size;
+        frame.presentation_ts = 10000000ull + (uint64_t) i * 333333ull;
+        frame.decoding_ts = frame.presentation_ts;
+        frame.duration = 333333ull;
+        frame.index = app->media_send_stats.video_frames;
+        frame.flags = MRTC_FRAME_FLAG_KEY_FRAME;
+        MRTC_STATUS write_status = mrtc_transceiver_write_frame(app->video_transceiver, &frame);
+        if (write_status != MRTC_STATUS_OK) {
+            char error_message[96];
+            (void) snprintf(error_message, sizeof(error_message), "failed to send H264 fixture status=%d", (int) write_status);
+            emit_error(app, "media.video", error_message);
+            ok = 0;
+            break;
+        }
         app->media_send_stats.video_frames++;
+        usleep(100000u);
+    }
+    if (ok) {
         emit_media_sent(app,
                         "video",
                         "h264",
@@ -982,12 +991,13 @@ static int send_media_fixtures(AnswererApp *app)
         size_t i;
         before_packets = app->media_send_stats.audio_packets;
         before_bytes = app->media_send_stats.audio_bytes;
-        for (i = 0; i < opus.packet_count; ++i) {
-            frame.data = opus.packets[i].data;
-            frame.size = opus.packets[i].size;
-            frame.presentation_ts = 200000ull + (uint64_t) i * 200000ull;
+        for (i = 0; i < 24u; ++i) {
+            size_t packet_index = i % opus.packet_count;
+            frame.data = opus.packets[packet_index].data;
+            frame.size = opus.packets[packet_index].size;
+            frame.presentation_ts = 200000ull + (uint64_t) i * 20000ull;
             frame.decoding_ts = frame.presentation_ts;
-            frame.duration = 200000ull;
+            frame.duration = 20000ull;
             frame.index = app->media_send_stats.audio_frames;
             frame.flags = MRTC_FRAME_FLAG_NONE;
             if (mrtc_transceiver_write_frame(app->audio_transceiver, &frame) != MRTC_STATUS_OK) {
@@ -996,6 +1006,7 @@ static int send_media_fixtures(AnswererApp *app)
                 break;
             }
             app->media_send_stats.audio_frames++;
+            usleep(20000u);
         }
         if (ok) {
             emit_media_sent(app,

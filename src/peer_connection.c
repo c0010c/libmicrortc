@@ -1026,12 +1026,21 @@ MRTC_STATUS mrtc_transceiver_write_frame(MRTC_RTP_TRANSCEIVER_HANDLE transceiver
         transceiver->direction == MRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE) {
         return MRTC_STATUS_INVALID_STATE;
     }
-    if (transceiver->owner == 0 || !transceiver->owner->srtp_session.ready) {
+    if (transceiver->owner == 0) {
         return MRTC_STATUS_INVALID_STATE;
     }
     owner = transceiver->owner;
-    if (!owner->has_remote_description || !owner->has_local_description || !owner->selected_pair_ready ||
-        owner->media_send_hook == 0) {
+    if (!owner->srtp_session.ready) {
+        if (owner->media_send_hook == 0 || owner->selected_pair_ready) {
+            return MRTC_STATUS_INVALID_STATE;
+        }
+        status = mrtc_srtp_session_init(&owner->srtp_session);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+    }
+    if (!owner->has_remote_description || !owner->has_local_description ||
+        (!owner->selected_pair_ready && owner->media_send_hook == 0)) {
         return MRTC_STATUS_INVALID_STATE;
     }
 
@@ -1251,8 +1260,20 @@ MRTC_STATUS mrtc_peer_connection_send_protected_media_packet(MRTC_PEER_CONNECTIO
     if (peer_connection == 0 || transceiver == 0 || packet == 0 || packet_size == 0u) {
         return MRTC_STATUS_INVALID_ARG;
     }
-    if (peer_connection->media_send_hook == 0) {
+    MRTC_STATUS status;
+
+    if (!peer_connection->selected_pair_ready && peer_connection->media_send_hook == 0) {
         return MRTC_STATUS_INVALID_STATE;
+    }
+    status = MRTC_STATUS_OK;
+    if (peer_connection->selected_pair_ready) {
+        status = mrtc_ice_host_endpoint_send_selected(&peer_connection->host_endpoint, packet, packet_size);
+        if (status != MRTC_STATUS_OK && peer_connection->media_send_hook == 0) {
+            return status;
+        }
+    }
+    if (peer_connection->media_send_hook == 0) {
+        return MRTC_STATUS_OK;
     }
     return peer_connection->media_send_hook(peer_connection->media_send_hook_user_data,
                                             peer_connection,

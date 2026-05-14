@@ -157,6 +157,90 @@ static int media_description_contains_h264_opus(void)
     return ok;
 }
 
+static int answer_uses_offered_media_payload_types(void)
+{
+    const char *offer =
+        "v=0\r\n"
+        "o=- 1 1 IN IP4 127.0.0.1\r\n"
+        "s=-\r\n"
+        "t=0 0\r\n"
+        "m=video 9 UDP/TLS/RTP/SAVPF 103 96\r\n"
+        "c=IN IP4 0.0.0.0\r\n"
+        "a=mid:0\r\n"
+        "a=fingerprint:sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00\r\n"
+        "a=setup:actpass\r\n"
+        "a=rtpmap:103 H264/90000\r\n"
+        "a=rtpmap:96 VP8/90000\r\n"
+        "m=audio 9 UDP/TLS/RTP/SAVPF 109 111\r\n"
+        "c=IN IP4 0.0.0.0\r\n"
+        "a=mid:1\r\n"
+        "a=fingerprint:sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00\r\n"
+        "a=setup:actpass\r\n"
+        "a=rtpmap:109 opus/48000/2\r\n"
+        "a=rtpmap:111 PCMU/8000\r\n"
+        "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+        "c=IN IP4 0.0.0.0\r\n"
+        "a=mid:2\r\n"
+        "a=fingerprint:sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00\r\n"
+        "a=setup:actpass\r\n"
+        "a=sctp-port:5000\r\n";
+    char answer[4096];
+    size_t required_len = 0;
+    int owner_storage = 0;
+    MRTC_TRANSCEIVER_INIT audio_init = {0};
+    MRTC_TRANSCEIVER_INIT video_init = {0};
+    MRTC_RTP_TRANSCEIVER_HANDLE audio = 0;
+    MRTC_RTP_TRANSCEIVER_HANDLE video = 0;
+    int ok;
+
+    audio_init.kind = MRTC_MEDIA_KIND_AUDIO;
+    audio_init.codec = MRTC_CODEC_OPUS;
+    audio_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+    video_init.kind = MRTC_MEDIA_KIND_VIDEO;
+    video_init.codec = MRTC_CODEC_H264_PROFILE_42E01F_PACKETIZATION_MODE_1;
+    video_init.direction = MRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV;
+
+    audio = mrtc_media_transceiver_alloc((MRTC_PEER_CONNECTION_HANDLE) &owner_storage,
+                                         &audio_init,
+                                         0,
+                                         "audio0",
+                                         333333,
+                                         111);
+    video = mrtc_media_transceiver_alloc((MRTC_PEER_CONNECTION_HANDLE) &owner_storage,
+                                         &video_init,
+                                         0,
+                                         "video0",
+                                         444444,
+                                         96);
+    if (audio == 0 || video == 0) {
+        mrtc_media_transceiver_free_internal(audio);
+        mrtc_media_transceiver_free_internal(video);
+        return 0;
+    }
+    video->next = audio;
+
+    ok = mrtc_sdp_create_answer_with_media(offer,
+                                           1,
+                                           video,
+                                           "localUfrag",
+                                           "localPassword000000000000",
+                                           "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                                           answer,
+                                           sizeof(answer),
+                                           &required_len) == MRTC_STATUS_OK &&
+         contains(answer, "m=video 9 UDP/TLS/RTP/SAVPF 103") &&
+         contains(answer, "a=rtpmap:103 H264/90000") &&
+         contains(answer, "a=rtcp-fb:103 nack pli") &&
+         contains(answer, "m=audio 9 UDP/TLS/RTP/SAVPF 109") &&
+         contains(answer, "a=rtpmap:109 opus/48000/2") &&
+         video->payload_type == 103u &&
+         audio->payload_type == 109u;
+
+    mrtc_media_transceiver_free_internal(audio);
+    mrtc_media_transceiver_free_internal(video);
+    return ok;
+}
+
 int main(void)
 {
     char fixture[2048];
@@ -206,6 +290,10 @@ int main(void)
     }
 
     if (!media_description_contains_h264_opus()) {
+        return 1;
+    }
+
+    if (!answer_uses_offered_media_payload_types()) {
         return 1;
     }
 

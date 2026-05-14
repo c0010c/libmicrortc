@@ -19,6 +19,10 @@ typedef enum MRTC_SDP_MEDIA_KIND {
 typedef struct MRTC_SDP_MEDIA_SECTION {
     MRTC_SDP_MEDIA_KIND kind;
     char mid[32];
+    unsigned char h264_payload_type;
+    int has_h264_payload_type;
+    unsigned char opus_payload_type;
+    int has_opus_payload_type;
 } MRTC_SDP_MEDIA_SECTION;
 
 struct MRTC_SDP {
@@ -163,6 +167,77 @@ static MRTC_STATUS mrtc_sdp_section_set_mid(MRTC_SDP_MEDIA_SECTION *section,
     }
     memcpy(section->mid, line_start + prefix_len, mid_len);
     section->mid[mid_len] = '\0';
+    return MRTC_STATUS_OK;
+}
+
+static int mrtc_ascii_ieq_char(char left, char right)
+{
+    if (left >= 'A' && left <= 'Z') {
+        left = (char) (left - 'A' + 'a');
+    }
+    if (right >= 'A' && right <= 'Z') {
+        right = (char) (right - 'A' + 'a');
+    }
+    return left == right;
+}
+
+static int mrtc_ascii_ieq_prefix(const char *value, size_t value_len, const char *prefix)
+{
+    size_t prefix_len = strlen(prefix);
+    size_t i;
+
+    if (value_len < prefix_len) {
+        return 0;
+    }
+    for (i = 0; i < prefix_len; ++i) {
+        if (!mrtc_ascii_ieq_char(value[i], prefix[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static MRTC_STATUS mrtc_sdp_section_set_rtpmap(MRTC_SDP_MEDIA_SECTION *section,
+                                               const char *line_start,
+                                               size_t line_len)
+{
+    const char *prefix = "a=rtpmap:";
+    size_t prefix_len = strlen(prefix);
+    size_t cursor;
+    unsigned int payload_type = 0;
+
+    if (section == 0 || !mrtc_has_prefix(line_start, line_len, prefix)) {
+        return MRTC_STATUS_OK;
+    }
+
+    cursor = prefix_len;
+    if (cursor >= line_len || line_start[cursor] < '0' || line_start[cursor] > '9') {
+        return MRTC_STATUS_PARSE_ERROR;
+    }
+    while (cursor < line_len && line_start[cursor] >= '0' && line_start[cursor] <= '9') {
+        payload_type = (payload_type * 10u) + (unsigned int) (line_start[cursor] - '0');
+        if (payload_type > 127u) {
+            return MRTC_STATUS_PARSE_ERROR;
+        }
+        cursor++;
+    }
+    if (cursor >= line_len || line_start[cursor] != ' ') {
+        return MRTC_STATUS_PARSE_ERROR;
+    }
+    cursor++;
+
+    if (section->kind == MRTC_SDP_MEDIA_KIND_VIDEO &&
+        !section->has_h264_payload_type &&
+        mrtc_ascii_ieq_prefix(line_start + cursor, line_len - cursor, "H264/")) {
+        section->h264_payload_type = (unsigned char) payload_type;
+        section->has_h264_payload_type = 1;
+    } else if (section->kind == MRTC_SDP_MEDIA_KIND_AUDIO &&
+               !section->has_opus_payload_type &&
+               mrtc_ascii_ieq_prefix(line_start + cursor, line_len - cursor, "opus/")) {
+        section->opus_payload_type = (unsigned char) payload_type;
+        section->has_opus_payload_type = 1;
+    }
+
     return MRTC_STATUS_OK;
 }
 
@@ -355,11 +430,13 @@ static MRTC_STATUS mrtc_append_transceiver_media(char **buffer,
                                                  const char *local_setup)
 {
     MRTC_STATUS status;
+    unsigned int payload_type;
 
+    payload_type = transceiver->payload_type;
     if (transceiver->kind == MRTC_MEDIA_KIND_AUDIO) {
-        status = mrtc_append_literal_line(buffer, len, capacity, "m=audio 9 UDP/TLS/RTP/SAVPF 111");
+        status = mrtc_append_formatted_line(buffer, len, capacity, "m=audio 9 UDP/TLS/RTP/SAVPF %u", payload_type);
     } else {
-        status = mrtc_append_literal_line(buffer, len, capacity, "m=video 9 UDP/TLS/RTP/SAVPF 96");
+        status = mrtc_append_formatted_line(buffer, len, capacity, "m=video 9 UDP/TLS/RTP/SAVPF %u", payload_type);
     }
     if (status != MRTC_STATUS_OK) {
         return status;
@@ -379,28 +456,33 @@ static MRTC_STATUS mrtc_append_transceiver_media(char **buffer,
     }
 
     if (transceiver->kind == MRTC_MEDIA_KIND_AUDIO) {
-        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtpmap:111 opus/48000/2");
+        status = mrtc_append_formatted_line(buffer, len, capacity, "a=rtpmap:%u opus/48000/2", payload_type);
         if (status != MRTC_STATUS_OK) {
             return status;
         }
-        status = mrtc_append_literal_line(buffer, len, capacity, "a=fmtp:111 minptime=10;useinbandfec=1");
+        status = mrtc_append_formatted_line(buffer,
+                                            len,
+                                            capacity,
+                                            "a=fmtp:%u minptime=10;useinbandfec=1",
+                                            payload_type);
     } else {
-        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtpmap:96 H264/90000");
+        status = mrtc_append_formatted_line(buffer, len, capacity, "a=rtpmap:%u H264/90000", payload_type);
         if (status != MRTC_STATUS_OK) {
             return status;
         }
-        status = mrtc_append_literal_line(buffer,
-                                          len,
-                                          capacity,
-                                          "a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
+        status = mrtc_append_formatted_line(buffer,
+                                            len,
+                                            capacity,
+                                            "a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+                                            payload_type);
         if (status != MRTC_STATUS_OK) {
             return status;
         }
-        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtcp-fb:96 nack");
+        status = mrtc_append_formatted_line(buffer, len, capacity, "a=rtcp-fb:%u nack", payload_type);
         if (status != MRTC_STATUS_OK) {
             return status;
         }
-        status = mrtc_append_literal_line(buffer, len, capacity, "a=rtcp-fb:96 nack pli");
+        status = mrtc_append_formatted_line(buffer, len, capacity, "a=rtcp-fb:%u nack pli", payload_type);
     }
     if (status != MRTC_STATUS_OK) {
         return status;
@@ -583,6 +665,28 @@ static MRTC_RTP_TRANSCEIVER_HANDLE mrtc_find_unused_transceiver_by_kind(MRTC_RTP
     return 0;
 }
 
+static MRTC_STATUS mrtc_apply_remote_payload_type(MRTC_RTP_TRANSCEIVER_HANDLE transceiver,
+                                                  const MRTC_SDP_MEDIA_SECTION *section)
+{
+    if (transceiver == 0 || section == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    if (section->kind == MRTC_SDP_MEDIA_KIND_AUDIO) {
+        if (!section->has_opus_payload_type) {
+            return MRTC_STATUS_PARSE_ERROR;
+        }
+        transceiver->payload_type = section->opus_payload_type;
+    } else if (section->kind == MRTC_SDP_MEDIA_KIND_VIDEO) {
+        if (!section->has_h264_payload_type) {
+            return MRTC_STATUS_PARSE_ERROR;
+        }
+        transceiver->payload_type = section->h264_payload_type;
+    }
+
+    return MRTC_STATUS_OK;
+}
+
 static MRTC_STATUS mrtc_sdp_create_answer_media_description(const MRTC_SDP *offer,
                                                            MRTC_RTP_TRANSCEIVER_HANDLE transceivers,
                                                            int include_data_channel,
@@ -666,6 +770,11 @@ static MRTC_STATUS mrtc_sdp_create_answer_media_description(const MRTC_SDP *offe
             if (used_count >= MRTC_SDP_MAX_MEDIA_SECTIONS) {
                 free(sdp);
                 return MRTC_STATUS_PARSE_ERROR;
+            }
+            status = mrtc_apply_remote_payload_type(transceiver, section);
+            if (status != MRTC_STATUS_OK) {
+                free(sdp);
+                return status;
             }
             used[used_count++] = transceiver;
             if (section->kind == MRTC_SDP_MEDIA_KIND_AUDIO) {
@@ -793,6 +902,8 @@ MRTC_STATUS mrtc_sdp_parse(const char *sdp, MRTC_SDP **parsed_sdp)
                 status = mrtc_parse_attribute_value(&result->ice_ufrag, line_start, line_len, "a=ice-ufrag:");
             } else if (mrtc_has_prefix(line_start, line_len, "a=mid:")) {
                 status = mrtc_sdp_section_set_mid(current_media, line_start, line_len);
+            } else if (mrtc_has_prefix(line_start, line_len, "a=rtpmap:")) {
+                status = mrtc_sdp_section_set_rtpmap(current_media, line_start, line_len);
             } else if (mrtc_has_prefix(line_start, line_len, "a=ice-pwd:")) {
                 status = mrtc_parse_attribute_value(&result->ice_pwd, line_start, line_len, "a=ice-pwd:");
             } else if (mrtc_has_prefix(line_start, line_len, "a=setup:")) {

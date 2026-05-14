@@ -14,12 +14,19 @@
     answerApplied: false,
     candidatesSent: 0,
     candidatesReceived: 0,
+    localMediaStarted: false,
+    remoteVideoTrack: false,
+    remoteAudioTrack: false,
   };
   const waiters = new Map();
 
   let pc = null;
   let ws = null;
   let dataChannel = null;
+  let remoteAudioAnalyser = null;
+  let remoteAudioData = null;
+  let localAudioContext = null;
+  const localAudioNodes = [];
   const pendingRemoteCandidates = [];
 
   function recordEvent(name, fields) {
@@ -110,11 +117,101 @@
 
     if (target && stream) {
       target.srcObject = stream;
+      if (event.track.kind === "audio") {
+        attachRemoteAudioAnalyser(stream);
+        state.remoteAudioTrack = true;
+      } else {
+        state.remoteVideoTrack = true;
+      }
       recordEvent(`track.${event.track.kind}`, {
         id: event.track.id,
         streams: event.streams.length,
       });
     }
+  }
+
+  function attachRemoteAudioAnalyser(stream) {
+    try {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor || remoteAudioAnalyser) {
+        return;
+      }
+      const context = new AudioContextCtor();
+      const source = context.createMediaStreamSource(stream);
+      remoteAudioAnalyser = context.createAnalyser();
+      remoteAudioAnalyser.fftSize = 256;
+      remoteAudioData = new Uint8Array(remoteAudioAnalyser.fftSize);
+      source.connect(remoteAudioAnalyser);
+      context.resume().catch(() => {});
+    } catch (error) {
+      recordError("audio.analyser", error);
+    }
+  }
+
+  function createSyntheticVideoTrack() {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    let frame = 0;
+
+    canvas.width = 320;
+    canvas.height = 180;
+    function draw() {
+      const hue = frame % 360;
+      context.fillStyle = `hsl(${hue}, 70%, 45%)`;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#ffffff";
+      context.fillRect((frame * 7) % canvas.width, 52, 44, 44);
+      context.fillStyle = "#101820";
+      context.font = "24px sans-serif";
+      context.fillText(`mrtc ${frame}`, 24, 128);
+      frame += 1;
+    }
+    draw();
+    window.setInterval(draw, 100);
+    return canvas.captureStream(10).getVideoTracks()[0];
+  }
+
+  function createSyntheticAudioTrack() {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    const context = new AudioContextCtor();
+    const oscillator = context.createOscillator();
+    const oscillatorB = context.createOscillator();
+    const gain = context.createGain();
+    const destination = context.createMediaStreamDestination();
+
+    oscillator.frequency.value = 440;
+    oscillatorB.frequency.value = 660;
+    gain.gain.value = 0.12;
+    oscillator.connect(gain);
+    oscillatorB.connect(gain);
+    gain.connect(destination);
+    oscillator.start();
+    oscillatorB.start();
+    localAudioContext = context;
+    localAudioNodes.push(oscillator, oscillatorB, gain, destination);
+    context.resume().catch(() => {});
+    window.setInterval(() => {
+      if (context.state !== "running") {
+        context.resume().catch(() => {});
+      }
+    }, 250);
+    return destination.stream.getAudioTracks()[0];
+  }
+
+  function addSyntheticLocalMedia() {
+    const stream = new MediaStream();
+    const videoTrack = createSyntheticVideoTrack();
+    const audioTrack = createSyntheticAudioTrack();
+
+    stream.addTrack(videoTrack);
+    stream.addTrack(audioTrack);
+    pc.addTransceiver(videoTrack, { direction: "sendrecv", streams: [stream] });
+    pc.addTransceiver(audioTrack, { direction: "sendrecv", streams: [stream] });
+    state.localMediaStarted = true;
+    recordEvent("local.media.started", {
+      video: videoTrack.readyState,
+      audio: audioTrack.readyState,
+    });
   }
 
   function sendMessage(message) {
@@ -126,8 +223,7 @@
     pc = new RTCPeerConnection(rtcConfigFromQuery());
     window.__mrtcE2E.pc = pc;
 
-    pc.addTransceiver("video", { direction: "sendrecv" });
-    pc.addTransceiver("audio", { direction: "sendrecv" });
+    addSyntheticLocalMedia();
     preferCodec("video", "H264");
     preferCodec("audio", "opus");
 
@@ -256,6 +352,41 @@
     });
   }
 
+  function getRemoteMediaState() {
+    const video = document.getElementById("remote-video");
+    const audio = document.getElementById("remote-audio");
+    let audioEnergy = 0;
+
+    if (remoteAudioAnalyser && remoteAudioData) {
+      remoteAudioAnalyser.getByteTimeDomainData(remoteAudioData);
+      for (const sample of remoteAudioData) {
+        const centered = sample - 128;
+        audioEnergy += centered * centered;
+      }
+      audioEnergy = Math.sqrt(audioEnergy / remoteAudioData.length) / 128;
+    }
+    return {
+      video: video ? {
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        currentTime: video.currentTime,
+      } : null,
+      audio: audio ? {
+        readyState: audio.readyState,
+        currentTime: audio.currentTime,
+        energy: audioEnergy,
+      } : null,
+    };
+  }
+
+  function sendControlMessage(message) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      throw new Error("WebSocket is not open");
+    }
+    sendMessage(message);
+  }
+
   function waitForEvent(name, timeoutMs) {
     const existing = state.events.find((event) => event.name === name);
     if (existing) {
@@ -287,6 +418,8 @@
     dataChannel: null,
     getState: () => JSON.parse(JSON.stringify(state)),
     getStatsSnapshot,
+    getRemoteMediaState,
+    sendControlMessage,
     waitForEvent,
   };
 

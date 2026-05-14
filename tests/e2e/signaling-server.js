@@ -149,8 +149,8 @@ function runRedactionSelfTest() {
   process.stdout.write("redaction self-test ok\n");
 }
 
-function spawnAnswerer(answererPath, onMessage) {
-  const child = spawn(answererPath, [], {
+function spawnAnswerer(answererPath, answererArgs, onMessage) {
+  const child = spawn(answererPath, answererArgs || [], {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -197,8 +197,8 @@ async function startServer(options) {
   };
 
   if (options.answerer) {
-    child = spawnAnswerer(options.answerer, broadcast);
-    logEvent("answerer", "spawned", { path: options.answerer });
+    child = spawnAnswerer(options.answerer, options.answererArgs || [], broadcast);
+    logEvent("answerer", "spawned", { path: options.answerer, args: options.answererArgs || [] });
   }
 
   const wss = new WebSocketServer({ host: "127.0.0.1", port: options.port });
