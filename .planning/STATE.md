@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: executing_phase_6
-last_updated: "2026-05-13T21:21:00+08:00"
+last_updated: "2026-05-14T10:47:28+08:00"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -47,7 +47,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
 | 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
 | 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/8 plans completed; 06-03、06-07、06-08 均已执行但 self-check failed，06-08 阻塞于本机缺 `libsrtp`/`usrsctp` |
+| 6. Chrome 自动化 E2E 与测试收口 | In Progress | 13 | 2/8 plans completed; 06-03、06-07、06-08 均已执行但 self-check failed；06-08 strict deps/C tests 已过，strict Chrome smoke 仍阻塞在 browser connection stage |
 
 ## Decisions To Carry Forward
 
@@ -62,14 +62,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Next Step
 
-Install strict transport system dependencies, then rerun the Chrome transport gap closure before media E2E:
+继续调试 06-08 strict Chrome transport connection stage；不要推进 06-04/05/06 完成态，直到 browser connection/datachannel strict smoke 通过：
 
 ```bash
 $gsd-execute-phase 06 --plan 08
 ```
 
 ---
-*Last updated: 2026-05-13 after executing Phase 6 Plan 08 dependency gate*
+*Last updated: 2026-05-14 after resuming Phase 6 Plan 08 strict transport implementation*
 
 ## Performance Metrics
 
@@ -111,3 +111,4 @@ $gsd-execute-phase 06 --plan 08
 - [Phase 06]: 06-03 执行结果: SDP mid/order、真实 host candidate 和 transport smoke 已建立；真实 Chrome connection/datachannel 仍阻塞在 DTLS/SCTP transport 层，Plan 06-03 self-check failed。
 - [Phase 06]: 06-07 gap closure: 媒体、TURN 和 v1 总验收计划必须等待严格 Chrome transport smoke 通过；缺口范围锁定 ICE/STUN packet IO、OpenSSL DTLS、usrsctp/DCEP 和 PeerConnection transport pump。
 - [Phase 06]: 06-08 execution result: 严格 transport 依赖门槛已加固为一次性汇总缺失项；本机仍缺 `libsrtp`/`usrsctp`，按计划停止后续 DTLS/SCTP/PeerConnection packet pump，06-04 媒体 E2E 继续阻塞。
+- [Phase 06]: 06-08 resumed result: OpenSSL/libsrtp/usrsctp strict configure/build 和 C transport tests 已通过；strict Chromium smoke 仍为 `connection: blocked`、`datachannel: blocked`，06-04/05/06 继续阻塞。
