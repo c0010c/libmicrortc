@@ -17,7 +17,7 @@ const projectRoot = path.resolve(__dirname, "..", "..");
 const artifactsDir = path.join(__dirname, "artifacts");
 const summaryPath = path.join(artifactsDir, "summary.json");
 const answererPath = path.join(projectRoot, "build", "examples", "chrome-e2e", "mrtc_chrome_answerer");
-const fixturesDir = path.join(projectRoot, "tests", "fixtures");
+const fixturesDir = process.env.MRTC_E2E_FIXTURES || path.join(projectRoot, "tests", "fixtures");
 const pagePath = path.join(projectRoot, "examples", "chrome-e2e", "index.html");
 
 async function waitForPageState(page, predicate, timeoutMs) {
@@ -97,7 +97,7 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
     browser_channel: browserChannel,
     system_chrome_available: fs.existsSync("/opt/google/chrome/chrome"),
     chromium_fallback: browserChannel === "chromium",
-    chrome_host: "not-run",
+    chrome_host: { status: "not-run" },
     chrome_turn: { status: "pending" },
     turn_relay: { status: "pending", config: turnConfig.redacted },
   });
@@ -153,7 +153,7 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
     if (!connected.ok) {
       throw new Error(connected.reason);
     }
-    summary.connection = "passed";
+    summary.connection.status = "passed";
 
     printStage("RELAY CANDIDATE");
     summary.turn_relay = {
@@ -168,7 +168,8 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
 
     printStage("DATACHANNEL");
     await sendPingPong(page);
-    summary.datachannel = "passed";
+    summary.datachannel.status = "passed";
+    summary.datachannel.messages = 2;
 
     printStage("BROWSER MEDIA");
     await page.evaluate(() => window.__mrtcE2E.sendControlMessage({ type: "start-media" }));
@@ -186,8 +187,8 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
     printStage("SUMMARY", "passed");
   } catch (error) {
     const stage =
-      summary.connection !== "passed" ? "connection" :
-      summary.datachannel !== "passed" ? "datachannel" :
+      summary.connection.status !== "passed" ? "connection" :
+      summary.datachannel.status !== "passed" ? "datachannel" :
       summary.browser_media.status !== "passed" ? "browser-media" :
       "c-media";
     summary.chrome_turn.status = "failed";
@@ -204,8 +205,8 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
   }
 
   expect(summary.chrome_turn.status).toBe("passed");
-  expect(summary.connection).toBe("passed");
-  expect(summary.datachannel).toBe("passed");
+  expect(summary.connection.status).toBe("passed");
+  expect(summary.datachannel.status).toBe("passed");
   expect(summary.browser_media.status).toBe("passed");
   expect(summary.c_media.status).toBe("passed");
 });

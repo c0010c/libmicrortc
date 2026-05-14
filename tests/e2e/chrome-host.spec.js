@@ -10,7 +10,7 @@ const projectRoot = path.resolve(__dirname, "..", "..");
 const artifactsDir = path.join(__dirname, "artifacts");
 const summaryPath = path.join(artifactsDir, "summary.json");
 const answererPath = path.join(projectRoot, "build", "examples", "chrome-e2e", "mrtc_chrome_answerer");
-const fixturesDir = path.join(projectRoot, "tests", "fixtures");
+const fixturesDir = process.env.MRTC_E2E_FIXTURES || path.join(projectRoot, "tests", "fixtures");
 const pagePath = path.join(projectRoot, "examples", "chrome-e2e", "index.html");
 
 async function waitForPageState(page, predicate, timeoutMs) {
@@ -117,18 +117,19 @@ test("host Chrome E2E: connection, DataChannel, and bidirectional media", async 
     if (!answerApplied.ok || !candidateApplied.ok) {
       throw new Error(answerApplied.reason || candidateApplied.reason);
     }
-    summary.chrome_host = "signaled";
+    summary.chrome_host.status = "signaled";
 
     printStage("CONNECTION");
     const connected = await waitForPageState(page, () => window.__mrtcE2E.getState().connectionState === "connected", 10_000);
     if (!connected.ok) {
       throw new Error(connected.reason);
     }
-    summary.connection = "passed";
+    summary.connection.status = "passed";
 
     printStage("DATACHANNEL");
     await sendPingPong(page);
-    summary.datachannel = "passed";
+    summary.datachannel.status = "passed";
+    summary.datachannel.messages = 2;
 
     printStage("BROWSER MEDIA");
     await page.evaluate(() => window.__mrtcE2E.sendControlMessage({ type: "start-media" }));
@@ -141,13 +142,13 @@ test("host Chrome E2E: connection, DataChannel, and bidirectional media", async 
     printStage("C MEDIA");
     summary.c_media = await waitForCMedia(page, { timeoutMs: 15_000 });
     summary.c_media.status = "passed";
-    summary.chrome_host = "passed";
+    summary.chrome_host.status = "passed";
 
     printStage("SUMMARY", "passed");
   } catch (error) {
     const stage =
-      summary.connection !== "passed" ? "connection" :
-      summary.datachannel !== "passed" ? "datachannel" :
+      summary.connection.status !== "passed" ? "connection" :
+      summary.datachannel.status !== "passed" ? "datachannel" :
       summary.browser_media.status !== "passed" ? "browser-media" :
       "c-media";
     markFailure(summary, stage, error.message);
@@ -162,8 +163,8 @@ test("host Chrome E2E: connection, DataChannel, and bidirectional media", async 
     }
   }
 
-  expect(summary.connection).toBe("passed");
-  expect(summary.datachannel).toBe("passed");
+  expect(summary.connection.status).toBe("passed");
+  expect(summary.datachannel.status).toBe("passed");
   expect(summary.browser_media.status).toBe("passed");
   expect(summary.c_media.status).toBe("passed");
 });
