@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
-current_phase: 06
-status: Awaiting next milestone
-last_updated: "2026-05-14T07:29:24.294Z"
+milestone_name: libmicrortc v1
+current_phase: null
+status: awaiting_next_milestone
+last_updated: "2026-05-14T15:33:00+08:00"
 last_activity: 2026-05-14
 progress:
   total_phases: 6
@@ -17,123 +17,61 @@ progress:
 # State: libmicrortc
 
 **Initialized:** 2026-05-12
-**Current Phase:** 06
 **Workflow Mode:** yolo
 **Granularity:** standard
 **Parallelization:** true
 
+## Current Position
+
+Milestone v1.0 已完成并归档。项目当前等待下一里程碑定义。
+
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-12)
+See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 06 — chrome-e2e 已完成；v1 验收入口为 `scripts/verify-v1.sh`
-**Last activity:** 2026-05-14
+**Current focus:** Planning next milestone
+**Last activity:** 2026-05-14 - Archived v1.0 milestone and prepared workspace for next milestone.
 
 ## Artifacts
 
 | Artifact | Path | Status |
 |----------|------|--------|
-| Project context | `.planning/PROJECT.md` | Created |
-| Workflow config | `.planning/config.json` | Created |
-| Requirements | `.planning/REQUIREMENTS.md` | Created |
-| Roadmap | `.planning/ROADMAP.md` | Created |
-| State | `.planning/STATE.md` | Created |
+| Project context | `.planning/PROJECT.md` | Updated for v1.0 shipped state |
+| Workflow config | `.planning/config.json` | Active |
+| Roadmap | `.planning/ROADMAP.md` | Collapsed to milestone summary |
+| State | `.planning/STATE.md` | Active |
+| Milestone index | `.planning/MILESTONES.md` | Created |
+| v1.0 roadmap archive | `.planning/milestones/v1.0-ROADMAP.md` | Archived |
+| v1.0 requirements archive | `.planning/milestones/v1.0-REQUIREMENTS.md` | Archived |
+| v1.0 audit archive | `.planning/milestones/v1.0-MILESTONE-AUDIT.md` | Archived |
+| v1.0 phase archive | `.planning/milestones/v1.0-phases/` | Archived |
 
-## Roadmap Progress
+## Completed Milestone
 
-| Phase | Status | Requirements | Progress |
-|-------|--------|--------------|----------|
-| 1. 基线、范围与合规边界 | Complete | 4 | 100% |
-| 2. 独立构建与库骨架 | Complete | 4 | 100% |
-| 3. AWS 风格 API 与 signaling-free PeerConnection | Complete | 7 | 100% |
-| 4. 传输、安全与 DataChannel 协议核心 | Complete | 8 | 5/5 plans; real-network verifier passed |
-| 5. H264/Opus 媒体路径 | Complete | 9 | 5/5 plans; C fixture media verifier passed |
-| 6. Chrome 自动化 E2E 与测试收口 | Complete | 13 | 8/8 plans completed; `scripts/verify-v1.sh` 与显式 TURN relay E2E 已通过 |
+| Milestone | Phases | Plans | Requirements | Status |
+|-----------|--------|-------|--------------|--------|
+| v1.0 libmicrortc v1 | 6/6 | 21/21 | 45/45 | Complete |
 
 ## Decisions To Carry Forward
 
 - 以本地 `reflib/kvs-webrtc-sdk` 作为剥离基线。
-- v1 API 先从 AWS 公共头文件裁剪。
+- v1 API 先从 AWS 公共头文件裁剪，后续可逐步改成更清爽的 libmicrortc 风格。
 - 核心库只处理编码后媒体帧，不做采集和编码。
 - 先沿用 AWS 线程和回调模型。
-- v1 先保证 Chrome，H264 + Opus，双向音视频。
-- v1 包含 TURN relay 验收。
-- demo/验收层尽可能自动化，但 signaling 不进入核心库。
-- E2E 浏览器互通是 v1 验收核心。
+- v1 已验证 Chrome、H264、Opus、DataChannel、TURN relay 和双向音视频。
+- demo/验收层可以自动化 signaling，但 signaling 不进入核心库。
+- E2E 浏览器互通是验收核心，不能只相信内部 connected 状态。
 
 ## Next Step
 
-Phase 6 已完成。默认 v1 验收和显式 TURN relay 验收命令：
+Run:
 
 ```bash
-scripts/verify-v1.sh
-scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
+$gsd-new-milestone
 ```
 
+下一里程碑会重新创建 fresh `REQUIREMENTS.md` 和 `ROADMAP.md`。
+
 ---
-*Last updated: 2026-05-14 after Phase 6 Plan 06 v1 total verification passed*
-
-## Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260514-kea | 浏览器手动一键开始拉流验证入口 | 2026-05-14 | 7781fbd | [260514-kea-manual-browser-pull](./quick/260514-kea-manual-browser-pull/) |
-
-## Performance Metrics
-
-| Phase | Plan | Duration | Notes |
-|-------|------|----------|-------|
-| Phase 05-h264-opus P01 | 8min | 4 tasks | 10 files |
-| Phase 05-h264-opus P02 | 8min | 5 tasks | 14 files |
-| Phase 05-h264-opus P03 | 10min | 4 tasks | 9 files |
-| Phase 05-h264-opus P04 | 13min | 4 tasks | 13 files |
-| Phase 05-h264-opus P05 | 11min | 4 tasks | 13 files |
-| Phase 06-chrome-e2e P01 | 11min | 4 tasks | 9 files |
-| Phase 06-chrome-e2e P02 | 16min | 4 tasks | 6 files |
-| Phase 06-chrome-e2e P04 | 52min | 4 tasks | host Chrome bidirectional media E2E |
-| Phase 06-chrome-e2e P06 | 31min | 4 tasks | v1 verify script, summary schema, docs/state closeout |
-
-## Decisions
-
-- [Phase 05]: 05-01: 媒体 public API 采用 MRTC 命名的 AWS 薄裁剪模型，不暴露 AWS/PIC 类型。
-- [Phase 05]: 05-01: write_frame 当前只完成校验并在 media transport 未就绪时返回 MRTC_STATUS_INVALID_STATE，真实发送留给后续 Phase 5 计划。
-- [Phase 05]: 05-01: SDP media m-line 由 PeerConnection transceiver list 驱动，同时保留 DataChannel application m-line。
-- [Phase 05]: 05-02: H264 helper 仅接受 Annex-B bytestream；无 start code 或 AVCC-like length-prefixed 输入返回 MRTC_STATUS_PARSE_ERROR。
-- [Phase 05]: 05-02: Opus timestamp 明确按 MRTC_FRAME.presentation_ts 的 100ns 单位转换为 48kHz RTP timestamp。
-- [Phase 05]: 05-02: RTCP helpers 先提供 SR/RR/NACK/PLI packet primitive，不在本计划接入 PeerConnection 行为编排。
-- [Phase 05]: 05-03: SRTP wrapper 在缺少系统 libsrtp 时保持 ready 但以 mrtc_srtp_session_is_passthrough() 明确标记非加密 fallback。
-- [Phase 05]: 05-03: media send hook 保持 private，不把 application signaling、采集或编码引入核心库。
-- [Phase 05]: 05-03: 接收侧先实现顺序 H264 FU-A accumulation 和 Opus per-packet delivery，不搬迁完整 KVS jitter buffer。
-- [Phase 05]: 05-04: RTP rolling buffer 保存已 protected RTP packet bytes，NACK 重发不重新 SRTP protect 旧 sequence。
-- [Phase 05]: 05-04: 未知 SSRC 和缺失 sequence 走确定性非崩溃路径，缺包通过 missing_count/counter 暴露。
-- [Phase 05]: 05-04: RTCP Plan 04 仅实现 SR/RR/NACK/PLI 最小行为，不实现 REMB/TWCC/FIR/SLI 或拥塞控制。
-- [Phase 05]: 05-05: Phase 5 完成标准采用固定 H264/Opus fixture C harness；Chrome 自动化 browser media E2E 明确保留在 Phase 6。
-- [Phase 05]: 05-05: H264 fixture 采用 Annex-B SPS/PPS/IDR bytestream，Opus fixture 采用 big-endian 16-bit length-prefixed packet 序列，不引入解码器或容器解析。
-- [Phase 05]: 05-05: installed static package 在导出 OpenSSL link dependency 时同步生成 find_dependency(OpenSSL)。
-- [Phase 06]: 06-01: Playwright/Node 依赖只固定在 tests/e2e，根目录不创建 package.json。
-- [Phase 06]: 06-01: WebSocket signaling server 只存在于 tests/e2e，C answerer 通过 stdio JSON line 接入，核心库不新增 signaling 依赖。
-- [Phase 06]: 06-01: 默认 CTest 不注册 Chrome/Playwright E2E；浏览器验收保持显式 npm 命令。
-- [Phase 06]: 06-02: C answerer 主路径采用 stdin/stdout JSON-line 协议，继续由 tests/e2e signaling bridge 持有应用层 signaling。
-- [Phase 06]: 06-02: DataChannel label/id 以 read-only public accessor 暴露，避免 demo 直接读取 private struct。
-- [Phase 06]: 06-02: 媒体 fixture 发送在 example target 内使用现有 private media send hook 统计 RTP 包，不把该 hook 暴露到 public API。
-- [Phase 06]: 06-02: --self-test-media-callbacks 通过 protected RTP loopback 证明 on_frame 回调层统计，不只停留在 write_frame 调用。
-- [Phase 06]: 06-03 前置修复: Chrome host E2E 不能把 C demo 内部 connected/datachannel.open 当作浏览器互通成功；先补真实 host transport，再执行媒体 E2E。
-- [Phase 06]: 06-03 执行结果: SDP mid/order、真实 host candidate 和 transport smoke 已建立；真实 Chrome connection/datachannel 仍阻塞在 DTLS/SCTP transport 层，Plan 06-03 self-check failed。
-- [Phase 06]: 06-07 gap closure: 媒体、TURN 和 v1 总验收计划必须等待严格 Chrome transport smoke 通过；缺口范围锁定 ICE/STUN packet IO、OpenSSL DTLS、usrsctp/DCEP 和 PeerConnection transport pump。
-- [Phase 06]: 06-08 execution result: 严格 transport 依赖门槛已加固为一次性汇总缺失项；本机仍缺 `libsrtp`/`usrsctp`，按计划停止后续 DTLS/SCTP/PeerConnection packet pump，06-04 媒体 E2E 继续阻塞。
-- [Phase 06]: 06-08 resumed result: OpenSSL/libsrtp/usrsctp strict configure/build、C transport tests 和 strict Chromium transport smoke 已通过；browser connection/DataChannel ping-pong gate 解除，06-04 可以继续。
-- [Phase 06]: 06-04 execution result: 默认 host/local Chromium E2E 已通过真实 browser connection、DataChannel ping/pong、C→Chrome H264/Opus stats/DOM 证据和 Chrome→C H264/Opus on_frame 事件；06-05 TURN relay E2E 可以继续。
-- [Phase 06]: 06-05 execution result: 显式 TURN relay E2E 已通过，Chrome 和 C 端 selected pair 均为 relay；缺配置路径硬失败且 summary/log 不泄露 TURN credential。
-- [Phase 06]: 06-06 execution result: `scripts/verify-v1.sh` 默认串起 build、CTest 和 host Chromium E2E；`--turn-config ./mrtc-ice-servers.local.json` 串起真实 TURN relay E2E；最终 summary 固定在 `build/reports/mrtc-v1-summary.json`。
-
-## Current Position
-
-Phase: Milestone v1.0 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-14 — Milestone v1.0 completed and archived
-
-## Operator Next Steps
-
-- Start the next milestone with /gsd-new-milestone
+*Last updated: 2026-05-14 after v1.0 milestone archive*
