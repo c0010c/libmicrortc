@@ -27,6 +27,11 @@ typedef struct MRTC_SCTP_SESSION {
     int connected;
     int dcep_open_received;
     int dcep_ack_sent;
+    void *socket;
+    void *remote_address;
+    unsigned int shutdown_status;
+    uint32_t last_outbound_ppid;
+    uint16_t last_outbound_stream_id;
     MRTC_SCTP_OUTBOUND_CALLBACK on_outbound;
     MRTC_SCTP_MESSAGE_CALLBACK on_message;
     void *user_data;
@@ -39,7 +44,11 @@ void mrtc_sctp_session_set_callbacks(MRTC_SCTP_SESSION *session,
                                      MRTC_SCTP_OUTBOUND_CALLBACK on_outbound,
                                      MRTC_SCTP_MESSAGE_CALLBACK on_message,
                                      void *user_data);
+MRTC_STATUS mrtc_sctp_session_set_remote_session(MRTC_SCTP_SESSION *session, MRTC_SCTP_SESSION *remote_session);
 MRTC_STATUS mrtc_sctp_session_connect(MRTC_SCTP_SESSION *session);
+MRTC_STATUS mrtc_sctp_session_handle_inbound_packet(MRTC_SCTP_SESSION *session,
+                                                    const uint8_t *packet,
+                                                    size_t packet_len);
 MRTC_STATUS mrtc_sctp_session_receive_dcep_open(MRTC_SCTP_SESSION *session,
                                                 uint16_t stream_id,
                                                 const char *label);
@@ -53,6 +62,9 @@ MRTC_STATUS mrtc_sctp_session_write_message(MRTC_SCTP_SESSION *session,
                                             int is_binary,
                                             const uint8_t *message,
                                             size_t message_len);
+MRTC_STATUS mrtc_sctp_session_write_dcep_open(MRTC_SCTP_SESSION *session,
+                                              uint16_t stream_id,
+                                              const char *label);
 void mrtc_sctp_session_deinit(MRTC_SCTP_SESSION *session);
 
 #endif /* MRTC_SCTP_SESSION_H */
