@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 status: completed_v1_phase_6
-last_updated: "2026-05-14T04:56:06Z"
+last_updated: "2026-05-14T06:47:00Z"
 progress:
   total_phases: 6
   completed_phases: 6
@@ -27,6 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
 **Current focus:** Phase 06 — chrome-e2e 已完成；v1 验收入口为 `scripts/verify-v1.sh`
+**Last activity:** 2026-05-14 - Completed quick task 260514-kea: 浏览器手动一键开始拉流验证入口
 
 ## Artifacts
 
@@ -71,6 +72,12 @@ scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 
 ---
 *Last updated: 2026-05-14 after Phase 6 Plan 06 v1 total verification passed*
+
+## Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260514-kea | 浏览器手动一键开始拉流验证入口 | 2026-05-14 | 7781fbd | [260514-kea-manual-browser-pull](./quick/260514-kea-manual-browser-pull/) |
 
 ## Performance Metrics
 
