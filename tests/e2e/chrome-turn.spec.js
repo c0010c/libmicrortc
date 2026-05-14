@@ -4,7 +4,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { expect, test } = require("@playwright/test");
-const { waitForBrowserInboundAudio, waitForBrowserInboundVideo } = require("./media-assertions");
+const {
+  waitForBrowserInboundAudio,
+  waitForBrowserInboundVideo,
+  waitForSelectedRelayCandidate,
+} = require("./media-assertions");
 const { createHostSummary, markFailure, printStage, writeSummary } = require("./summary");
 const { startServer } = require("./signaling-server");
 const { loadTurnConfig } = require("./turn-config");
@@ -82,7 +86,7 @@ async function waitForCMedia(page, options = {}) {
   };
 }
 
-test("@turn relay Chrome E2E: connection, DataChannel, and bidirectional media", async ({ page }, testInfo) => {
+test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirectional media", async ({ page }, testInfo) => {
   const startedAt = Date.now();
   const browserChannel = process.env.MRTC_E2E_BROWSER_CHANNEL || "chrome";
   const turnConfig = loadTurnConfig(process.env.MRTC_E2E_TURN_CONFIG);
@@ -137,6 +141,12 @@ test("@turn relay Chrome E2E: connection, DataChannel, and bidirectional media",
       throw new Error(connected.reason);
     }
     summary.connection = "passed";
+
+    printStage("RELAY CANDIDATE");
+    summary.turn_relay = {
+      ...summary.turn_relay,
+      ...(await waitForSelectedRelayCandidate(page, { timeoutMs: 20_000 })),
+    };
 
     printStage("DATACHANNEL");
     await sendPingPong(page);

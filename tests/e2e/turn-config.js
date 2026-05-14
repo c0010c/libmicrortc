@@ -42,6 +42,9 @@ function redactValue(key, value) {
     return "<redacted>";
   }
   if (typeof value === "string") {
+    if (/^turns?:/i.test(value)) {
+      return "turn:<redacted>";
+    }
     let redacted = value;
     for (const secretKey of SECRET_VALUE_KEYS) {
       redacted = redacted.replace(new RegExp(`([?&]${secretKey}=)[^&#]+`, "gi"), "$1<redacted>");

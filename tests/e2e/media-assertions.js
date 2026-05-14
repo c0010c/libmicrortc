@@ -27,6 +27,68 @@ function increased(current, previous, field) {
   return current[field] > previous[field];
 }
 
+function mapStatsById(stats) {
+  const byId = new Map();
+  for (const item of stats) {
+    if (item && item.id) {
+      byId.set(item.id, item);
+    }
+  }
+  return byId;
+}
+
+function selectedPairFromStats(stats) {
+  const byId = mapStatsById(stats);
+  const selectedPairIds = [];
+  const fallbackPairIds = [];
+
+  for (const item of stats) {
+    if (item.type === "transport" && item.selectedCandidatePairId) {
+      selectedPairIds.push(item.selectedCandidatePairId);
+      const pair = byId.get(item.selectedCandidatePairId);
+      if (pair) {
+        return { pair, selectedPairIds, fallbackPairIds };
+      }
+    }
+  }
+
+  for (const item of stats) {
+    if (item.type !== "candidate-pair") {
+      continue;
+    }
+    const succeeded = item.state === "succeeded" || item.state === "connected";
+    const nominated = item.nominated === true || item.selected === true;
+    if (succeeded && nominated) {
+      fallbackPairIds.push(item.id);
+      return { pair: item, selectedPairIds, fallbackPairIds };
+    }
+    if (succeeded || nominated) {
+      fallbackPairIds.push(item.id);
+    }
+  }
+
+  return { pair: null, selectedPairIds, fallbackPairIds };
+}
+
+function relayCandidateSummary(pair, localCandidate) {
+  return {
+    status: "passed",
+    selected_pair_id: pair.id || null,
+    local_candidate_id: pair.localCandidateId || null,
+    local_candidate_type: localCandidate.candidateType || null,
+    protocol: localCandidate.protocol || null,
+    relay_protocol: localCandidate.relayProtocol || null,
+    selected_pair_bytes: {
+      sent: Number(pair.bytesSent || 0),
+      received: Number(pair.bytesReceived || 0),
+    },
+    selected_pair_packets: {
+      sent: Number(pair.packetsSent || 0),
+      received: Number(pair.packetsReceived || 0),
+    },
+  };
+}
+
 async function sampleBrowserMedia(page, kind) {
   return page.evaluate(async (mediaKind) => {
     const api = window.__mrtcE2E;
@@ -73,6 +135,36 @@ async function waitForIncreasingInbound(page, kind, options = {}) {
   throw new Error(`${kind} inbound RTP did not increase twice; last=${JSON.stringify(lastDetail)}`);
 }
 
+async function waitForSelectedRelayCandidate(page, options = {}) {
+  const timeoutMs = options.timeoutMs || 15_000;
+  const intervalMs = options.intervalMs || 500;
+  const deadline = Date.now() + timeoutMs;
+  let lastDetail = null;
+
+  while (Date.now() < deadline) {
+    const stats = await page.evaluate(async () => window.__mrtcE2E.getStatsSnapshot());
+    const byId = mapStatsById(stats);
+    const selected = selectedPairFromStats(stats);
+    const pair = selected.pair;
+    const localCandidate = pair && pair.localCandidateId ? byId.get(pair.localCandidateId) : null;
+
+    lastDetail = {
+      selectedPairIds: selected.selectedPairIds,
+      fallbackPairIds: selected.fallbackPairIds,
+      selectedPairId: pair && pair.id ? pair.id : null,
+      localCandidateId: pair && pair.localCandidateId ? pair.localCandidateId : null,
+      localCandidateType: localCandidate && localCandidate.candidateType ? localCandidate.candidateType : null,
+    };
+
+    if (pair && localCandidate && localCandidate.candidateType === "relay") {
+      return relayCandidateSummary(pair, localCandidate);
+    }
+    await sleep(intervalMs);
+  }
+
+  throw new Error(`selected relay candidate not found; inspected=${JSON.stringify(lastDetail)}`);
+}
+
 async function waitForBrowserInboundVideo(page, options = {}) {
   const detail = await waitForIncreasingInbound(page, "video", options);
   const video = detail.media.video || {};
@@ -116,6 +208,7 @@ async function waitForBrowserInboundAudio(page, options = {}) {
 }
 
 module.exports = {
+  waitForSelectedRelayCandidate,
   waitForBrowserInboundAudio,
   waitForBrowserInboundVideo,
 };
