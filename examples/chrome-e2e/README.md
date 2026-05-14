@@ -7,6 +7,7 @@
 ```bash
 cmake -S . -B build -DMRTC_BUILD_TESTS=ON
 cmake --build build
+npm --prefix tests/e2e ci
 ```
 
 可执行文件位于：
@@ -22,6 +23,26 @@ cmake --build build
 ./build/examples/chrome-e2e/mrtc_chrome_answerer --fixtures ./tests/fixtures --self-test-media
 ./build/examples/chrome-e2e/mrtc_chrome_answerer --fixtures ./tests/fixtures --self-test-media-callbacks
 ```
+
+## 浏览器手动验证
+
+启动本地 signaling bridge 和 C answerer：
+
+```bash
+npm --prefix tests/e2e run manual
+```
+
+命令会打印一个 `Open:` 开头的 `file://...examples/chrome-e2e/index.html?manual=1&ws=...` 地址。用 Chrome 打开该地址，然后点击页面里的“开始拉流”。
+
+期望结果：
+
+- `Peer` 变为 `connected`。
+- `DataChannel` 变为 `open`。
+- `浏览器视频` 变为 `playing`，页面视频区域开始显示 C 端 H264 fixture。
+- `浏览器音频` 变为 `playing`。
+- `C 端媒体` 显示收到的浏览器侧 H264/Opus 帧计数。
+
+停止时在启动命令所在终端按 `Ctrl-C`。
 
 输入消息类型：
 

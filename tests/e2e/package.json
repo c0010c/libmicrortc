@@ -4,6 +4,7 @@
   "private": true,
   "description": "Chrome E2E harness for libmicrortc examples.",
   "scripts": {
+    "manual": "node run-manual.js",
     "test:host": "playwright test --config=playwright.config.js --project=chrome-host --pass-with-no-tests",
     "test:turn": "node run-turn.js",
     "install:browsers": "playwright install chromium chrome"

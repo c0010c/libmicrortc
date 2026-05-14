@@ -2,6 +2,7 @@
   "use strict";
 
   const params = new URLSearchParams(window.location.search);
+  const manualMode = params.get("manual") === "1";
   const state = {
     events: [],
     messages: [],
@@ -18,6 +19,8 @@
     localMediaStarted: false,
     remoteVideoTrack: false,
     remoteAudioTrack: false,
+    mediaStartRequested: false,
+    remoteMediaStarted: false,
   };
   const waiters = new Map();
 
@@ -29,6 +32,99 @@
   let localAudioContext = null;
   const localAudioNodes = [];
   const pendingRemoteCandidates = [];
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function setText(id, text) {
+    const element = byId(id);
+    if (element) {
+      element.textContent = text;
+    }
+  }
+
+  function badgeClass(value) {
+    if (value === "connected" || value === "open" || value === "playing" || value === "started" || value === "received") {
+      return "badge ok";
+    }
+    if (value === "checking" || value === "connecting" || value === "requested" || value === "pending") {
+      return "badge warn";
+    }
+    if (value === "failed" || value === "closed" || value === "disconnected" || value === "error") {
+      return "badge bad";
+    }
+    return "badge";
+  }
+
+  function setBadge(id, text, value) {
+    const element = byId(id);
+    if (element) {
+      element.textContent = text;
+      element.className = badgeClass(value || text);
+    }
+  }
+
+  function latestRemoteMediaFrameCount() {
+    return state.events
+      .filter((event) => event.name === "remote.media.frame")
+      .reduce((total, event) => total + Number(event.fields && event.fields.count || 0), 0);
+  }
+
+  function updateUi() {
+    const wsState = ws
+      ? ["connecting", "open", "closing", "closed"][ws.readyState] || String(ws.readyState)
+      : "idle";
+    const media = getRemoteMediaState();
+    const videoPlaying = Boolean(media.video && media.video.readyState >= 2 && media.video.videoWidth > 0);
+    const audioPlaying = Boolean(media.audio && media.audio.readyState >= 2);
+    const cMediaFrames = latestRemoteMediaFrameCount();
+    const startButton = byId("start-button");
+    const statusLine = byId("status-line");
+
+    setText("mode", manualMode ? "manual host" : "auto host");
+    setBadge("status-ws", wsState, wsState);
+    setBadge("status-peer", state.connectionState, state.connectionState);
+    setBadge("status-ice", state.iceConnectionState, state.iceConnectionState);
+    setBadge("status-data", state.dataChannelState, state.dataChannelState);
+    setBadge("status-video", videoPlaying ? "playing" : "pending", videoPlaying ? "playing" : "pending");
+    setBadge("status-audio", audioPlaying ? "playing" : "pending", audioPlaying ? "playing" : "pending");
+    setBadge("status-cmedia", cMediaFrames > 0 ? `received ${cMediaFrames}` : "pending", cMediaFrames > 0 ? "received" : "pending");
+
+    if (startButton) {
+      startButton.disabled = state.mediaStartRequested || state.connectionState === "connecting";
+      startButton.textContent = state.mediaStartRequested ? "拉流中" : "开始拉流";
+    }
+    if (statusLine) {
+      if (state.errors.length) {
+        statusLine.textContent = state.errors[state.errors.length - 1].message;
+      } else if (state.mediaStartRequested) {
+        statusLine.textContent = "已请求媒体";
+      } else if (state.connectionState === "connected") {
+        statusLine.textContent = "已连接";
+      } else if (wsState === "idle") {
+        statusLine.textContent = "等待启动";
+      } else {
+        statusLine.textContent = "连接中";
+      }
+    }
+  }
+
+  function appendEventLog(event) {
+    const list = byId("events");
+    if (!list) {
+      return;
+    }
+    const item = document.createElement("li");
+    const fields = event.fields && Object.keys(event.fields).length
+      ? ` ${JSON.stringify(event.fields)}`
+      : "";
+    item.textContent = `${event.time.slice(11, 19)} ${event.name}${fields}`;
+    list.prepend(item);
+    while (list.children.length > 40) {
+      list.removeChild(list.lastChild);
+    }
+  }
 
   function recordEvent(name, fields) {
     const event = {
@@ -47,6 +143,8 @@
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "event", name, fields: event.fields }));
     }
+    appendEventLog(event);
+    updateUi();
     return event;
   }
 
@@ -323,6 +421,9 @@
   }
 
   async function connect() {
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+      return;
+    }
     const wsUrl = params.get("ws");
     if (!wsUrl) {
       recordError("query.ws", new Error("missing ?ws= WebSocket URL"));
@@ -345,6 +446,43 @@
     });
     ws.addEventListener("close", () => recordEvent("ws.closed"));
     ws.addEventListener("error", () => recordError("ws", new Error("WebSocket error")));
+    updateUi();
+  }
+
+  function waitForState(name, predicate, timeoutMs) {
+    if (predicate()) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const started = Date.now();
+      const timer = window.setInterval(() => {
+        if (predicate()) {
+          window.clearInterval(timer);
+          resolve();
+        } else if (Date.now() - started > timeoutMs) {
+          window.clearInterval(timer);
+          reject(new Error(`timed out waiting for ${name}`));
+        }
+      }, 100);
+    });
+  }
+
+  async function startManualFlow() {
+    try {
+      await connect();
+      await waitForState("answer", () => state.answerApplied, 10_000);
+      await waitForState("remote candidate", () => state.candidatesReceived > 0, 10_000);
+      await waitForState("peer connection", () => state.connectionState === "connected", 15_000);
+      await waitForState("local datachannel", () => state.dataChannelState === "open", 15_000);
+      await waitForState("remote datachannel", () => state.events.some((event) => event.name === "remote.datachannel.open"), 15_000);
+      state.mediaStartRequested = true;
+      sendControlMessage({ type: "start-media" });
+      recordEvent("media.start.requested");
+      updateUi();
+    } catch (error) {
+      recordError("manual.start", error);
+    }
   }
 
   async function getStatsSnapshot() {
@@ -433,6 +571,16 @@
   };
 
   window.addEventListener("load", () => {
-    connect().catch((error) => recordError("connect", error));
+    const startButton = byId("start-button");
+    if (startButton) {
+      startButton.addEventListener("click", () => {
+        startManualFlow().catch((error) => recordError("manual.start", error));
+      });
+    }
+    updateUi();
+    window.setInterval(updateUi, 500);
+    if (!manualMode) {
+      connect().catch((error) => recordError("connect", error));
+    }
   });
 }());
