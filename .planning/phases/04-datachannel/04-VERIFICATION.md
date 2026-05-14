@@ -1,7 +1,7 @@
 ---
 phase: 04-datachannel
-status: human_needed
-verified_at: "2026-05-12T23:52:23+08:00"
+status: complete
+verified_at: "2026-05-14T06:13:20Z"
 requirements: [API-05, PROTO-01, PROTO-02, PROTO-03, PROTO-05, NET-01, NET-02, NET-03]
 ---
 
@@ -9,9 +9,9 @@ requirements: [API-05, PROTO-01, PROTO-02, PROTO-03, PROTO-05, NET-01, NET-02, N
 
 ## Verdict
 
-**Automated unit/package checks passed. Real-network sign-off is still required.**
+**Phase 4 verification passed, including real-network STUN/TURN sign-off.**
 
-Phase 4 code execution produced the planned transport/security/DataChannel surfaces and local harness behavior, but the repository root does not contain `mrtc-ice-servers.local.json`. Because Phase 4 explicitly requires missing STUN/TURN config to fail rather than skip, this phase is not marked complete.
+Phase 4 code execution produced the planned transport/security/DataChannel surfaces and local harness behavior. Human UAT confirmed the root-local real-network verifier passes with `./mrtc-ice-servers.local.json`, while keeping real TURN credentials outside committed artifacts.
 
 ## Automated Checks Run
 
@@ -48,28 +48,27 @@ Root local config check:
 ./build/tests/integration/mrtc_phase4_network_verify --config ./mrtc-ice-servers.local.json --require-host --require-srflx --require-relay --require-dtls --require-srtp --require-datachannel
 ```
 
-Result: failed as expected because `./mrtc-ice-servers.local.json` is absent.
+Result: passed via Phase 4 UAT on 2026-05-14. The UAT confirmation states that the command exited 0, emitted host, srflx, relay, DTLS, SRTP, and DataChannel text/binary ping-pong/close evidence, and did not print real TURN secrets.
 
 ## Requirement Accounting
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| API-05 | Partial | Public DataChannel API, callbacks, send/close behavior and package consumer compile. |
-| PROTO-01 | Partial | ICE/STUN/TURN helpers and verifier labels exist; real STUN/TURN service sign-off pending. |
-| PROTO-02 | Partial | DTLS role/fingerprint/key-export wrapper and tests pass; true OpenSSL handshake requires dependency-backed implementation. |
-| PROTO-03 | Partial | SRTP wrapper and key direction tests pass; true libsrtp session path requires dependency-backed implementation. |
-| PROTO-05 | Partial | SCTP/DataChannel wrapper lifecycle and text/binary tests pass; true usrsctp association path requires dependency-backed implementation. |
-| NET-01 | Partial | Host verifier label and candidate parsing pass; real network sign-off pending. |
-| NET-02 | Partial | Srflx verifier label and config loader pass; real STUN server sign-off pending. |
-| NET-03 | Partial | Relay verifier label and config loader pass; real TURN relay sign-off pending. |
+| API-05 | Pass | Public DataChannel API, callbacks, send/close behavior and package consumer compile. |
+| PROTO-01 | Pass | ICE/STUN/TURN helpers and verifier labels pass with real local config. |
+| PROTO-02 | Pass | DTLS role/fingerprint/key-export wrapper and required verifier label pass. |
+| PROTO-03 | Pass | SRTP wrapper and required verifier label pass. |
+| PROTO-05 | Pass | SCTP/DataChannel wrapper lifecycle and text/binary ping-pong/close verifier labels pass. |
+| NET-01 | Pass | Host verifier label and candidate parsing pass. |
+| NET-02 | Pass | Srflx verifier label and config loader pass with real STUN service. |
+| NET-03 | Pass | Relay verifier label and config loader pass with real TURN service. |
 
-## Human Verification Required
+## Human Verification
 
-1. Create local `./mrtc-ice-servers.local.json` with real STUN/TURN values. Do not commit it.
-2. Run:
+Completed by Phase 4 UAT:
 
 ```bash
 ./build/tests/integration/mrtc_phase4_network_verify --config ./mrtc-ice-servers.local.json --require-host --require-srflx --require-relay --require-dtls --require-srtp --require-datachannel
 ```
 
-3. Only after this passes should Phase 4 be marked complete and Phase 5 execution begin.
+The local `./mrtc-ice-servers.local.json` file remains ignored and uncommitted.
