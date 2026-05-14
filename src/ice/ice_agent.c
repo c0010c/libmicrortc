@@ -165,6 +165,42 @@ MRTC_STATUS mrtc_ice_format_candidate(const char *type,
     return MRTC_STATUS_OK;
 }
 
+MRTC_STATUS mrtc_ice_format_related_candidate(const char *type,
+                                              const char *ip,
+                                              unsigned short port,
+                                              const char *related_ip,
+                                              unsigned short related_port,
+                                              char *buffer,
+                                              size_t buffer_len,
+                                              size_t *required_len)
+{
+    char candidate[224];
+    size_t needed;
+
+    if (type == 0 || ip == 0 || related_ip == 0 || required_len == 0 || related_port == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (strcmp(type, "srflx") != 0 && strcmp(type, "relay") != 0) {
+        return MRTC_STATUS_PARSE_ERROR;
+    }
+
+    (void) snprintf(candidate,
+                    sizeof(candidate),
+                    "candidate:1 1 UDP 2122252543 %s %u typ %s raddr %s rport %u",
+                    ip,
+                    (unsigned int) port,
+                    type,
+                    related_ip,
+                    (unsigned int) related_port);
+    needed = strlen(candidate) + 1;
+    *required_len = needed;
+    if (buffer == 0 || buffer_len < needed) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    memcpy(buffer, candidate, needed);
+    return MRTC_STATUS_OK;
+}
+
 int mrtc_ice_packet_is_stun(const unsigned char *packet, size_t packet_len)
 {
     if (packet == 0 || packet_len < 20) {

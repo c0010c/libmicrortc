@@ -14,6 +14,7 @@
 #include "sdp.h"
 #include "srtp/srtp_session.h"
 #include "sctp/sctp_session.h"
+#include "turn/turn_client.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +40,11 @@ struct MRTC_PEER_CONNECTION {
     MRTC_DTLS_SESSION dtls_session;
     MRTC_SRTP_SESSION srtp_session;
     MRTC_SCTP_SESSION sctp_session;
+    MRTC_TURN_CLIENT turn_client;
+    int turn_client_ready;
+    char selected_local_candidate_type[16];
+    char selected_remote_ip[64];
+    unsigned short selected_remote_port;
     int selected_pair_ready;
     int dtls_started;
     int sctp_started;
@@ -155,6 +161,13 @@ static void mrtc_peer_connection_set_state(MRTC_PEER_CONNECTION_HANDLE peer_conn
     }
 }
 
+static MRTC_STATUS mrtc_peer_connection_send_selected_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                            const uint8_t *packet,
+                                                            size_t packet_len);
+MRTC_STATUS mrtc_peer_connection_receive_protected_media_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                               const uint8_t *packet,
+                                                               size_t packet_size);
+
 static MRTC_STATUS mrtc_peer_connection_drain_dtls(MRTC_PEER_CONNECTION_HANDLE peer_connection)
 {
     uint8_t packet[2048];
@@ -174,7 +187,7 @@ static MRTC_STATUS mrtc_peer_connection_drain_dtls(MRTC_PEER_CONNECTION_HANDLE p
             return status;
         }
         if (packet_len > 0u) {
-            status = mrtc_ice_host_endpoint_send_selected(&peer_connection->host_endpoint, packet, packet_len);
+            status = mrtc_peer_connection_send_selected_packet(peer_connection, packet, packet_len);
             if (status != MRTC_STATUS_OK) {
                 return status;
             }
@@ -346,6 +359,133 @@ static MRTC_STATUS mrtc_peer_connection_start_secure_transport(MRTC_PEER_CONNECT
     }
     peer_connection->dtls_started = 1;
     return MRTC_STATUS_OK;
+}
+
+static int mrtc_peer_connection_selected_is_relay(MRTC_PEER_CONNECTION_HANDLE peer_connection)
+{
+    return peer_connection != 0 && strcmp(peer_connection->selected_local_candidate_type, "relay") == 0;
+}
+
+static MRTC_STATUS mrtc_peer_connection_send_selected_packet(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                            const uint8_t *packet,
+                                                            size_t packet_len)
+{
+    if (peer_connection == 0 || packet == 0 || packet_len == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (!peer_connection->selected_pair_ready) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    if (mrtc_peer_connection_selected_is_relay(peer_connection)) {
+        if (!peer_connection->turn_client_ready ||
+            peer_connection->selected_remote_ip[0] == '\0' ||
+            peer_connection->selected_remote_port == 0u) {
+            return MRTC_STATUS_INVALID_STATE;
+        }
+        return mrtc_turn_client_send(&peer_connection->turn_client,
+                                     peer_connection->selected_remote_ip,
+                                     peer_connection->selected_remote_port,
+                                     packet,
+                                     packet_len);
+    }
+    return mrtc_ice_host_endpoint_send_selected(&peer_connection->host_endpoint, packet, packet_len);
+}
+
+static MRTC_STATUS mrtc_peer_connection_handle_transport_payload(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                                const unsigned char *packet,
+                                                                size_t packet_len)
+{
+    MRTC_STATUS status;
+
+    if (peer_connection == 0 || packet == 0 || packet_len == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (packet[0] > 19u && packet[0] < 64u) {
+        if (!peer_connection->dtls_started) {
+            return MRTC_STATUS_INVALID_STATE;
+        }
+        status = mrtc_dtls_session_handle_inbound_packet(&peer_connection->dtls_session, packet, packet_len);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_peer_connection_drain_dtls(peer_connection);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        return mrtc_peer_connection_finish_secure_transport_if_ready(peer_connection);
+    }
+    if ((packet[0] & 0xc0u) == 0x80u) {
+        (void) mrtc_peer_connection_receive_protected_media_packet(peer_connection, packet, packet_len);
+        return MRTC_STATUS_OK;
+    }
+    return MRTC_STATUS_OK;
+}
+
+static MRTC_STATUS mrtc_peer_connection_handle_turn_data(MRTC_PEER_CONNECTION_HANDLE peer_connection,
+                                                        const MRTC_STUN_ADDRESS *peer_address,
+                                                        const unsigned char *packet,
+                                                        size_t packet_len)
+{
+    if (peer_connection == 0 || peer_address == 0 || packet == 0 || packet_len == 0u) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+    if (mrtc_ice_packet_is_stun(packet, packet_len)) {
+        MRTC_STUN_BINDING_REQUEST request;
+        unsigned char response[512];
+        size_t response_len = 0;
+        MRTC_STATUS status;
+
+        status = mrtc_stun_parse_binding_request(packet, packet_len, peer_connection->local_ice_pwd, &request);
+        if (status != MRTC_STATUS_OK) {
+            return MRTC_STATUS_OK;
+        }
+        if (strstr(request.username, peer_connection->local_ice_ufrag) == 0) {
+            return MRTC_STATUS_OK;
+        }
+        if (request.has_message_integrity && !request.message_integrity_valid) {
+            return MRTC_STATUS_OK;
+        }
+        if (request.has_fingerprint && !request.fingerprint_valid) {
+            return MRTC_STATUS_OK;
+        }
+        status = mrtc_stun_write_binding_success_response(response,
+                                                          sizeof(response),
+                                                          &response_len,
+                                                          request.transaction_id,
+                                                          peer_address->ip,
+                                                          peer_address->port,
+                                                          peer_connection->local_ice_pwd);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        status = mrtc_turn_client_send(&peer_connection->turn_client,
+                                       peer_address->ip,
+                                       peer_address->port,
+                                       response,
+                                       response_len);
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        (void) snprintf(peer_connection->selected_local_candidate_type,
+                        sizeof(peer_connection->selected_local_candidate_type),
+                        "%s",
+                        "relay");
+        (void) snprintf(peer_connection->selected_remote_ip,
+                        sizeof(peer_connection->selected_remote_ip),
+                        "%s",
+                        peer_address->ip);
+        peer_connection->selected_remote_port = peer_address->port;
+        if (!peer_connection->selected_pair_ready) {
+            peer_connection->selected_pair_ready = 1;
+            status = mrtc_peer_connection_start_secure_transport(peer_connection);
+            if (status == MRTC_STATUS_OK) {
+                mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTING);
+            }
+            return status;
+        }
+        return MRTC_STATUS_OK;
+    }
+    return mrtc_peer_connection_handle_transport_payload(peer_connection, packet, packet_len);
 }
 
 static uint32_t mrtc_video_rtp_timestamp_from_frame(const MRTC_FRAME *frame)
@@ -617,6 +757,7 @@ MRTC_STATUS mrtc_peer_connection_create(const MRTC_PEER_CONNECTION_CONFIG *confi
     created->next_stream_id = 0;
     created->next_media_ssrc = 1000001u;
     mrtc_ice_host_endpoint_init(&created->host_endpoint);
+    created->turn_client.socket_fd = -1;
     {
         size_t fingerprint_len = 0;
         if (mrtc_fill_token(created->local_ice_ufrag, sizeof(created->local_ice_ufrag)) != MRTC_STATUS_OK ||
@@ -649,6 +790,7 @@ void mrtc_peer_connection_free(MRTC_PEER_CONNECTION_HANDLE peer_connection)
     mrtc_sctp_session_deinit(&peer_connection->sctp_session);
     mrtc_srtp_session_deinit(&peer_connection->srtp_session);
     mrtc_dtls_session_deinit(&peer_connection->dtls_session);
+    mrtc_turn_client_free(&peer_connection->turn_client);
     mrtc_ice_host_endpoint_close(&peer_connection->host_endpoint);
     while (peer_connection->data_channels != 0) {
         MRTC_DATA_CHANNEL_HANDLE next = peer_connection->data_channels->next;
@@ -774,7 +916,7 @@ MRTC_STATUS mrtc_peer_connection_set_local_description(MRTC_PEER_CONNECTION_HAND
 
     peer_connection->has_local_description = 1;
     if (peer_connection->callbacks.on_ice_candidate != 0) {
-        char candidate[128];
+        char candidate[224];
         size_t candidate_len = 0;
         if (mrtc_ice_host_endpoint_bind(&peer_connection->host_endpoint) == MRTC_STATUS_OK &&
             mrtc_ice_format_host_endpoint_candidate(&peer_connection->host_endpoint,
@@ -782,6 +924,58 @@ MRTC_STATUS mrtc_peer_connection_set_local_description(MRTC_PEER_CONNECTION_HAND
                                                     sizeof(candidate),
                                                     &candidate_len) == MRTC_STATUS_OK) {
             peer_connection->callbacks.on_ice_candidate(peer_connection->user_data, candidate);
+        }
+        if (peer_connection->host_endpoint.fd >= 0 && !peer_connection->turn_client_ready) {
+            size_t i;
+
+            for (i = 0; i < peer_connection->config.ice_server_count; ++i) {
+                MRTC_ICE_SERVER_URL url;
+                MRTC_STUN_ADDRESS relay_address;
+                MRTC_STUN_ADDRESS mapped_address;
+
+                if (peer_connection->config.ice_servers[i].urls == 0 ||
+                    mrtc_ice_server_url_parse(peer_connection->config.ice_servers[i].urls, &url) != MRTC_STATUS_OK ||
+                    strcmp(url.scheme, "turn") != 0 ||
+                    peer_connection->config.ice_servers[i].username == 0 ||
+                    peer_connection->config.ice_servers[i].password == 0) {
+                    continue;
+                }
+                if (mrtc_turn_client_init(&peer_connection->turn_client,
+                                          url.host,
+                                          url.port,
+                                          peer_connection->config.ice_servers[i].username,
+                                          peer_connection->config.ice_servers[i].password) != MRTC_STATUS_OK) {
+                    continue;
+                }
+                if (mrtc_turn_client_allocate(&peer_connection->turn_client) != MRTC_STATUS_OK ||
+                    mrtc_turn_client_get_relay_address(&peer_connection->turn_client, &relay_address) != MRTC_STATUS_OK) {
+                    mrtc_turn_client_free(&peer_connection->turn_client);
+                    continue;
+                }
+                peer_connection->turn_client_ready = 1;
+                if (mrtc_turn_client_get_mapped_address(&peer_connection->turn_client, &mapped_address) == MRTC_STATUS_OK &&
+                    mrtc_ice_format_related_candidate("srflx",
+                                                      mapped_address.ip,
+                                                      mapped_address.port,
+                                                      peer_connection->host_endpoint.ip,
+                                                      peer_connection->host_endpoint.port,
+                                                      candidate,
+                                                      sizeof(candidate),
+                                                      &candidate_len) == MRTC_STATUS_OK) {
+                    peer_connection->callbacks.on_ice_candidate(peer_connection->user_data, candidate);
+                }
+                if (mrtc_ice_format_related_candidate("relay",
+                                                      relay_address.ip,
+                                                      relay_address.port,
+                                                      peer_connection->host_endpoint.ip,
+                                                      peer_connection->host_endpoint.port,
+                                                      candidate,
+                                                      sizeof(candidate),
+                                                      &candidate_len) == MRTC_STATUS_OK) {
+                    peer_connection->callbacks.on_ice_candidate(peer_connection->user_data, candidate);
+                }
+                break;
+            }
         }
     }
     return MRTC_STATUS_OK;
@@ -827,6 +1021,9 @@ MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE p
     if (mrtc_replace_string(&peer_connection->last_remote_candidate, candidate) != MRTC_STATUS_OK) {
         return MRTC_STATUS_INVALID_ARG;
     }
+    if (peer_connection->turn_client_ready && strcmp(parsed.type, "relay") == 0) {
+        (void) mrtc_turn_client_create_permission(&peer_connection->turn_client, parsed.ip, parsed.port);
+    }
 
     return MRTC_STATUS_OK;
 }
@@ -856,30 +1053,73 @@ MRTC_STATUS mrtc_peer_connection_poll_transport(MRTC_PEER_CONNECTION_HANDLE peer
     }
     if (peer_connection->host_endpoint.selected_pair_ready && !peer_connection->selected_pair_ready) {
         peer_connection->selected_pair_ready = 1;
+        (void) snprintf(peer_connection->selected_local_candidate_type,
+                        sizeof(peer_connection->selected_local_candidate_type),
+                        "%s",
+                        "host");
+        (void) snprintf(peer_connection->selected_remote_ip,
+                        sizeof(peer_connection->selected_remote_ip),
+                        "%s",
+                        peer_connection->host_endpoint.selected_remote_ip);
+        peer_connection->selected_remote_port = peer_connection->host_endpoint.selected_remote_port;
         status = mrtc_peer_connection_start_secure_transport(peer_connection);
         if (status == MRTC_STATUS_OK) {
             mrtc_peer_connection_set_state(peer_connection, MRTC_PEER_CONNECTION_STATE_CONNECTING);
         }
     }
     if (packet_len > 0u) {
-        if (packet[0] > 19u && packet[0] < 64u) {
-            if (!peer_connection->dtls_started) {
-                return MRTC_STATUS_INVALID_STATE;
-            }
-            status = mrtc_dtls_session_handle_inbound_packet(&peer_connection->dtls_session, packet, packet_len);
-            if (status != MRTC_STATUS_OK) {
-                return status;
-            }
-            status = mrtc_peer_connection_drain_dtls(peer_connection);
-            if (status != MRTC_STATUS_OK) {
-                return status;
-            }
-            return mrtc_peer_connection_finish_secure_transport_if_ready(peer_connection);
-        }
-        if ((packet[0] & 0xc0u) == 0x80u) {
-            (void) mrtc_peer_connection_receive_protected_media_packet(peer_connection, packet, packet_len);
+        return mrtc_peer_connection_handle_transport_payload(peer_connection, packet, packet_len);
+    }
+    if (peer_connection->turn_client_ready) {
+        MRTC_STUN_ADDRESS peer_address;
+        size_t turn_packet_len = 0;
+        status = mrtc_turn_client_poll_data(&peer_connection->turn_client,
+                                            0,
+                                            &peer_address,
+                                            packet,
+                                            sizeof(packet),
+                                            &turn_packet_len);
+        if (status == MRTC_STATUS_PARSE_ERROR) {
             return MRTC_STATUS_OK;
         }
+        if (status != MRTC_STATUS_OK) {
+            return status;
+        }
+        if (turn_packet_len > 0u) {
+            return mrtc_peer_connection_handle_turn_data(peer_connection, &peer_address, packet, turn_packet_len);
+        }
+    }
+    return MRTC_STATUS_OK;
+}
+
+MRTC_STATUS mrtc_peer_connection_get_selected_candidate_pair_info(
+    MRTC_PEER_CONNECTION_HANDLE peer_connection,
+    MRTC_SELECTED_CANDIDATE_PAIR_INFO *info)
+{
+    MRTC_ICE_CANDIDATE remote_candidate;
+
+    if (peer_connection == 0 || info == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    memset(info, 0, sizeof(*info));
+    info->selected = peer_connection->selected_pair_ready;
+    if (!peer_connection->selected_pair_ready) {
+        return MRTC_STATUS_OK;
+    }
+
+    (void) snprintf(info->local_candidate_type,
+                    sizeof(info->local_candidate_type),
+                    "%s",
+                    peer_connection->selected_local_candidate_type[0] != '\0' ?
+                        peer_connection->selected_local_candidate_type :
+                        "host");
+    if (peer_connection->last_remote_candidate != 0 &&
+        mrtc_ice_parse_candidate(peer_connection->last_remote_candidate, &remote_candidate) == MRTC_STATUS_OK) {
+        (void) snprintf(info->remote_candidate_type,
+                        sizeof(info->remote_candidate_type),
+                        "%s",
+                        remote_candidate.type);
     }
     return MRTC_STATUS_OK;
 }
@@ -1267,7 +1507,7 @@ MRTC_STATUS mrtc_peer_connection_send_protected_media_packet(MRTC_PEER_CONNECTIO
     }
     status = MRTC_STATUS_OK;
     if (peer_connection->selected_pair_ready) {
-        status = mrtc_ice_host_endpoint_send_selected(&peer_connection->host_endpoint, packet, packet_size);
+        status = mrtc_peer_connection_send_selected_packet(peer_connection, packet, packet_size);
         if (status != MRTC_STATUS_OK && peer_connection->media_send_hook == 0) {
             return status;
         }

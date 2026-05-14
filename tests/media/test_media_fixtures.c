@@ -78,10 +78,10 @@ static int test_h264_fixture(void)
     int saw_sps = 0;
     int saw_pps = 0;
     int saw_idr = 0;
-    uint8_t payloads[256];
-    size_t payload_lengths[16];
-    size_t payloads_size = sizeof(payloads);
-    size_t payload_count = 16u;
+    uint8_t *payloads = 0;
+    size_t *payload_lengths = 0;
+    size_t payloads_size = 0;
+    size_t payload_count = 0;
 
     CHECK_TRUE(read_file("tests/fixtures/h264_annexb_sample.h264", &annexb, &annexb_size));
     CHECK_TRUE(annexb_size > 0u);
@@ -120,11 +120,19 @@ static int test_h264_fixture(void)
     CHECK_TRUE(saw_sps);
     CHECK_TRUE(saw_pps);
     CHECK_TRUE(saw_idr);
+    CHECK_TRUE(mrtc_h264_packetize_annexb(annexb, annexb_size, 1200u, 0, &payloads_size,
+                                          0, &payload_count) == MRTC_STATUS_OK);
+    payloads = (uint8_t *) malloc(payloads_size);
+    payload_lengths = (size_t *) calloc(payload_count, sizeof(*payload_lengths));
+    CHECK_TRUE(payloads != 0);
+    CHECK_TRUE(payload_lengths != 0);
     CHECK_TRUE(mrtc_h264_packetize_annexb(annexb, annexb_size, 1200u, payloads, &payloads_size,
                                           payload_lengths, &payload_count) == MRTC_STATUS_OK);
     CHECK_TRUE(payload_count >= 3u);
     CHECK_TRUE(payloads_size > 0u);
 
+    free(payload_lengths);
+    free(payloads);
     free(annexb);
     return 0;
 }

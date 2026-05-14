@@ -23,6 +23,7 @@ typedef struct CliOptions {
     int log_json;
     int self_test_media;
     int self_test_media_callbacks;
+    int self_test_redaction;
     int help;
 } CliOptions;
 
@@ -84,6 +85,7 @@ typedef struct AnswererApp {
     MediaFrameStats video_frame_stats;
     MediaFrameStats audio_frame_stats;
     ProtectedPacketCapture packet_capture;
+    int selected_path_emitted;
     int failed;
     int stopped;
 } AnswererApp;
@@ -102,6 +104,7 @@ static const char *usage(void)
            "  --self-test-media      Verify fixtures and send them through the media API.\n"
            "  --self-test-media-callbacks\n"
            "                         Verify fixture receive callbacks through protected RTP loopback.\n"
+           "  --self-test-redaction  Emit redacted diagnostic sample and exit.\n"
            "  --help                 Show this help.\n"
            "\n"
            "Input JSON message types: offer, candidate, start-media, stop.\n"
@@ -124,6 +127,8 @@ static int parse_args(int argc, char **argv, CliOptions *options)
         } else if (strcmp(arg, "--self-test-media-callbacks") == 0) {
             options->self_test_media = 1;
             options->self_test_media_callbacks = 1;
+        } else if (strcmp(arg, "--self-test-redaction") == 0) {
+            options->self_test_redaction = 1;
         } else if (strcmp(arg, "--fixtures") == 0 && i + 1 < argc) {
             options->fixtures_dir = argv[++i];
         } else if (strcmp(arg, "--ice-config") == 0 && i + 1 < argc) {
@@ -586,6 +591,40 @@ static void emit_media_frame(AnswererApp *app,
             (unsigned long) stats->byte_count,
             timestamp_monotonic ? "true" : "false");
     json_end();
+}
+
+static void emit_selected_path_if_ready(AnswererApp *app)
+{
+    MRTC_SELECTED_CANDIDATE_PAIR_INFO info;
+    const char *candidate_type;
+
+    if (app == 0 || app->pc == 0 || app->selected_path_emitted) {
+        return;
+    }
+    if (mrtc_peer_connection_get_selected_candidate_pair_info(app->pc, &info) != MRTC_STATUS_OK || !info.selected) {
+        return;
+    }
+
+    candidate_type = info.remote_candidate_type[0] != '\0' ? info.remote_candidate_type : info.local_candidate_type;
+    json_begin(app, "event");
+    fputs(",\"name\":\"selected_pair\",\"fields\":{\"candidate_type\":", stdout);
+    json_print_escaped(stdout, candidate_type);
+    fputs(",\"local_candidate_type\":", stdout);
+    json_print_escaped(stdout, info.local_candidate_type);
+    fputs(",\"remote_candidate_type\":", stdout);
+    json_print_escaped(stdout, info.remote_candidate_type);
+    fputs("}", stdout);
+    json_end();
+    app->selected_path_emitted = 1;
+}
+
+static int run_redaction_self_test(AnswererApp *app)
+{
+    json_begin(app, "event");
+    fputs(",\"name\":\"redaction.self_test\",\"fields\":{\"turn_server\":\"redacted\","
+          "\"identity\":\"redacted\",\"auth\":\"redacted\"}", stdout);
+    json_end();
+    return 1;
 }
 
 static const char *pc_state_name(MRTC_PEER_CONNECTION_STATE state)
@@ -1141,6 +1180,7 @@ static int run_loop(AnswererApp *app)
             free(line);
             return 0;
         }
+        emit_selected_path_if_ready(app);
 
         FD_ZERO(&read_fds);
         FD_SET(stdin_fd, &read_fds);
@@ -1236,6 +1276,14 @@ int main(int argc, char **argv)
     if (!load_ice_config(&app) || !create_peer_connection(&app)) {
         free_app(&app);
         return 2;
+    }
+
+    if (app.options.self_test_redaction) {
+        emit_hello(&app);
+        ok = run_redaction_self_test(&app);
+        emit_done(&app);
+        free_app(&app);
+        return ok ? 0 : 1;
     }
 
     if (app.options.self_test_media) {

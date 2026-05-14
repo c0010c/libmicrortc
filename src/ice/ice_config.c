@@ -162,6 +162,9 @@ MRTC_STATUS mrtc_ice_config_load(const char *path, MRTC_ICE_CONFIG *config)
 
         (void) mrtc_find_string_value(object_start, object_end, "\"username\"", &username);
         (void) mrtc_find_string_value(object_start, object_end, secret_key, &secret);
+        if (secret == 0) {
+            (void) mrtc_find_string_value(object_start, object_end, "\"password\"", &secret);
+        }
         config->servers[config->server_count].urls = url;
         config->servers[config->server_count].username = username;
         config->servers[config->server_count].password = secret;

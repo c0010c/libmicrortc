@@ -14,6 +14,7 @@
     answerApplied: false,
     candidatesSent: 0,
     candidatesReceived: 0,
+    remoteCandidateTypes: [],
     localMediaStarted: false,
     remoteVideoTrack: false,
     remoteAudioTrack: false,
@@ -76,7 +77,9 @@
   }
 
   function rtcConfigFromQuery() {
-    const config = parseJsonParam("rtcConfig", {});
+    const config = window.__mrtcRTCConfig
+      ? JSON.parse(JSON.stringify(window.__mrtcRTCConfig))
+      : parseJsonParam("rtcConfig", {});
     if (!config.iceServers) {
       const iceServers = parseJsonParam("iceServers", null);
       if (iceServers) {
@@ -304,13 +307,19 @@
   }
 
   async function applyRemoteCandidate(message) {
+    const candidate = String(message.candidate || "");
+    const match = candidate.match(/\btyp\s+([a-z0-9]+)/i);
+
     state.candidatesReceived += 1;
+    if (match) {
+      state.remoteCandidateTypes.push(match[1].toLowerCase());
+    }
     await pc.addIceCandidate({
       candidate: message.candidate,
       sdpMid: message.sdpMid || null,
       sdpMLineIndex: typeof message.sdpMLineIndex === "number" ? message.sdpMLineIndex : null,
     });
-    recordEvent("candidate.applied");
+    recordEvent("candidate.applied", { candidateType: match ? match[1].toLowerCase() : null });
   }
 
   async function connect() {

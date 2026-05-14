@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { redactSecrets } = require("./turn-config");
 
 function createHostSummary(fields = {}) {
   return {
@@ -44,7 +45,7 @@ function markFailure(summary, stage, reason) {
 
 function writeSummary(summaryPath, summary) {
   fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
-  fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
+  fs.writeFileSync(summaryPath, `${JSON.stringify(redactSecrets(summary), null, 2)}\n`);
 }
 
 function printStage(name, details = "") {
@@ -58,3 +59,22 @@ module.exports = {
   printStage,
   writeSummary,
 };
+
+if (require.main === module && process.argv.includes("--self-test-redaction")) {
+  const tempPath = path.join(__dirname, "artifacts", "summary-redaction-self-test.json");
+  writeSummary(tempPath, {
+    turn_relay: {
+      urls: "turn:secret-turn.example:3478?transport=udp&username=raw-user&credential=raw-credential",
+      username: "raw-user",
+      credential: "raw-credential",
+      password: "raw-password",
+    },
+  });
+  const text = fs.readFileSync(tempPath, "utf8");
+  const forbidden = ["secret-turn.example", "raw-user", "raw-credential", "raw-password", "username", "credential", "password"];
+  if (forbidden.some((value) => text.includes(value))) {
+    process.stderr.write(`summary redaction self-test failed: ${text}\n`);
+    process.exit(1);
+  }
+  process.stdout.write("summary redaction self-test ok\n");
+}

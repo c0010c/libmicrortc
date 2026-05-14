@@ -87,6 +87,8 @@ async function waitForCMedia(page, options = {}) {
 }
 
 test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirectional media", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chrome-turn", "TURN relay spec only runs in the chrome-turn project");
+
   const startedAt = Date.now();
   const browserChannel = process.env.MRTC_E2E_BROWSER_CHANNEL || "chrome";
   const turnConfig = loadTurnConfig(process.env.MRTC_E2E_TURN_CONFIG);
@@ -117,7 +119,9 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
   try {
     const url = new URL(pathToFileURL(pagePath).toString());
     url.searchParams.set("ws", server.url);
-    url.searchParams.set("rtcConfig", JSON.stringify(turnConfig.browserConfig));
+    await page.addInitScript((rtcConfig) => {
+      window.__mrtcRTCConfig = rtcConfig;
+    }, turnConfig.browserConfig);
     await page.goto(url.toString());
 
     const rtcConfig = await page.evaluate(() => window.__mrtcE2E.pc.getConfiguration());
@@ -135,6 +139,15 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
     }
     summary.chrome_turn.status = "signaled";
 
+    const cRelayCandidate = await waitForPageState(page, () => {
+      const state = window.__mrtcE2E.getState();
+      return state.remoteCandidateTypes.includes("relay");
+    }, 20_000);
+    if (!cRelayCandidate.ok) {
+      throw new Error(`C answerer did not emit a relay candidate: ${cRelayCandidate.reason}`);
+    }
+    summary.turn_relay.c_candidate_type = "relay";
+
     printStage("CONNECTION");
     const connected = await waitForPageState(page, () => window.__mrtcE2E.getState().connectionState === "connected", 20_000);
     if (!connected.ok) {
@@ -147,6 +160,11 @@ test("@turn relay candidate Chrome E2E: connection, DataChannel, and bidirection
       ...summary.turn_relay,
       ...(await waitForSelectedRelayCandidate(page, { timeoutMs: 20_000 })),
     };
+    summary.turn_relay.c_selected_pair = await page.evaluate(async () => {
+      const event = await window.__mrtcE2E.waitForEvent("remote.selected_pair", 5_000);
+      return event.fields || {};
+    });
+    expect(summary.turn_relay.c_selected_pair.local_candidate_type).toBe("relay");
 
     printStage("DATACHANNEL");
     await sendPingPong(page);

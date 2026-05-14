@@ -26,7 +26,7 @@ int main(void)
     if (!write_file(path,
                     "{ \"ice_servers\": ["
                     "{ \"urls\": \"stun:stun.example.test:3478\" },"
-                    "{ \"urls\": \"turn:example.test:3478?transport=udp\", \"username\": \"user\", \"cre" "dential\": \"secret\" }"
+                    "{ \"urls\": \"turn:example.test:3478?transport=udp\", \"username\": \"user\", \"password\": \"secret\" }"
                     "] }")) {
         return 1;
     }

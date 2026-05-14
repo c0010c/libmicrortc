@@ -63,7 +63,7 @@ function redactSecrets(input) {
     const output = {};
     for (const [key, value] of Object.entries(input)) {
       if (SECRET_KEYS.has(key.toLowerCase())) {
-        output[key] = "<redacted>";
+        continue;
       } else {
         output[key] = redactSecrets(value);
       }

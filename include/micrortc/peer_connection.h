@@ -111,6 +111,12 @@ typedef struct MRTC_PEER_CONNECTION_CONFIG {
     size_t ice_server_count;
 } MRTC_PEER_CONNECTION_CONFIG;
 
+typedef struct MRTC_SELECTED_CANDIDATE_PAIR_INFO {
+    int selected;
+    char local_candidate_type[16];
+    char remote_candidate_type[16];
+} MRTC_SELECTED_CANDIDATE_PAIR_INFO;
+
 typedef struct MRTC_PEER_CONNECTION_CALLBACKS {
     void (*on_ice_candidate)(void *user_data, const char *candidate);
     void (*on_connection_state_change)(void *user_data, MRTC_PEER_CONNECTION_STATE state);
@@ -147,6 +153,10 @@ MRTC_STATUS mrtc_peer_connection_add_ice_candidate(MRTC_PEER_CONNECTION_HANDLE p
 
 MRTC_STATUS mrtc_peer_connection_poll_transport(MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                                 int timeout_ms);
+
+MRTC_STATUS mrtc_peer_connection_get_selected_candidate_pair_info(
+    MRTC_PEER_CONNECTION_HANDLE peer_connection,
+    MRTC_SELECTED_CANDIDATE_PAIR_INFO *info);
 
 MRTC_STATUS mrtc_peer_connection_create_data_channel(MRTC_PEER_CONNECTION_HANDLE peer_connection,
                                                      const char *label,

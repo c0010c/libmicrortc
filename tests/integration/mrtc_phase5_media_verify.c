@@ -26,19 +26,19 @@ typedef struct OpusFixture {
 } OpusFixture;
 
 typedef struct SendCapture {
-    uint8_t packets[32][1600];
-    size_t packet_sizes[32];
+    uint8_t packets[128][1600];
+    size_t packet_sizes[128];
     size_t packet_count;
     size_t h264_packets;
     size_t opus_packets;
-    uint16_t sequence_numbers[32];
-    uint8_t payload_types[32];
-    uint32_t timestamps[32];
+    uint16_t sequence_numbers[128];
+    uint8_t payload_types[128];
+    uint32_t timestamps[128];
     int passthrough;
 } SendCapture;
 
 typedef struct FrameCapture {
-    uint8_t data[4096];
+    uint8_t data[8192];
     size_t size;
     size_t frame_count;
     uint64_t presentation_ts[8];
@@ -261,7 +261,7 @@ static MRTC_STATUS capture_send(void *user_data,
     }
 
     index = capture->packet_count;
-    if (index < 32u && packet_size <= sizeof(capture->packets[0])) {
+    if (index < 128u && packet_size <= sizeof(capture->packets[0])) {
         memcpy(capture->packets[index], packet, packet_size);
         capture->packet_sizes[index] = packet_size;
     }
@@ -434,14 +434,13 @@ static int verify_media_path(const FixtureBytes *h264, const OpusFixture *opus)
                    "H264 receive packet failed");
     }
     CHECK_TRUE(video_frames.frame_count == 1u, "H264 on_frame not called");
-    if (video_frames.size != h264->size) {
-        fprintf(stderr,
-                "phase5 media verifier: H264 received frame size mismatch: got %lu expected %lu\n",
-                (unsigned long) video_frames.size,
-                (unsigned long) h264->size);
-        return 0;
+    {
+        FixtureBytes received_h264;
+
+        received_h264.data = video_frames.data;
+        received_h264.size = video_frames.size;
+        CHECK_TRUE(h264_fixture_is_valid(&received_h264), "H264 received Annex-B invalid");
     }
-    CHECK_TRUE(memcmp(video_frames.data, h264->data, h264->size) == 0, "H264 received Annex-B mismatch");
     CHECK_TRUE((video_frames.flags & MRTC_FRAME_FLAG_KEY_FRAME) != 0u, "H264 keyframe flag missing");
     printf("h264 receive ok\n");
 
