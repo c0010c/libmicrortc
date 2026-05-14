@@ -29,5 +29,15 @@ module.exports = defineConfig({
         video: "retain-on-failure",
       },
     },
+    {
+      name: "chrome-turn",
+      use: {
+        browserName: "chromium",
+        channel,
+        headless: process.env.MRTC_E2E_HEADLESS !== "0",
+        trace: "retain-on-failure",
+        video: "retain-on-failure",
+      },
+    },
   ],
 });
