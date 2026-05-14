@@ -1,0 +1,23 @@
+set(MRTC_LIBRARY_SOURCES
+    src/micrortc.c
+    src/peer_connection.c
+    src/sdp.c
+    src/common/mrtc_common.c
+    src/common/mrtc_mutex.c
+    src/common/mrtc_socket.c
+    src/ice/ice_agent.c
+    src/ice/ice_config.c
+    src/stun/stun_message.c
+    src/turn/turn_client.c
+    src/dtls/dtls_session.c
+    src/srtp/srtp_session.c
+    src/sctp/sctp_session.c
+    src/data_channel/data_channel.c
+    src/media/media_transceiver.c
+    src/rtp/rtp_packet.c
+    src/rtp/codecs/h264.c
+    src/rtp/codecs/opus.c
+    src/rtcp/rtcp_packet.c
+    src/rtcp/rtp_rolling_buffer.c
+    src/rtcp/retransmitter.c
+)

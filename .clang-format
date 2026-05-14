@@ -1,0 +1,14 @@
+BasedOnStyle: Chromium
+ColumnLimit: 0
+
+# libpeer-compatible C formatting.
+# clang-format can enforce layout, not semantic naming rules.
+# Naming conventions to follow in code review:
+# - Types: UpperCamelCase, e.g. PeerConnection, PeerConfiguration
+# - Functions: snake_case, e.g. peer_connection_create, agent_send
+# - Macros/enums: UPPER_SNAKE_CASE, e.g. CONFIG_MTU
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+BreakBeforeBraces: Attach
+PointerAlignment: Left
