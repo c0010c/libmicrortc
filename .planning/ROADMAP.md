@@ -46,7 +46,7 @@ v1.1 在 v1.0 已验证的 Chrome、DataChannel、TURN relay、H264/Opus 双向�
 Plans:
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — 冻结 API 边界文档和 public symbol 旧名到新名映射。
+- [x] 07-01-PLAN.md — 冻结 API 边界文档和 public symbol 旧名到新名映射。
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -180,7 +180,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11.
 | 4. 传输、安全与 DataChannel 协议核心 | v1.0 | 5/5 | Complete | 2026-05-14 |
 | 5. H264/Opus 媒体路径 | v1.0 | 5/5 | Complete | 2026-05-14 |
 | 6. Chrome 自动化 E2E 与测试收口 | v1.0 | 8/8 | Complete | 2026-05-14 |
-| 7. API 盘点与命名契约冻结 | v1.1 | 0/TBD | Not started | - |
+| 7. API 盘点与命名契约冻结 | v1.1 | 1/2 | In Progress | - |
 | 8. Public Headers 与核心 API 改名 | v1.1 | 0/TBD | Not started | - |
 | 9. Package Consumer 与公开调用点迁移 | v1.1 | 0/TBD | Not started | - |
 | 10. 内部标识符与 Private Boundary 收敛 | v1.1 | 0/TBD | Not started | - |

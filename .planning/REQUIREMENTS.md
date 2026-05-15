@@ -7,10 +7,10 @@
 
 ### API Contract
 
-- [ ] **API-01**: 开发者可以在文档中看到冻结的 v1.1 public、private 和 test-only API 边界。
-- [ ] **API-02**: 开发者可以查到完整旧名到新名映射，覆盖 `include/micrortc/*.h` 的 public symbols。
+- [x] **API-01**: 开发者可以在文档中看到冻结的 v1.1 public、private 和 test-only API 边界。
+- [x] **API-02**: 开发者可以查到完整旧名到新名映射，覆盖 `include/micrortc/*.h` 的 public symbols。
 - [ ] **API-03**: 公共函数使用 `rtc_*` lower_case，公共类型、typedef 和 enum 类型收敛为 `Rtc*` CamelCase，宏和枚举常量使用 `RTC_*`。
-- [ ] **API-04**: 公共 API 默认不保留旧 `mrtc_*`、`MRTC_*`、AWS/KVS 风格 typedef、handle 或 wrapper 兼容层。
+- [x] **API-04**: 公共 API 默认不保留旧 `mrtc_*`、`MRTC_*`、AWS/KVS 风格 typedef、handle 或 wrapper 兼容层。
 
 ### Public Headers
 
@@ -30,7 +30,7 @@
 - [ ] **STYLE-01**: `.clang-tidy` 命名规则进入 v1.1 验证闭环，并覆盖 `include`、`src`、`tests` 和 `examples`。
 - [ ] **STYLE-02**: 内部类型、typedef、enum 和结构字段命名按 `.clang-tidy` 收敛，函数、变量、参数和 member 使用 lower_case。
 - [ ] **STYLE-03**: 示例和 E2E harness 不再向用户展示 private struct 字段或 private header 作为正常 API。
-- [ ] **STYLE-04**: 旧 AWS/KVS、`mrtc_*` 和 `MRTC_*` public API 残留扫描可以区分禁止残留、来源合规记录和迁移文档白名单。
+- [x] **STYLE-04**: 旧 AWS/KVS、`mrtc_*` 和 `MRTC_*` public API 残留扫描可以区分禁止残留、来源合规记录和迁移文档白名单。
 
 ### Documentation And Provenance
 
@@ -81,10 +81,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| API-01 | Phase 7 | Pending |
-| API-02 | Phase 7 | Pending |
+| API-01 | Phase 7 | Complete |
+| API-02 | Phase 7 | Complete |
 | API-03 | Phase 8 | Pending |
-| API-04 | Phase 7 | Pending |
+| API-04 | Phase 7 | Complete |
 | HDR-01 | Phase 8 | Pending |
 | HDR-02 | Phase 8 | Pending |
 | HDR-03 | Phase 8 | Pending |
@@ -95,7 +95,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STYLE-01 | Phase 10 | Pending |
 | STYLE-02 | Phase 10 | Pending |
 | STYLE-03 | Phase 10 | Pending |
-| STYLE-04 | Phase 7 | Pending |
+| STYLE-04 | Phase 7 | Complete |
 | DOC-01 | Phase 11 | Pending |
 | DOC-02 | Phase 11 | Pending |
 | DOC-03 | Phase 11 | Pending |
