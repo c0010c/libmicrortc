@@ -392,17 +392,17 @@ All claims in this research were verified or cited from local project files and 
 |---|-------|---------|---------------|
 | — | — | — | — |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should test harness env vars keep `MRTC_E2E_*` until Phase 10?**
+1. **RESOLVED: Should test harness env vars keep `MRTC_E2E_*` until Phase 10?**
    - What we know: `scripts/verify-v1.sh` uses `MRTC_E2E_BROWSER_CHANNEL` and `MRTC_E2E_FIXTURES` for E2E configuration.[VERIFIED: scripts/verify-v1.sh]
    - What's unclear: Requirements focus on public C API residuals in Phase 7, while STYLE-01/STYLE-02 broader style convergence belongs to Phase 10.[VERIFIED: .planning/REQUIREMENTS.md]
-   - Recommendation: Phase 7 should classify these as `test_harness_non_public_api` and leave rename decision to Phase 10.[VERIFIED: .planning/REQUIREMENTS.md Traceability]
+   - RESOLVED recommendation: Phase 7 should classify these as `test_harness_non_public_api` and leave rename decision to Phase 10.[VERIFIED: .planning/REQUIREMENTS.md Traceability]
 
-2. **Should `RtcPeerConnection` opaque handle names be pointer typedefs or explicit `RtcPeerConnectionHandle`?**
+2. **RESOLVED: Should `RtcPeerConnection` opaque handle names be pointer typedefs or explicit `RtcPeerConnectionHandle`?**
    - What we know: Requirements require public types/typedefs/enums to converge to `Rtc*`, and API-04 rejects old handle style as compatibility target.[VERIFIED: .planning/REQUIREMENTS.md]
    - What's unclear: The exact handle suffix policy is not explicitly stated beyond removing old `MRTC_*`/AWS style.[VERIFIED: .planning/STATE.md]
-   - Recommendation: Use `RtcPeerConnection`, `RtcDataChannel`, `RtcRtpTransceiver` as opaque handle typedef names and document the choice in Phase 7 mapping.[VERIFIED: .planning/REQUIREMENTS.md]
+   - RESOLVED recommendation: Use `RtcPeerConnection`, `RtcDataChannel`, `RtcRtpTransceiver` as opaque handle typedef names and document the choice in Phase 7 mapping.[VERIFIED: .planning/REQUIREMENTS.md]
 
 ## Environment Availability
 

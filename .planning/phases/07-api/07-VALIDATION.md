@@ -42,8 +42,8 @@ created: 2026-05-15
 | 07-01-01 | 01 | 1 | API-01 | — | N/A | docs | `test -f docs/api-v1.1-boundary.md && rg -n 'public|private|test-only|include/micrortc|src/' docs/api-v1.1-boundary.md` | ❌ W0 | ⬜ pending |
 | 07-01-02 | 01 | 1 | API-02 | — | N/A | docs/scan | `test -f docs/api-v1.1-symbol-map.md && rg -n 'mrtc_|MRTC_|rtc_|Rtc|RTC_' docs/api-v1.1-symbol-map.md` | ❌ W0 | ⬜ pending |
 | 07-01-03 | 01 | 1 | API-04 | — | N/A | docs | `rg -n '不提供兼容|no compatibility|wrapper|删除' docs/api-v1.1-boundary.md docs/api-v1.1-symbol-map.md` | ❌ W0 | ⬜ pending |
-| 07-02-01 | 02 | 1 | STYLE-04 | T-07-01 | Residual findings include explicit category and source reason | script | `scripts/scan-api-residuals.sh --format json --output build/reports/api-residuals.json` | ❌ W0 | ⬜ pending |
-| 07-02-02 | 02 | 1 | STYLE-04 | T-07-02 | Local TURN secrets are not printed by residual scans | script | `scripts/scan-api-residuals.sh --format json --output build/reports/api-residuals.json && ! rg -n 'mrtc-ice-servers.local.json.*password|credential' build/reports/api-residuals.json` | ❌ W0 | ⬜ pending |
+| 07-02-01 | 02 | 2 | STYLE-04 | T-07-01 | Residual findings include explicit category and source reason | script | `scripts/scan-api-residuals.sh --format json --output build/reports/api-residuals.json` | ❌ W0 | ⬜ pending |
+| 07-02-02 | 02 | 2 | STYLE-04 | T-07-02 | Local TURN secrets are not printed by residual scans | script | `scripts/scan-api-residuals.sh --format json --output build/reports/api-residuals.json && ! rg -n 'mrtc-ice-servers.local.json.*password|credential' build/reports/api-residuals.json` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
