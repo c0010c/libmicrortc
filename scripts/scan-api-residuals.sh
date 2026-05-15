@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 FORMAT="json"
 OUTPUT_PATH="$ROOT_DIR/build/reports/api-residuals.json"
 SYMBOL_MAP_PATH=""
@@ -30,10 +30,29 @@ fail_usage() {
     exit 2
 }
 
-normalize_path() {
-    case "$1" in
-        /*) printf '%s\n' "$1" ;;
-        *) printf '%s/%s\n' "$ROOT_DIR" "$1" ;;
+normalize_repo_path() {
+    local target_var="$1"
+    local option_name="$2"
+    local input_path="$3"
+    local candidate_path
+    local resolved_path
+
+    case "$input_path" in
+        /*) candidate_path="$input_path" ;;
+        *) candidate_path="$ROOT_DIR/$input_path" ;;
+    esac
+
+    if ! resolved_path="$(realpath -m -- "$candidate_path" 2>/dev/null)"; then
+        fail_usage "$option_name path could not be normalized: $input_path"
+    fi
+
+    case "$resolved_path" in
+        "$ROOT_DIR"|"$ROOT_DIR"/*)
+            printf -v "$target_var" '%s' "$resolved_path"
+            ;;
+        *)
+            fail_usage "$option_name path must stay inside repo root: $input_path"
+            ;;
     esac
 }
 
@@ -50,20 +69,20 @@ while [ "$#" -gt 0 ]; do
             ;;
         --output)
             [ "$#" -ge 2 ] || fail_usage "--output requires a path"
-            OUTPUT_PATH="$(normalize_path "$2")"
+            normalize_repo_path OUTPUT_PATH "--output" "$2"
             shift 2
             ;;
         --output=*)
-            OUTPUT_PATH="$(normalize_path "${1#--output=}")"
+            normalize_repo_path OUTPUT_PATH "--output" "${1#--output=}"
             shift
             ;;
         --check-symbol-map)
             [ "$#" -ge 2 ] || fail_usage "--check-symbol-map requires a path"
-            SYMBOL_MAP_PATH="$(normalize_path "$2")"
+            normalize_repo_path SYMBOL_MAP_PATH "--check-symbol-map" "$2"
             shift 2
             ;;
         --check-symbol-map=*)
-            SYMBOL_MAP_PATH="$(normalize_path "${1#--check-symbol-map=}")"
+            normalize_repo_path SYMBOL_MAP_PATH "--check-symbol-map" "${1#--check-symbol-map=}"
             shift
             ;;
         --help|-h)
