@@ -14,7 +14,7 @@ v1.0 已面向 Linux x86_64 完成：Chrome 浏览器与 C 端 demo 可以建立
 **Phase archive:** `.planning/milestones/v1.0-phases/`
 **Acceptance entrypoint:** `scripts/verify-v1.sh`
 
-v1.0 已通过默认 host Chromium E2E 和显式 TURN relay E2E：
+v1.0 已通过默认 host Chromium E2E 和显式 TURN relay E2E。v1.1 Phase 7 已完成 API 边界冻结：`docs/api-v1.1-boundary.md` 固定 public/private/test-only 边界，`docs/api-v1.1-symbol-map.md` 固定当前 public symbol 旧名到新名映射，`scripts/scan-api-residuals.sh` 生成 Phase 8 改名前的 residual baseline。
 
 ```bash
 scripts/verify-v1.sh
@@ -52,10 +52,11 @@ scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 - [x] v1 媒体支持 H264 视频和 Opus 音频，并通过 C fixture harness 与 Chrome E2E 双层验证。
 - [x] v1 支持 Chrome host/local 连接、DataChannel、TURN relay 和双向 H264/Opus 媒体自动化验收。
 - [x] v1 提供 `scripts/verify-v1.sh` 作为总验收入口，并输出可区分 build、CTest、Chrome host、TURN 和媒体状态的 JSON summary。
+- [x] v1.1 Phase 7 已冻结 public/private/test-only API 边界、完整 public symbol 旧名到新名映射、旧 public names 删除策略和 residual scan 分类规则。
 
 ### Active
 
-- [ ] v1.1 公共 API 命名收敛为独立 libmicrortc 风格，并允许破坏式调整旧 AWS/KVS 风格入口。
+- [ ] v1.1 public headers 和核心 API 按 Phase 7 symbol map 迁移到 `rtc_*`、`Rtc*`、`RTC_*`，并移除旧 public names。
 - [ ] v1.1 代码命名和头文件暴露面按 `.clang-tidy` 约束收口，减少 AWS/KVS 产品语义残留。
 - [ ] v1.1 demo、测试、文档和迁移说明同步更新，证明新 API 可用且 v1.0 已验证能力不退化。
 
@@ -101,6 +102,9 @@ v1.0 已完成从基线、构建、API、传输、安全、DataChannel、媒体�
 | v1 覆盖 TURN relay | 不把互通能力限制在本机或局域网场景 | Validated in Phase 6 |
 | demo/验收尽可能自动化 | 用浏览器 E2E 证明真实媒体流动，而不只证明 API 或连接状态 | Validated in Phase 6 |
 | v1.1 允许破坏式 API 命名清理 | 用户明确选择以 API/代码风格清理为里程碑目标，优先形成独立 libmicrortc 风格而不是长期保留 AWS 风格兼容层 | Pending in v1.1 |
+| v1.1 public API 边界以 installed `include/micrortc/*.h` 和 `micrortc::micrortc` 为事实来源 | Phase 7 验证了 CMake install/export 边界、public/private/test-only 分类和 symbol map 覆盖 | Validated in Phase 7 |
+| v1.1 旧 `mrtc_*`、`MRTC_*`、AWS/KVS public names 默认删除且不提供 wrapper/alias | API-04 要求破坏式清理，不通过兼容层掩盖旧 public API | Validated in Phase 7 |
+| residual scan baseline 可在报告 `status: failed` 时返回 0 | Phase 7 发生在机械改名前，需要成功生成 forbidden public residual baseline 供 Phase 8 消费 | Validated in Phase 7 |
 
 ## Next Milestone Goals
 
@@ -124,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-15 after starting v1.1 milestone*
+*Last updated: 2026-05-15 after Phase 7 completion*

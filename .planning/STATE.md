@@ -51,7 +51,7 @@ Progress: [██████████] 100%
 | Milestone | Phases | Plans | Requirements | Status |
 |-----------|--------|-------|--------------|--------|
 | v1.0 libmicrortc v1 | 6/6 | 21/21 | 45/45 | Complete |
-| v1.1 API 清理 | 0/5 | 0/TBD | 0/22 | Ready to plan |
+| v1.1 API 清理 | 1/5 | 2/TBD | 4/22 | In Progress |
 | Phase 07-api P01 | 5min | 2 tasks | 3 files | Complete |
 | Phase 07-api P02 | 6min | 2 tasks | 2 files |
 
@@ -79,7 +79,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 7 must inventory actual public/private/test-only symbols before mechanical renaming starts.
+- Phase 8 should consume `docs/api-v1.1-symbol-map.md` and `scripts/scan-api-residuals.sh --check-symbol-map docs/api-v1.1-symbol-map.md --format json --output build/reports/api-residuals.json` as the public old-name baseline before mechanical renaming.
 - Phase 10 needs code-level judgment on E2E answerer private dependencies to avoid promoting private helpers into public API.
 - TURN relay verification in Phase 11 depends on local `mrtc-ice-servers.local.json` being present.
 

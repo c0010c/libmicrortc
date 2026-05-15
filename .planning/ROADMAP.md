@@ -1,7 +1,7 @@
 # Roadmap: libmicrortc
 
 **Created:** 2026-05-12
-**Last updated:** 2026-05-15 after v1.1 roadmap creation
+**Last updated:** 2026-05-15 after Phase 7 completion
 **Mode:** standard
 **Granularity:** standard
 
