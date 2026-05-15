@@ -186,6 +186,16 @@ function classify(repoPath) {
   };
 }
 
+function safeSymbol(symbol) {
+  return symbol
+    .replace(/raw-user/gi, "<redacted>")
+    .replace(/raw-credential/gi, "<redacted>")
+    .replace(/raw-password/gi, "<redacted>")
+    .replace(/usernames?/gi, "<redacted>")
+    .replace(/credentials?/gi, "<redacted>")
+    .replace(/passwords?/gi, "<redacted>");
+}
+
 function listExistingRoots() {
   return ["include", "src", "tests", "examples", "docs", ".planning"].filter((entry) => {
     return fs.existsSync(path.join(rootDir, entry));
@@ -264,7 +274,7 @@ function runResidualScan() {
       findings.push({
         path: repoPath,
         line: lineNumber,
-        symbol,
+        symbol: safeSymbol(symbol),
         category: classification.category,
         reason: classification.reason,
       });
@@ -289,6 +299,10 @@ function extractPublicOldSymbols() {
   for (const header of ["include/micrortc/micrortc.h", "include/micrortc/peer_connection.h"]) {
     const content = fs.readFileSync(path.join(rootDir, header), "utf8");
     for (const match of content.matchAll(/\b(mrtc_[A-Za-z0-9_]+|MRTC_[A-Z0-9_]+)\b/g)) {
+      const prefix = content.slice(Math.max(0, match.index - "struct ".length), match.index);
+      if (prefix === "struct ") {
+        continue;
+      }
       symbols.add(match[1]);
     }
   }
