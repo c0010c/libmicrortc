@@ -81,34 +81,34 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| API-01 | TBD | Pending |
-| API-02 | TBD | Pending |
-| API-03 | TBD | Pending |
-| API-04 | TBD | Pending |
-| HDR-01 | TBD | Pending |
-| HDR-02 | TBD | Pending |
-| HDR-03 | TBD | Pending |
-| HDR-04 | TBD | Pending |
-| CONS-01 | TBD | Pending |
-| CONS-02 | TBD | Pending |
-| CONS-03 | TBD | Pending |
-| STYLE-01 | TBD | Pending |
-| STYLE-02 | TBD | Pending |
-| STYLE-03 | TBD | Pending |
-| STYLE-04 | TBD | Pending |
-| DOC-01 | TBD | Pending |
-| DOC-02 | TBD | Pending |
-| DOC-03 | TBD | Pending |
-| VER-01 | TBD | Pending |
-| VER-02 | TBD | Pending |
-| VER-03 | TBD | Pending |
-| VER-04 | TBD | Pending |
+| API-01 | Phase 7 | Pending |
+| API-02 | Phase 7 | Pending |
+| API-03 | Phase 8 | Pending |
+| API-04 | Phase 7 | Pending |
+| HDR-01 | Phase 8 | Pending |
+| HDR-02 | Phase 8 | Pending |
+| HDR-03 | Phase 8 | Pending |
+| HDR-04 | Phase 8 | Pending |
+| CONS-01 | Phase 9 | Pending |
+| CONS-02 | Phase 9 | Pending |
+| CONS-03 | Phase 9 | Pending |
+| STYLE-01 | Phase 10 | Pending |
+| STYLE-02 | Phase 10 | Pending |
+| STYLE-03 | Phase 10 | Pending |
+| STYLE-04 | Phase 7 | Pending |
+| DOC-01 | Phase 11 | Pending |
+| DOC-02 | Phase 11 | Pending |
+| DOC-03 | Phase 11 | Pending |
+| VER-01 | Phase 11 | Pending |
+| VER-02 | Phase 11 | Pending |
+| VER-03 | Phase 11 | Pending |
+| VER-04 | Phase 11 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-15*
-*Last updated: 2026-05-15 after v1.1 requirement scoping*
+*Last updated: 2026-05-15 after v1.1 roadmap creation*

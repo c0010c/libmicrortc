@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: API 清理
-status: planning
-last_updated: "2026-05-15T07:08:38.393Z"
+status: ready_to_plan
+last_updated: "2026-05-15T17:23:30+08:00"
 last_activity: 2026-05-15
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,60 +20,69 @@ progress:
 **Granularity:** standard
 **Parallelization:** true
 
-## Current Position
-
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-15 — Milestone v1.1 started
-
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-14)
+See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Planning next milestone
-**Last activity:** 2026-05-14 - Archived v1.0 milestone and prepared workspace for next milestone.
+**Current focus:** Phase 7 - API 盘点与命名契约冻结
+**Last activity:** 2026-05-15 - Created v1.1 roadmap for API 清理.
 
-## Artifacts
+## Current Position
 
-| Artifact | Path | Status |
-|----------|------|--------|
-| Project context | `.planning/PROJECT.md` | Updated for v1.0 shipped state |
-| Workflow config | `.planning/config.json` | Active |
-| Roadmap | `.planning/ROADMAP.md` | Collapsed to milestone summary |
-| State | `.planning/STATE.md` | Active |
-| Milestone index | `.planning/MILESTONES.md` | Created |
-| v1.0 roadmap archive | `.planning/milestones/v1.0-ROADMAP.md` | Archived |
-| v1.0 requirements archive | `.planning/milestones/v1.0-REQUIREMENTS.md` | Archived |
-| v1.0 audit archive | `.planning/milestones/v1.0-MILESTONE-AUDIT.md` | Archived |
-| v1.0 phase archive | `.planning/milestones/v1.0-phases/` | Archived |
+Phase: 7 of 11 (v1.1 的 1/5) - API 盘点与命名契约冻结
+Plan: TBD
+Status: Ready to plan
+Last activity: 2026-05-15 - v1.1 roadmap created with 22/22 requirements mapped
 
-## Completed Milestone
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 21
+- Average duration: not tracked
+- Total execution time: not tracked
+
+**By Milestone:**
 
 | Milestone | Phases | Plans | Requirements | Status |
 |-----------|--------|-------|--------------|--------|
 | v1.0 libmicrortc v1 | 6/6 | 21/21 | 45/45 | Complete |
+| v1.1 API 清理 | 0/5 | 0/TBD | 0/22 | Ready to plan |
 
-## Decisions To Carry Forward
+## Accumulated Context
 
-- 以本地 `reflib/kvs-webrtc-sdk` 作为剥离基线。
-- v1 API 先从 AWS 公共头文件裁剪，后续可逐步改成更清爽的 libmicrortc 风格。
-- 核心库只处理编码后媒体帧，不做采集和编码。
-- 先沿用 AWS 线程和回调模型。
-- v1 已验证 Chrome、H264、Opus、DataChannel、TURN relay 和双向音视频。
-- demo/验收层可以自动化 signaling，但 signaling 不进入核心库。
-- E2E 浏览器互通是验收核心，不能只相信内部 connected 状态。
+### Decisions
 
-## Next Step
+Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecting current work:
 
-Run:
+- v1.1 public C API prefix is `rtc`, not `mrtc`.
+- Public functions use `rtc_*`; public types, typedefs, and enum types use `Rtc*`; macros and enum constants use `RTC_*`.
+- Old `mrtc_*`, `MRTC_*`, AWS/KVS style public API names are migration/removal targets, with no compatibility wrapper layer by default.
+- CMake package/target namespace remains `micrortc::micrortc` unless a future requirement changes it.
+- v1.1 scope is API naming cleanup, `.clang-tidy` style convergence, docs/provenance, and v1.0 regression gates only.
 
-```bash
-$gsd-new-milestone
-```
+### Pending Todos
 
-下一里程碑会重新创建 fresh `REQUIREMENTS.md` 和 `ROADMAP.md`。
+None yet.
 
----
-*Last updated: 2026-05-14 after v1.0 milestone archive*
+### Blockers/Concerns
+
+- Phase 7 must inventory actual public/private/test-only symbols before mechanical renaming starts.
+- Phase 10 needs code-level judgment on E2E answerer private dependencies to avoid promoting private helpers into public API.
+- TURN relay verification in Phase 11 depends on local `mrtc-ice-servers.local.json` being present.
+
+## Deferred Items
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| Browser expansion | Safari/Firefox interoperability | Deferred to future milestone | v1.1 scope |
+| Media adapters | GStreamer/FFmpeg/capture/encoding adapters | Deferred to future milestone | v1.1 scope |
+| API governance | API snapshot, Doxygen, ABI diff | Deferred until public API stabilizes further | v1.1 requirements |
+
+## Session Continuity
+
+Last session: 2026-05-15 17:23
+Stopped at: v1.1 roadmap created, ready to plan Phase 7
+Resume file: None
