@@ -22,7 +22,7 @@ v1.1 在 v1.0 已验证的 Chrome、DataChannel、TURN relay、H264/Opus 双向�
 - Decimal phases (7.1, 7.2): urgent insertions, if needed.
 - v1.0 completed Phases 1-6, so v1.1 starts at Phase 7.
 
-- [ ] **Phase 7: API 盘点与命名契约冻结** - 冻结 public/private/test-only 边界、旧名到新名映射、删除策略和残留扫描规则。
+- [x] **Phase 7: API 盘点与命名契约冻结** - 冻结 public/private/test-only 边界、旧名到新名映射、删除策略和残留扫描规则。
 - [ ] **Phase 8: Public Headers 与核心 API 改名** - 将 installed public headers 和核心签名切换到 `rtc_*`、`Rtc*`、`RTC_*`，并守住 private API 不泄漏。
 - [ ] **Phase 9: Package Consumer 与公开调用点迁移** - 让 installed package consumer、README、public tests 和 Chrome E2E answerer 全部使用新 API。
 - [ ] **Phase 10: 内部标识符与 Private Boundary 收敛** - 按 `.clang-tidy` 收敛内部命名，并让示例/E2E 不再把 private 字段或 private header 当作用户 API。
@@ -50,7 +50,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-02-PLAN.md — 创建分类 residual scan 脚本和 JSON 报告验证入口。
+- [x] 07-02-PLAN.md — 创建分类 residual scan 脚本和 JSON 报告验证入口。
 
 ### Phase 8: Public Headers 与核心 API 改名
 
@@ -180,7 +180,7 @@ Phases execute in numeric order: 7 -> 8 -> 9 -> 10 -> 11.
 | 4. 传输、安全与 DataChannel 协议核心 | v1.0 | 5/5 | Complete | 2026-05-14 |
 | 5. H264/Opus 媒体路径 | v1.0 | 5/5 | Complete | 2026-05-14 |
 | 6. Chrome 自动化 E2E 与测试收口 | v1.0 | 8/8 | Complete | 2026-05-14 |
-| 7. API 盘点与命名契约冻结 | v1.1 | 1/2 | In Progress | - |
+| 7. API 盘点与命名契约冻结 | v1.1 | 2/2 | Complete   | 2026-05-15 |
 | 8. Public Headers 与核心 API 改名 | v1.1 | 0/TBD | Not started | - |
 | 9. Package Consumer 与公开调用点迁移 | v1.1 | 0/TBD | Not started | - |
 | 10. 内部标识符与 Private Boundary 收敛 | v1.1 | 0/TBD | Not started | - |
