@@ -27,6 +27,17 @@ scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 
 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
 
+## Current Milestone: v1.1 API 清理
+
+**Goal:** 将 v1.0 继承自 AWS/KVS 风格的公共 API 和代码命名收敛为独立、统一、符合 `.clang-tidy` 的 libmicrortc 风格。
+
+**Target features:**
+- 破坏式清理公共 API：允许重命名类型、函数、枚举、宏、头文件暴露面，并同步更新 demo、测试和文档。
+- 代码风格以 `.clang-tidy` 为准：类型 `CamelCase`，函数/变量/参数/member `lower_case`，枚举常量和宏 `UPPER_CASE`。
+- 清理 AWS/KVS 命名残留：公共头、示例、测试和内部边界尽量摆脱 AWS 产品语义。
+- 保持 v1.0 已验证能力不退化：Chrome、DataChannel、TURN relay、H264/Opus 双向媒体、`scripts/verify-v1.sh` 仍作为验收核心。
+- 新增或更新迁移文档，让使用者知道旧 API 到新 API 的映射。
+
 ## Requirements
 
 ### Validated
@@ -44,7 +55,9 @@ scripts/verify-v1.sh --turn-config ./mrtc-ice-servers.local.json
 
 ### Active
 
-- [ ] 定义下一里程碑需求。候选方向包括 API 命名清理、Offerer 主路径、更多浏览器/平台、媒体适配层、依赖抽象、拥塞控制和发布包整理。
+- [ ] v1.1 公共 API 命名收敛为独立 libmicrortc 风格，并允许破坏式调整旧 AWS/KVS 风格入口。
+- [ ] v1.1 代码命名和头文件暴露面按 `.clang-tidy` 约束收口，减少 AWS/KVS 产品语义残留。
+- [ ] v1.1 demo、测试、文档和迁移说明同步更新，证明新 API 可用且 v1.0 已验证能力不退化。
 
 ### Out of Scope
 
@@ -71,6 +84,7 @@ v1.0 已完成从基线、构建、API、传输、安全、DataChannel、媒体�
 - **媒体边界:** 核心库只处理编码后媒体帧，不承担采集和编码职责。
 - **signaling 边界:** 应用层 signaling 不进入核心库。
 - **验收方式:** 浏览器 E2E 是互通能力的核心证据，不能只以编译通过或内部 connected 状态作为完成标准。
+- **代码风格:** v1.1 代码命名以仓库 `.clang-tidy` 为准；函数、变量、参数、成员使用 `lower_case`，类型使用 `CamelCase`，宏和枚举常量使用 `UPPER_CASE`。
 
 ## Key Decisions
 
@@ -86,10 +100,28 @@ v1.0 已完成从基线、构建、API、传输、安全、DataChannel、媒体�
 | v1 优先 H264 和 Opus | 面向实际浏览器互通和嵌入式媒体场景 | Validated in Phase 5-6 |
 | v1 覆盖 TURN relay | 不把互通能力限制在本机或局域网场景 | Validated in Phase 6 |
 | demo/验收尽可能自动化 | 用浏览器 E2E 证明真实媒体流动，而不只证明 API 或连接状态 | Validated in Phase 6 |
+| v1.1 允许破坏式 API 命名清理 | 用户明确选择以 API/代码风格清理为里程碑目标，优先形成独立 libmicrortc 风格而不是长期保留 AWS 风格兼容层 | Pending in v1.1 |
 
 ## Next Milestone Goals
 
-下一里程碑尚未定义。建议从 `$gsd-new-milestone` 开始，重新收集目标、约束和需求，再生成新的 `REQUIREMENTS.md` 与 `ROADMAP.md`。
+v1.1 聚焦 API 命名和代码风格清理：公共 API 可以破坏式改名，目标是摆脱 AWS/KVS 风格残留、统一 libmicrortc 命名，并让 demo、测试、文档和自动化验收全部跟随新 API。
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `$gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `$gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
 
 ---
-*Last updated: 2026-05-14 after v1.0 milestone*
+*Last updated: 2026-05-15 after starting v1.1 milestone*

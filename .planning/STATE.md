@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: libmicrortc v1
-current_phase: null
-status: awaiting_next_milestone
-last_updated: "2026-05-14T15:33:00+08:00"
-last_activity: 2026-05-14
+milestone: v1.1
+milestone_name: API 清理
+status: planning
+last_updated: "2026-05-15T07:08:38.393Z"
+last_activity: 2026-05-15
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 21
-  completed_plans: 21
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State: libmicrortc
@@ -23,7 +22,10 @@ progress:
 
 ## Current Position
 
-Milestone v1.0 已完成并归档。项目当前等待下一里程碑定义。
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-15 — Milestone v1.1 started
 
 ## Project Reference
 
