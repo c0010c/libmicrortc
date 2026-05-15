@@ -38,7 +38,10 @@ v1.1 在 v1.0 已验证的 Chrome、DataChannel、TURN relay、H264/Opus 双向�
   2. 开发者可以查到 `include/micrortc/*.h` public symbols 的完整旧名到新名映射，且新名使用 `rtc_*`、`Rtc*`、`RTC_*`。
   3. 开发者可以明确看到旧 `mrtc_*`、`MRTC_*`、AWS/KVS 风格 public API 默认删除，不提供兼容 wrapper 层。
   4. 维护者可以通过残留扫描结果区分禁止残留、来源合规记录和迁移文档白名单。
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — 冻结 API 边界文档和 public symbol 旧名到新名映射。
+- [ ] 07-02-PLAN.md — 创建分类 residual scan 脚本和 JSON 报告验证入口。
 
 ### Phase 8: Public Headers 与核心 API 改名
 **Goal**: 开发者可以只通过 installed `include/micrortc/*.h` 使用新的 v1.1 public API，且 public headers 不暴露 private 协议实现面。
