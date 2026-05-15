@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: API 清理
-status: verifying
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-05-15T11:15:46.879Z"
+status: ready_to_plan
+stopped_at: Phase 07 complete (2/2) — ready to discuss Phase 8
+last_updated: 2026-05-15T11:33:38.417Z
 last_activity: 2026-05-15
 progress:
   total_phases: 5
@@ -26,14 +26,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** 把 AWS KVS WebRTC C SDK 中可复用的 WebRTC 协议栈能力彻底剥离成一个独立、可构建、可验证、可逐步清理的 C 库。
-**Current focus:** Phase 07 — api
+**Current focus:** Phase 8 — public headers 与核心 api 改名
 **Last activity:** 2026-05-15
 
 ## Current Position
 
-Phase: 07 (api) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
+Phase: 8
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-05-15
 
 Progress: [██████████] 100%
@@ -42,7 +42,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 21
+- Total plans completed: 23
 - Average duration: not tracked
 - Total execution time: not tracked
 
