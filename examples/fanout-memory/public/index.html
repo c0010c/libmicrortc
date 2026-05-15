@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>libmicrortc Fanout Memory</title>
+    <style>
+      :root {
+        color: #17202a;
+        background: #f5f7fb;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      header, .toolbar, .metrics, .peer-grid, .report {
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+        padding: 16px 0;
+        border-top: 1px solid #d9e0ea;
+        border-bottom: 1px solid #d9e0ea;
+      }
+      label {
+        display: grid;
+        gap: 4px;
+        font-size: 13px;
+      }
+      input {
+        width: 96px;
+        padding: 8px;
+        border: 1px solid #b8c2d1;
+        border-radius: 4px;
+        background: white;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-bottom: 8px;
+      }
+      .check input {
+        width: auto;
+      }
+      button, a.button {
+        padding: 9px 12px;
+        border: 1px solid #1f6feb;
+        border-radius: 4px;
+        background: #1f6feb;
+        color: white;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      button.secondary, a.secondary {
+        border-color: #718096;
+        background: white;
+        color: #1f2937;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+      }
+      .metric {
+        background: white;
+        border: 1px solid #d9e0ea;
+        border-radius: 6px;
+        padding: 12px;
+      }
+      .metric span {
+        display: block;
+        color: #526070;
+        font-size: 12px;
+      }
+      .metric strong {
+        font-size: 22px;
+      }
+      canvas {
+        width: 100%;
+        height: 180px;
+        background: white;
+        border: 1px solid #d9e0ea;
+        border-radius: 6px;
+      }
+      .peer-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 14px;
+      }
+      .peer {
+        background: white;
+        border: 1px solid #d9e0ea;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .peer h2 {
+        margin: 0;
+        padding: 10px 12px;
+        font-size: 16px;
+        border-bottom: 1px solid #d9e0ea;
+      }
+      video {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #111827;
+      }
+      audio {
+        width: 100%;
+      }
+      .status {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+      .badge {
+        color: #526070;
+      }
+      .ok {
+        color: #067647;
+      }
+      .bad {
+        color: #b42318;
+      }
+      .events {
+        height: 160px;
+        overflow: auto;
+        padding: 0;
+        margin: 10px 0 0;
+        list-style: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      .events li {
+        padding: 4px 0;
+        border-bottom: 1px solid #e6ebf2;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>libmicrortc Fanout Memory</h1>
+        <div id="runner-status">等待连接</div>
+      </header>
+      <section class="toolbar">
+        <label>新增间隔秒数<input id="interval" type="number" min="1" max="60" value="5"></label>
+        <label>最多路数<input id="max-peers" type="number" min="1" max="32" value="3"></label>
+        <label class="check"><input id="data-channel" type="checkbox" disabled>DataChannel</label>
+        <button id="start">开始</button>
+        <button id="stop" class="secondary">停止并生成报告</button>
+        <a class="button secondary" href="/report.html" target="_blank">打开报告</a>
+      </section>
+      <section class="metrics">
+        <div class="metric"><span>Library Private_Dirty Δ</span><strong id="delta-private">0 KiB</strong></div>
+        <div class="metric"><span>Library Anonymous Δ</span><strong id="delta-anon">0 KiB</strong></div>
+        <div class="metric"><span>PSS</span><strong id="pss">0 KiB</strong></div>
+        <div class="metric"><span>RSS</span><strong id="rss">0 KiB</strong></div>
+        <div class="metric"><span>RssAnon</span><strong id="rss-anon">0 KiB</strong></div>
+        <div class="metric"><span>RssFile</span><strong id="rss-file">0 KiB</strong></div>
+        <div class="metric"><span>Threads / FDs</span><strong id="threads-fds">0 / 0</strong></div>
+      </section>
+      <canvas id="memory-chart" width="1200" height="180"></canvas>
+      <section id="peers" class="peer-grid"></section>
+      <section class="report">
+        <ul id="events" class="events"></ul>
+      </section>
+    </main>
+    <script src="./fanout-client.js"></script>
+  </body>
+</html>

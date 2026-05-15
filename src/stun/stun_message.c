@@ -6,6 +6,9 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #endif
+#ifdef MRTC_HAVE_MBEDTLS
+#include <mbedtls/md.h>
+#endif
 
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -115,6 +118,19 @@ static int mrtc_stun_hmac_sha1(const uint8_t *buffer,
                   digest,
                   &digest_len);
     return result != 0 && digest_len == 20u;
+#elif defined(MRTC_HAVE_MBEDTLS)
+    const mbedtls_md_info_t *info;
+    if (password == 0 || password[0] == '\0') {
+        return 0;
+    }
+    info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+    return info != 0 &&
+           mbedtls_md_hmac(info,
+                           (const unsigned char *) password,
+                           strlen(password),
+                           buffer,
+                           buffer_len,
+                           digest) == 0;
 #else
     (void) buffer;
     (void) buffer_len;
@@ -139,6 +155,13 @@ static int mrtc_stun_hmac_sha1_key(const uint8_t *buffer,
     }
     result = HMAC(EVP_sha1(), key, (int) key_len, buffer, buffer_len, digest, &digest_len);
     return result != 0 && digest_len == 20u;
+#elif defined(MRTC_HAVE_MBEDTLS)
+    const mbedtls_md_info_t *info;
+    if (key == 0 || key_len == 0u) {
+        return 0;
+    }
+    info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+    return info != 0 && mbedtls_md_hmac(info, key, key_len, buffer, buffer_len, digest) == 0;
 #else
     (void) buffer;
     (void) buffer_len;
@@ -641,6 +664,34 @@ MRTC_STATUS mrtc_stun_make_long_term_key(const char *username,
          EVP_DigestFinal_ex(ctx, key, &digest_len) == 1 &&
          digest_len == MRTC_STUN_LONG_TERM_KEY_LEN;
     EVP_MD_CTX_free(ctx);
+    return ok ? MRTC_STATUS_OK : MRTC_STATUS_INVALID_STATE;
+#elif defined(MRTC_HAVE_MBEDTLS)
+    mbedtls_md_context_t ctx;
+    const mbedtls_md_info_t *info;
+    unsigned char colon = ':';
+    int ok;
+
+    if (username == 0 || username[0] == '\0' ||
+        realm == 0 || realm[0] == '\0' ||
+        password == 0 || password[0] == '\0' ||
+        key == 0) {
+        return MRTC_STATUS_INVALID_ARG;
+    }
+
+    info = mbedtls_md_info_from_type(MBEDTLS_MD_MD5);
+    if (info == 0) {
+        return MRTC_STATUS_INVALID_STATE;
+    }
+    mbedtls_md_init(&ctx);
+    ok = mbedtls_md_setup(&ctx, info, 0) == 0 &&
+         mbedtls_md_starts(&ctx) == 0 &&
+         mbedtls_md_update(&ctx, (const unsigned char *) username, strlen(username)) == 0 &&
+         mbedtls_md_update(&ctx, &colon, 1u) == 0 &&
+         mbedtls_md_update(&ctx, (const unsigned char *) realm, strlen(realm)) == 0 &&
+         mbedtls_md_update(&ctx, &colon, 1u) == 0 &&
+         mbedtls_md_update(&ctx, (const unsigned char *) password, strlen(password)) == 0 &&
+         mbedtls_md_finish(&ctx, key) == 0;
+    mbedtls_md_free(&ctx);
     return ok ? MRTC_STATUS_OK : MRTC_STATUS_INVALID_STATE;
 #else
     (void) username;
